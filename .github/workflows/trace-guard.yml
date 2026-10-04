@@ -1,0 +1,23 @@
+name: trace-guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  trace-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trace-word scan
+        run: |
+          hits=$(grep -rnE "oldserver|上游参考|MUL-[0-9]|前版" . \
+            --exclude-dir=vendor --exclude-dir=node_modules --exclude-dir=.git \
+            --exclude="trace-guard.yml" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Upstream trace words detected (oldserver/shangyou-cankao/MUL ids/qianban)"
+            echo "$hits"
+            exit 1
+          fi
+          echo "trace-guard: clean"

@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS pack_ui_entry;
+DROP TABLE IF EXISTS ui_token;

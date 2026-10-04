@@ -1,0 +1,14 @@
+DROP TABLE work_item_source_context;
+DROP TABLE work_item_reaction;
+DROP TABLE work_item_child_event;
+DROP TABLE work_item_dependency;
+DROP TABLE work_item_subscriber;
+DROP TABLE work_item_view_preference;
+DROP TABLE work_item_view;
+DROP TABLE work_item_to_label;
+DROP TABLE label;
+DROP TABLE work_item_property_def;
+DROP TABLE work_item;
+DROP TABLE project_resource;
+DROP TABLE project;
+DROP TABLE work_item_status;

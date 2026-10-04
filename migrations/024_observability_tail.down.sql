@@ -1,0 +1,18 @@
+DROP TABLE IF EXISTS skill_to_label;
+DROP TABLE IF EXISTS agent_to_label;
+DROP INDEX IF EXISTS idx_autopilot_collaborator_user;
+DROP TABLE IF EXISTS autopilot_collaborator;
+DROP INDEX IF EXISTS idx_autopilot_rule_version_active;
+DROP TABLE IF EXISTS autopilot_rule_version;
+DROP INDEX IF EXISTS idx_client_usage_daily_workspace;
+DROP INDEX IF EXISTS idx_client_usage_daily_activity;
+DROP TABLE IF EXISTS client_usage_daily;
+DROP TRIGGER IF EXISTS trg_project_search_index_change ON project;
+DROP TRIGGER IF EXISTS trg_comment_update_search_index_change ON comment;
+DROP TRIGGER IF EXISTS trg_comment_search_index_change ON comment;
+DROP TRIGGER IF EXISTS trg_work_item_search_index_change ON work_item;
+DROP FUNCTION IF EXISTS record_search_index_change();
+DROP TABLE IF EXISTS search_index_prune_mark;
+DROP INDEX IF EXISTS idx_search_index_change_changed_at;
+DROP INDEX IF EXISTS idx_search_index_change_workspace_xid;
+DROP TABLE IF EXISTS search_index_change;

@@ -1,0 +1,274 @@
+table_owners:
+  identity:
+    - user
+    - workspace
+    - member
+    - workspace_invitation
+    - workspace_share_link
+    - personal_access_token
+    - ui_token
+    - verification_code
+    - pinned_item
+  work:
+    - work_item
+    - work_item_status
+    - work_item_property_def
+    - label
+    - work_item_to_label
+    - project
+    - project_resource
+    - work_item_view
+    - work_item_view_preference
+    - work_item_subscriber
+    - work_item_dependency
+    - work_item_child_event
+    - work_item_reaction
+    - activity_log
+    - work_item_source_context
+    - comment
+    - comment_reaction
+  orchestration:
+    - agent
+    - agent_credential
+    - agent_runtime
+    - agent_task_queue
+    - agent_invocation_target
+    - pack_ui_entry
+    - agent_mcp_server
+    - workspace_mcp_server
+    - task_message
+    - task_supplement
+    - task_usage
+    - task_usage_hourly
+    - task_usage_hourly_state
+    - squad
+    - squad_member
+    - agent_to_label
+    - agent_builder_draft
+    - work_item_batch
+    - work_item_batch_item
+    - agent_task_checkpoint
+    - agent_model_credential
+  conversation:
+    - chat_session
+    - chat_message
+    - chat_draft_restore
+    - chat_pinned_agent
+    - quick_action
+    - chat_cancel_pending
+  automation:
+    - work_item_wakeup
+    - work_item_wakeup_receipt
+    - autopilot
+    - autopilot_trigger
+    - autopilot_run
+    - autopilot_collaborator
+    - autopilot_subscriber
+    - autopilot_quota_period
+    - autopilot_quota_reservation
+    - autopilot_rule_version
+    - webhook_delivery
+    - system_wakeup_setting
+  channels:
+    - channel_installation
+    - channel_user_binding
+    - channel_binding_token
+    - channel_chat_session_binding
+    - channel_inbound_audit
+    - channel_inbound_message_dedup
+    - channel_outbound_message
+    - channel_outbound_card_message
+    - channel_reply_delivery
+    - channel_task_delivery
+    - channel_media_pending_object
+    - channel_chat_context_generation
+  notification:
+    - inbox_item
+    - notification
+    - notification_preference
+  skills:
+    - skill
+    - skill_file
+    - skill_to_label
+    - agent_skill
+  content:
+    - attachment
+    - source_context_object_intent
+  platform:
+    - event_outbox
+    - search_index_change
+    - search_index_prune_mark
+    - client_usage_daily
+  webhooks:
+    - webhook_subscription
+    - event_delivery
+
+rules:
+  - id: WEBHOOKS-EVENTS-QUERY-OUTBOX
+    domain: webhooks
+    source: internal/webhooks/adapters/pgrepo/repo.go
+    anchor: event_delivery
+    foreign_tables: [event_outbox]
+    func: (*pgrepo.Repo).ListEvents
+    reason: plugin design §2.3.4 / contract §2.4—GET /api/events query fallback reads event_outbox
+      directly (platform base table; post-publish row retention verified by the M1 spike);
+      domain→platform dependency direction is legal; this rule records the read boundary
+      explicitly (read-only keyset projection, no writes).
+
+  - id: CHECKPOINT-JANITOR-SESSION
+    domain: orchestration
+    source: internal/orchestration/adapters/pgrepo/queries/settlement.sql
+    anchor: agent_task_checkpoint
+    foreign_tables: [chat_session]
+    func: (*pgrepo.Repo).DeleteStaleSessionCheckpoints
+    reason: checkpoint janitor (internal archive 09 §11.4) session:* reclamation must atomically decide "still referenced by a session cursor"; the read side crosses into conversation-domain chat_session.session_ref.
+
+  - id: ORCH-USAGE-WORKITEM-EXISTS
+    domain: orchestration
+    source: internal/orchestration/adapters/pgrepo/repo.go
+    anchor: agent_task_queue
+    foreign_tables: [work_item]
+    func: (*pgrepo.Repo).WorkItemUsage
+    reason: internal archive 04 §2.3 GET /work-items/{id}/usage orchestration-side read face
+      (task_usage/agent_task_queue belong to orchestration; precedent — batches paths also hang
+      under /work-items). The work item existence predicate queries work_item directly
+      (read-only EXISTS; same read-side cross-domain precedent as AUTOMATION-DISPATCH-LOCK-TASK).
+      Registration note — the statement predates this rule; rules backfilled with the work-domain
+      missing-routes batch (this PR only registers, no statement change).
+
+  - id: ORCH-TASKS-WORKSPACE-LIST
+    domain: orchestration
+    source: internal/orchestration/adapters/pgrepo/repo.go
+    anchor: agent_task_queue
+    foreign_tables: [work_item]
+    func: (*pgrepo.Repo).ListWorkspaceTasks
+    reason: B4 GET /tasks workspace task stream (run logs page) — LEFT JOIN work_item fetches only
+      title as a display field (direct-chat tasks without a work item → empty string), no
+      predicates/no writes; joining agent for its name stays in-domain. Precedent follows
+      ORCH-USAGE-WORKITEM-EXISTS read-side display joins.
+
+  - id: RECOVERY-DELEGATED-SCAN
+    domain: orchestration
+    source: internal/orchestration/adapters/pgrepo/queries/settlement.sql
+    anchor: agent_task_queue
+    foreign_tables: [comment]
+    func: (*pgrepo.Repo).ListUnsettledDelegatedFailures
+    reason: delegated-failure recovery candidate scan (internal archive 05 §2.11, 03 §4.3) — read side
+      deciding whether comments in failed tasks' delivered_comment_ids have recovery_settled_at
+      unsettled; the write-side settlement statement must be registered separately once implemented.
+
+  - id: WORK-NUMBERING-COUNTER
+    domain: work
+    source: internal/work/adapters/pgrepo/repo.go
+    anchor: work_item
+    foreign_tables: [workspace]
+    func: (*pgrepo.Repo).CreateWorkItem
+    reason: numbering allocation (internal archive 03 §4.5 verbatim — workspace row-lock serialization
+      +1, same transaction as the work_item INSERT). Anchor table workspace belongs to identity;
+      the statement lands in work within the work item creation transaction—explicitly exempted.
+
+  - id: WORK-USAGE-VIEW
+    domain: work
+    source: internal/work/adapters/pgrepo/repo.go
+    anchor: work_item
+    foreign_tables: [task_usage, agent_task_queue]
+    func: (*pgrepo.Repo).ListWorkItemUsage
+    reason: transitional registration—internal archive 04 §2.3 GET /work-items/{id}/usage reads two
+      orchestration tables directly for usage aggregation. [Should reroute via a port — orchestration
+      could supply a usage read port (internal archive 02 §5.3 pattern); delete this entry after rerouting]
+
+  - id: WORK-RESOURCE-LABEL-MOUNT
+    domain: work
+    source: internal/work/adapters/pgrepo/labels_mount.go
+    anchor: label
+    foreign_tables: [agent, agent_to_label, skill, skill_to_label]
+    func: (*pgrepo.Repo).AttachAgentLabel / AttachSkillLabel etc
+    reason: label mounting on three resource kinds (internal archive 05 §2.3 — tasks/agents/skills).
+      Label definitions live in the work domain (05/06); mounting semantics (attach/detach/list)
+      follow the definition into the work service; agent_to_label/skill_to_label tables belong to
+      orchestration/skills (internal archive 03 §2). Decided via repo SQL rather than port
+      injection — mount writes must be atomic with the agent/skill existence predicate in one
+      statement (single INSERT..SELECT, preventing check-then-delete races leaving orphan rows); the HTTP
+      endpoint face lives in orchestration/skills domains, injecting this service via functions.
+
+  - id: WORK-SEARCH-INDEX-LEDGER
+    domain: work
+    source: internal/work/adapters/pgrepo/observability.go
+    anchor: work_item
+    foreign_tables: [search_index_change, search_index_prune_mark]
+    func: (*pgrepo.Repo).SearchIndexSweepOrphans / PruneSearchIndexChanges / SearchIndexPruneMark
+    reason: internal archive 06 assigns the search_index catch-up and prune_mark maintenance workers
+      to the work domain; the two tables belong to platform (internal archive 03 §2 observability),
+      and the platform layer holds zero business knowledge and no business SQL (internal archive
+      02 §4)—ledger maintenance statements land in work pgrepo with the workers. The ledger is
+      written by migration 024 triggers on the write path; this domain's statements only sweep
+      (delete) and maintain the watermark, adding no write paths.
+
+  - id: WORK-CLIENT-USAGE
+    domain: work
+    source: internal/work/adapters/pgrepo/observability.go
+    anchor: client_usage_daily
+    foreign_tables: [client_usage_daily]
+    func: (*pgrepo.Repo).ClientUsageUpsert
+    reason: POST /client-usage (internal archive 04 §2.8 misc section, human-exclusive). The table
+      belongs to platform (internal archive 03 §2 observability); the endpoint's carrying ruling
+      sits in the work domain (internal archive 04 §2.8 misc has no standalone domain, and
+      notification/content duties exclude the misc face)—the upsert statement lands in work pgrepo
+      with the endpoint. Only INSERT..ON CONFLICT upsert, no cross-table reads.
+
+  - id: AUTOMATION-DISPATCH-LOCK-TASK
+    domain: automation
+    source: internal/automation/adapters/pgrepo/repo.go
+    anchor: work_item_wakeup
+    foreign_tables: [work_item]
+    func: (*pgrepo.Repo).LockTaskOwner
+    reason: internal archive 05 §8 fixes the dispatch transaction lock order as "owner fence lock →
+      lock task → lock wakeup"—step 2 must take FOR UPDATE on the work_item row in the same order
+      as the work-domain write path to prevent deadlocks (B3③). [Should reroute via a port — after
+      the work domain supplies a LockWorkItem(ctx, id) port (internal archive 02 §5.3 pattern);
+      delete this entry after rerouting]
+
+  - id: AUTOMATION-WAKEUP-LOOP-CHAIN
+    domain: automation
+    source: internal/automation/adapters/pgrepo/repo.go
+    anchor: work_item_wakeup
+    foreign_tables: [agent_task_queue]
+    func: (*pgrepo.Repo).LatestWakeupChain
+    reason: internal archive 05 §8 "rate limiting and fusing — loop protection" (M7 disposition
+      ledger 7.3)—fireOne must read the most recent same-(work_item,agent) task's
+      context.wakeup_chain to detect self-loops while assembling input; the authoritative carrier
+      of task context lives in orchestration (agent_task_queue), and the rule itself has no column
+      to derive the parent chain. [Should reroute via a port — after orchestration supplies a task
+      chain read port (internal archive 02 §5.3 pattern); delete this entry after rerouting]
+
+  - id: CONV-PINNED-AGENT-ENRICH
+    domain: conversation
+    source: internal/conversation/adapters/pgrepo/repo.go
+    anchor: chat_pinned_agent
+    foreign_tables: [agent]
+    func: (*pgrepo.Repo).ListPinnedAgents
+    reason: transitional registration—pinned list JOINs agent for the name (sidebar rendering).
+      [Should reroute via a port — orchestration supplies an agent name-list read port, or
+      chat_pinned_agent snapshots a redundant name; delete this entry after rerouting]
+
+  - id: SKILLS-AGENT-SCOPE
+    domain: skills
+    source: internal/skills/adapters/pgrepo/repo.go
+    anchor: agent_skill
+    foreign_tables: [agent]
+    func: (*pgrepo.Repo).ListAgentSkills
+    reason: transitional registration—agent skill list JOINs agent only for workspace ownership
+      validation (ag.workspace_id=$1). [Should reroute via a port — ownership validation via an
+      orchestration port, or add a redundant workspace column to agent_skill; delete this entry
+      after rerouting]
+  - id: SKILLS-AGENT-REVERSE-LOOKUP
+    domain: skills
+    source: internal/skills/adapters/pgrepo/repo.go
+    anchor: agent_skill
+    foreign_tables: [agent]
+    func: (*pgrepo.Repo).ListSkillAgents
+    reason: B3 GET /skills/{id}/agents skill reverse lookup — the binding view JOINs agent for the name
+      and applies the workspace fence (ag.workspace_id=$1, same pattern and transitional semantics
+      as SKILLS-AGENT-SCOPE).
+
+exemptions: []

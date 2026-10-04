@@ -1,0 +1,9 @@
+uploads/
+*.local
+.env*
+web/node_modules/
+web/dist/
+web/.vite/
+*.exe
+*.test
+nohup.out
