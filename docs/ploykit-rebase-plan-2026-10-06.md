@@ -187,6 +187,7 @@ orkome（本仓库，产品）
 - P2-8 ✅（v3 已取消换框架动作）：六个 contract 包全本地
 - **接受的行为差异**：框架 egressx 对无法解析的 https 域名 fail-closed（本地旧版尽力放行、连接期才失败）——MCP 快照分类从 `connect_failed` 变为 `ssrf_rejected`，终态一致（工具不可用），两个测试已按新语义重写（ADR 0002 血统的安全强化）
 - 验证：`go build` / `go vet` / `go test ./...` 全绿（55 包）；`go mod tidy` 后 ploykit 转直接依赖（go.mod 第一 require 块）
+- 迁移冒烟（docker orkome-pg）：老库 39 条状态记录被新执行器正确识别（幂等）；全新库 39 条全量应用成功；起服 healthz=200/readyz=ready（14 worker 健康）。注意：本机 8080 落在 Windows 保留端口段（bind 被拒），冒烟用 `PORT=18180`
 
 - [ ] P2-1 逐包替换 import（**11 包 + metrics**，v2：eventbus/outboxx/schedx/flagsx 按 D7 保留本地）：全仓 grep `orkome/internal/platform/` → `github.com/haozing/ploykit/platform/`；删除对应本地包（**wsx/relayx/webx 及 D7 四包除外**，临时保留并标注 `// DEPRECATED: Phase 5（webx: Phase 3；D7 四包：长期保留）`。webx 延后原因：其 Authenticate 是 orkome JWT 实现，框架版依赖框架会话表，P3-1 才建，提前切换认证即断）
 - [ ] P2-2 `cmd/orkome-server/workers.go` 换框架 `platform/workers`（同形状：Add/AddFunc/Start/Drain/AllHealthy；`/readyz` 联动核对）
