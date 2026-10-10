@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 	"orkome/internal/webhooks/app"
@@ -50,24 +48,21 @@ type Deps struct {
 
 type deps = Deps
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	if d.Service == nil {
 		return
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Post("/webhook-subscriptions", d.handleCreate)
-		r.Get("/webhook-subscriptions", d.handleList)
-		r.Route("/webhook-subscriptions/{subscriptionId}", func(r chi.Router) {
-			r.Delete("/", d.handleRevoke)
-			r.Post("/test", d.handleTest)
-			r.Get("/deliveries", d.handleDeliveries)
-			r.Post("/deliveries/{deliveryId}/replay", d.handleReplay)
-		})
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
+	}
+	reg("POST /api/webhook-subscriptions", d.handleCreate)
+	reg("GET /api/webhook-subscriptions", d.handleList)
+	reg("DELETE /api/webhook-subscriptions/{subscriptionId}", d.handleRevoke)
+	reg("POST /api/webhook-subscriptions/{subscriptionId}/test", d.handleTest)
+	reg("GET /api/webhook-subscriptions/{subscriptionId}/deliveries", d.handleDeliveries)
+	reg("POST /api/webhook-subscriptions/{subscriptionId}/deliveries/{deliveryId}/replay", d.handleReplay)
 
-		r.Get("/events", d.handleEvents)
-	})
+	reg("GET /api/events", d.handleEvents)
 }
 
 func (d deps) memberMW(next http.Handler) http.Handler {
@@ -145,7 +140,7 @@ func (d deps) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	if !d.requireAdmin(w, r) {
 		return
 	}
-	if err := d.Service.Revoke(r.Context(), d.ws(r), chi.URLParam(r, "subscriptionId")); err != nil {
+	if err := d.Service.Revoke(r.Context(), d.ws(r), r.PathValue("subscriptionId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -156,7 +151,7 @@ func (d deps) handleTest(w http.ResponseWriter, r *http.Request) {
 	if !d.requireAdmin(w, r) {
 		return
 	}
-	if err := d.Service.Test(r.Context(), d.ws(r), chi.URLParam(r, "subscriptionId")); err != nil {
+	if err := d.Service.Test(r.Context(), d.ws(r), r.PathValue("subscriptionId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -165,7 +160,7 @@ func (d deps) handleTest(w http.ResponseWriter, r *http.Request) {
 
 func (d deps) handleDeliveries(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	items, err := d.Service.Deliveries(r.Context(), d.ws(r), chi.URLParam(r, "subscriptionId"),
+	items, err := d.Service.Deliveries(r.Context(), d.ws(r), r.PathValue("subscriptionId"),
 		r.URL.Query().Get("status"), limit)
 	if err != nil {
 		writeErr(w, err)
@@ -181,7 +176,7 @@ func (d deps) handleReplay(w http.ResponseWriter, r *http.Request) {
 	if !d.requireAdmin(w, r) {
 		return
 	}
-	if err := d.Service.Replay(r.Context(), d.ws(r), chi.URLParam(r, "subscriptionId"), chi.URLParam(r, "deliveryId")); err != nil {
+	if err := d.Service.Replay(r.Context(), d.ws(r), r.PathValue("subscriptionId"), r.PathValue("deliveryId")); err != nil {
 		writeErr(w, err)
 		return
 	}

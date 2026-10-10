@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
 	"orkome/internal/automation/app"
@@ -176,7 +175,7 @@ func newTestDeps(fr *fakeRepo) Deps {
 		}}
 }
 
-func doJSON(r chi.Router, method, target, ws string, body string) *httptest.ResponseRecorder {
+func doJSON(r *http.ServeMux, method, target, ws string, body string) *httptest.ResponseRecorder {
 	var rd *bytes.Reader
 	if body == "" {
 		rd = bytes.NewReader(nil)
@@ -192,8 +191,8 @@ func doJSON(r chi.Router, method, target, ws string, body string) *httptest.Resp
 	return w
 }
 
-func mountedDeps(d Deps) chi.Router {
-	r := chi.NewRouter()
+func mountedDeps(d Deps) *http.ServeMux {
+	r := http.NewServeMux()
 	Mount(r, d, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p := &webx.Principal{UserID: "user-1", Source: webx.SourceSession}
@@ -204,9 +203,9 @@ func mountedDeps(d Deps) chi.Router {
 }
 
 func TestMountRequiresAuth(t *testing.T) {
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, newTestDeps(&fakeRepo{ws: "ws-1"}), func(next http.Handler) http.Handler { return next })
-	w := doJSON(r, http.MethodGet, "/autopilots/ap-1/runs", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/autopilots/ap-1/runs", "ws-1", "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	require.Contains(t, w.Body.String(), "E_UNAUTHENTICATED")
 }
@@ -215,13 +214,13 @@ func TestPutSigningSecret_Handler(t *testing.T) {
 	fr := &fakeRepo{ws: "ws-1", apID: "ap-1", trigID: "trig-1"}
 	r := mountedDeps(newTestDeps(fr))
 
-	w := doJSON(r, http.MethodPut, "/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-1",
+	w := doJSON(r, http.MethodPut, "/api/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-1",
 		`{"secret":"short"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "E_VALIDATION")
 
 	secret := strings.Repeat("s", 48)
-	w = doJSON(r, http.MethodPut, "/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-1",
+	w = doJSON(r, http.MethodPut, "/api/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-1",
 		fmt.Sprintf(`{"secret":%q}`, secret))
 	require.Equal(t, http.StatusOK, w.Code)
 	var cred app.TriggerCredential
@@ -230,7 +229,7 @@ func TestPutSigningSecret_Handler(t *testing.T) {
 	require.True(t, cred.HasSigningSecret)
 	require.Equal(t, secret, fr.secret, "plaintext must actually be persisted (masked only in responses)")
 
-	w = doJSON(r, http.MethodPut, "/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-2",
+	w = doJSON(r, http.MethodPut, "/api/autopilots/ap-1/triggers/trig-1/signing-secret", "ws-2",
 		fmt.Sprintf(`{"secret":%q}`, secret))
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, w.Body.String(), "E_NOT_FOUND")
@@ -240,7 +239,7 @@ func TestRotateWebhookToken_Handler(t *testing.T) {
 	fr := &fakeRepo{ws: "ws-1", apID: "ap-1", trigID: "trig-1", token: "old"}
 	r := mountedDeps(newTestDeps(fr))
 
-	w := doJSON(r, http.MethodPost, "/autopilots/ap-1/triggers/trig-1/rotate-webhook-token", "ws-1", "")
+	w := doJSON(r, http.MethodPost, "/api/autopilots/ap-1/triggers/trig-1/rotate-webhook-token", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var cred app.TriggerCredential
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &cred))
@@ -248,7 +247,7 @@ func TestRotateWebhookToken_Handler(t *testing.T) {
 	require.NotEqual(t, "old", cred.WebhookToken)
 	require.Equal(t, cred.WebhookToken, fr.token)
 
-	w = doJSON(r, http.MethodPost, "/autopilots/ap-1/triggers/trig-1/rotate-webhook-token", "ws-2", "")
+	w = doJSON(r, http.MethodPost, "/api/autopilots/ap-1/triggers/trig-1/rotate-webhook-token", "ws-2", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -257,7 +256,7 @@ func TestTriggerAutopilot_QuotaExceeded_ReturnsSkippedRun(t *testing.T) {
 	fr.quotaErr = fmt.Errorf("quota window: %w", domain.ErrQuotaExceeded)
 	r := mountedDeps(newTestDeps(fr))
 
-	w := doJSON(r, http.MethodPost, "/autopilots/ap-1/trigger", "ws-1", "")
+	w := doJSON(r, http.MethodPost, "/api/autopilots/ap-1/trigger", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code, "quota_exceeded is an admission state, not an error")
 	var run app.Run
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &run))
@@ -271,7 +270,7 @@ func TestMountPublic_RateLimitPrecedesLookup(t *testing.T) {
 	d.PublicRL = NewWebhookRateLimiter(nil, RateLimitConfig{
 		Global: unlimited(), PerIP: LayerLimit{Limit: 1, Window: time.Minute}, AbsIP: unlimited(),
 	}, nil)
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	MountPublic(r, d)
 
 	w1 := doJSON(r, http.MethodPost, "/webhooks/autopilots/whatever", "", `{"x":1}`)
@@ -501,35 +500,35 @@ func TestWakeupTailEndpoints(t *testing.T) {
 		AgentID: "ag-1", Kind: domain.WakeupTime, Enabled: true, Instruction: "check it", Revision: 1}
 	r := mountedDeps(newTailDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/work-items/wi-1/wakeups/wk-1", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/work-items/wi-1/wakeups/wk-1", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "wk-1")
-	w = doJSON(r, http.MethodGet, "/work-items/wi-9/wakeups/wk-1", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/work-items/wi-9/wakeups/wk-1", "ws-1", "")
 	require.Equal(t, http.StatusNotFound, w.Code, "path work item not matching the rule = invisible")
 
-	w = doJSON(r, http.MethodPut, "/work-items/wi-1/wakeups/wk-1/instruction", "ws-1", `{"instruction":"new instruction"}`)
+	w = doJSON(r, http.MethodPut, "/api/work-items/wi-1/wakeups/wk-1/instruction", "ws-1", `{"instruction":"new instruction"}`)
 	require.Equal(t, http.StatusNoContent, w.Code)
 	require.Equal(t, "new instruction", fr.instr)
-	w = doJSON(r, http.MethodPut, "/work-items/wi-1/wakeups/wk-1/instruction", "ws-1", `{"instruction":""}`)
+	w = doJSON(r, http.MethodPut, "/api/work-items/wi-1/wakeups/wk-1/instruction", "ws-1", `{"instruction":""}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/wakeups/wk-1/checkin", "ws-1", `{"task_id":"tk-1","note":"checked, all clear"}`)
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups/wk-1/checkin", "ws-1", `{"task_id":"tk-1","note":"checked, all clear"}`)
 	require.Equal(t, http.StatusNoContent, w.Code)
 	require.Equal(t, 1, fr.receipts)
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/wakeups/wk-1/checkin", "ws-1",
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups/wk-1/checkin", "ws-1",
 		fmt.Sprintf(`{"task_id":"tk-1","note":"%s"}`, strings.Repeat("x", 501)))
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/wakeups/wk-1/trigger", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups/wk-1/trigger", "ws-1", "")
 	require.Equal(t, http.StatusNoContent, w.Code)
 
-	w = doJSON(r, http.MethodGet, "/work-items/wi-1/wakeups/wk-1/tasks", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/work-items/wi-1/wakeups/wk-1/tasks", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "[]", strings.TrimSpace(w.Body.String()))
 
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/wakeups/wk-1/disable", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups/wk-1/disable", "ws-1", "")
 	require.Equal(t, http.StatusNoContent, w.Code)
-	w = doJSON(r, http.MethodDelete, "/work-items/wi-1/wakeups/wk-1", "ws-1", "")
+	w = doJSON(r, http.MethodDelete, "/api/work-items/wi-1/wakeups/wk-1", "ws-1", "")
 	require.Equal(t, http.StatusNoContent, w.Code)
 	require.True(t, fr.deleted)
 }
@@ -538,12 +537,12 @@ func TestWorkspaceWakeupViews(t *testing.T) {
 	fr := newWakeupRepoFake()
 	r := mountedDeps(newTailDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/work-item-wakeups", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/work-item-wakeups", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
-	w = doJSON(r, http.MethodGet, "/work-item-wakeup-paused", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/work-item-wakeup-paused", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "burst")
-	w = doJSON(r, http.MethodGet, "/work-item-wakeup-summaries", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/work-item-wakeup-summaries", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"total":2`)
 }
@@ -552,31 +551,31 @@ func TestSystemWakeupEndpoints(t *testing.T) {
 	fr := newWakeupRepoFake()
 	r := mountedDeps(newTailDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/system-wakeups", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/system-wakeups", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"enabled":true`)
 
-	w = doJSON(r, http.MethodPut, "/system-wakeups", "ws-1", `{"enabled":false,"instruction":"turn it off"}`)
+	w = doJSON(r, http.MethodPut, "/api/system-wakeups", "ws-1", `{"enabled":false,"instruction":"turn it off"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.False(t, fr.sysDefault.Enabled)
 	require.Equal(t, "turn it off", fr.sysDefault.Instruction)
 
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/system-wakeups", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/system-wakeups", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "children_done")
-	w = doJSON(r, http.MethodPost, "/work-items/wi-1/system-wakeups", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/work-items/wi-1/system-wakeups", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, fr.sysRules, 1, "idempotent: no duplicate creation")
 
-	w = doJSON(r, http.MethodGet, "/work-items/wi-1/system-wakeups", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/work-items/wi-1/system-wakeups", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var rules []app.Wakeup
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rules))
 	require.Len(t, rules, 1)
-	w = doJSON(r, http.MethodPut, "/system-wakeups/"+rules[0].ID, "ws-1", `{"instruction":"single instruction"}`)
+	w = doJSON(r, http.MethodPut, "/api/system-wakeups/"+rules[0].ID, "ws-1", `{"instruction":"single instruction"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "single instruction")
-	w = doJSON(r, http.MethodPut, "/system-wakeups/nope", "ws-1", `{"instruction":"x"}`)
+	w = doJSON(r, http.MethodPut, "/api/system-wakeups/nope", "ws-1", `{"instruction":"x"}`)
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -584,14 +583,14 @@ func TestCronPreviewEndpoint(t *testing.T) {
 	fr := newWakeupRepoFake()
 	r := mountedDeps(newTailDeps(fr))
 
-	w := doJSON(r, http.MethodPost, "/autopilots/cron-preview", "ws-1",
+	w := doJSON(r, http.MethodPost, "/api/autopilots/cron-preview", "ws-1",
 		`{"cron_expression":"0 9 * * *","timezone":"Asia/Shanghai","count":2}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "next_runs")
 
 	require.Regexp(t, `\d{4}-\d{2}-\d{2}T09:00:00\+08:00`, w.Body.String())
 
-	w = doJSON(r, http.MethodPost, "/autopilots/cron-preview", "ws-1", `{"cron_expression":"bad"}`)
+	w = doJSON(r, http.MethodPost, "/api/autopilots/cron-preview", "ws-1", `{"cron_expression":"bad"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -600,14 +599,14 @@ func TestDeliveryReplayEndpoint(t *testing.T) {
 	fr.deliveries["dlv-1"] = app.Delivery{ID: "dlv-1", WorkspaceID: "ws-1", Status: "failed"}
 	r := mountedDeps(newTailDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/deliveries", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/deliveries", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
-	w = doJSON(r, http.MethodGet, "/deliveries/dlv-1", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/deliveries/dlv-1", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
-	w = doJSON(r, http.MethodPost, "/deliveries/dlv-1/replay", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/deliveries/dlv-1/replay", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "queued")
-	w = doJSON(r, http.MethodPost, "/deliveries/dlv-x/replay", "ws-1", "")
+	w = doJSON(r, http.MethodPost, "/api/deliveries/dlv-x/replay", "ws-1", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -727,20 +726,20 @@ func TestAutopilotListEndpoint(t *testing.T) {
 	fr.autopilots["ap-x"] = app.Autopilot{ID: "ap-x", WorkspaceID: "ws-2", Name: "other region", ExecMode: "task_only"}
 	r := mountedDeps(newAPDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/autopilots", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/autopilots", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var list []app.Autopilot
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
 	require.Len(t, list, 2, "only replies from the current workspace (others invisible)")
 	require.Equal(t, 100, fr.lastListLimit, "no limit parameter defaults to 100")
 
-	w = doJSON(r, http.MethodGet, "/autopilots?limit=1", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/autopilots?limit=1", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
 	require.Len(t, list, 1)
 	require.Equal(t, 1, fr.lastListLimit)
 
-	w = doJSON(r, http.MethodGet, "/autopilots", "ws-3", "")
+	w = doJSON(r, http.MethodGet, "/api/autopilots", "ws-3", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "[]", strings.TrimSpace(w.Body.String()))
 }
@@ -750,18 +749,18 @@ func TestAutopilotGetEndpoint(t *testing.T) {
 	fr.autopilots["ap-1"] = app.Autopilot{ID: "ap-1", WorkspaceID: "ws-1", Name: "inspection", ExecMode: "task_only"}
 	r := mountedDeps(newAPDeps(fr))
 
-	w := doJSON(r, http.MethodGet, "/autopilots/ap-1", "ws-1", "")
+	w := doJSON(r, http.MethodGet, "/api/autopilots/ap-1", "ws-1", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var got app.Autopilot
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Equal(t, "ap-1", got.ID)
 	require.Equal(t, "task_only", got.ExecMode)
 
-	w = doJSON(r, http.MethodGet, "/autopilots/ap-none", "ws-1", "")
+	w = doJSON(r, http.MethodGet, "/api/autopilots/ap-none", "ws-1", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, w.Body.String(), "E_NOT_FOUND")
 
-	w = doJSON(r, http.MethodGet, "/autopilots/ap-1", "ws-2", "")
+	w = doJSON(r, http.MethodGet, "/api/autopilots/ap-1", "ws-2", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, w.Body.String(), "E_NOT_FOUND")
 }
@@ -775,7 +774,7 @@ func TestAutopilotPatchEndpoint(t *testing.T) {
 	r := mountedDeps(newAPDeps(fr))
 	var got app.Autopilot
 
-	w := doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1", `{"name":"new name"}`)
+	w := doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1", `{"name":"new name"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Equal(t, "new name", got.Name)
@@ -786,7 +785,7 @@ func TestAutopilotPatchEndpoint(t *testing.T) {
 	require.Equal(t, 5, got.DailyLimit)
 
 	got = app.Autopilot{}
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1",
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1",
 		`{"exec_mode":"task_only","template":{"work_item_id":"wi-9"},"target_agent_id":"","enabled":false}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
@@ -798,25 +797,25 @@ func TestAutopilotPatchEndpoint(t *testing.T) {
 	require.True(t, fr.triggers["trig-1"].Enabled)
 
 	got = app.Autopilot{}
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1", `{"template":{}}`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1", `{"template":{}}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Empty(t, got.Template)
 
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1", `{"exec_mode":"run_only"}`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1", `{"exec_mode":"run_only"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "E_VALIDATION")
 
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1", `{"name":"   "}`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1", `{"name":"   "}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "E_VALIDATION")
 
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-1", `{bad`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-1", `{bad`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-none", "ws-1", `{"name":"x"}`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-none", "ws-1", `{"name":"x"}`)
 	require.Equal(t, http.StatusNotFound, w.Code)
-	w = doJSON(r, http.MethodPatch, "/autopilots/ap-1", "ws-2", `{"name":"x"}`)
+	w = doJSON(r, http.MethodPatch, "/api/autopilots/ap-1", "ws-2", `{"name":"x"}`)
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -829,7 +828,7 @@ func TestAutopilotDeleteEndpoint(t *testing.T) {
 	fr.runs = []app.Run{{ID: "run-1", AutopilotID: "ap-1", Status: domain.RunCompleted}}
 	r := mountedDeps(newAPDeps(fr))
 
-	w := doJSON(r, http.MethodDelete, "/autopilots/ap-1", "ws-1", "")
+	w := doJSON(r, http.MethodDelete, "/api/autopilots/ap-1", "ws-1", "")
 	require.Equal(t, http.StatusConflict, w.Code)
 	require.Contains(t, w.Body.String(), "E_REVISION_CONFLICT")
 	require.Contains(t, w.Body.String(), "enabled triggers")
@@ -840,13 +839,13 @@ func TestAutopilotDeleteEndpoint(t *testing.T) {
 	disabled.Enabled = false
 	fr.triggers["trig-1"] = disabled
 	fr.runs = append(fr.runs, app.Run{ID: "run-2", AutopilotID: "ap-1", Status: domain.RunPending})
-	w = doJSON(r, http.MethodDelete, "/autopilots/ap-1", "ws-1", "")
+	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-1", "ws-1", "")
 	require.Equal(t, http.StatusConflict, w.Code)
 	require.Contains(t, w.Body.String(), "pending/running")
 	require.Contains(t, fr.autopilots, "ap-1")
 
 	fr.runs = fr.runs[:1]
-	w = doJSON(r, http.MethodDelete, "/autopilots/ap-1", "ws-1", "")
+	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-1", "ws-1", "")
 	require.Equal(t, http.StatusNoContent, w.Code)
 	require.NotContains(t, fr.autopilots, "ap-1")
 	require.NotContains(t, fr.triggers, "trig-1")
@@ -855,10 +854,10 @@ func TestAutopilotDeleteEndpoint(t *testing.T) {
 	require.ElementsMatch(t, []string{"trig-1", "trig-2"}, fr.deletedTrig, "deletion order is not contractual (map iteration order)")
 	require.Equal(t, []string{"user-2"}, fr.deletedCollab)
 
-	w = doJSON(r, http.MethodDelete, "/autopilots/ap-none", "ws-1", "")
+	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-none", "ws-1", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 	fr.autopilots["ap-2"] = app.Autopilot{ID: "ap-2", WorkspaceID: "ws-2", Name: "other region"}
-	w = doJSON(r, http.MethodDelete, "/autopilots/ap-2", "ws-1", "")
+	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-2", "ws-1", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, fr.autopilots, "ap-2", "cannot delete in another workspace")
 }

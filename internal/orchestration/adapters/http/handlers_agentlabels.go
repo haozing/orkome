@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 )
@@ -27,19 +25,17 @@ func (e AgentLabelEndpoints) mounted() bool {
 	return e.List != nil && e.Attach != nil && e.Detach != nil
 }
 
-func (d Deps) mountAgentLabels(r chi.Router) {
+func (d Deps) mountAgentLabels(reg func(pattern string, h http.HandlerFunc)) {
 	if d.AgentLabels == nil || !d.AgentLabels.mounted() {
 		return
 	}
-	r.Route("/agents/{agentId}/labels", func(r chi.Router) {
-		r.Get("/", d.handleAgentLabelsList)
-		r.Post("/", d.handleAgentLabelsAttach)
-	})
-	r.Delete("/agents/{agentId}/labels/{labelId}", d.handleAgentLabelsDetach)
+	reg("GET /api/agents/{agentId}/labels", d.handleAgentLabelsList)
+	reg("POST /api/agents/{agentId}/labels", d.handleAgentLabelsAttach)
+	reg("DELETE /api/agents/{agentId}/labels/{labelId}", d.handleAgentLabelsDetach)
 }
 
 func (d Deps) handleAgentLabelsList(w http.ResponseWriter, r *http.Request) {
-	out, err := d.AgentLabels.List(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	out, err := d.AgentLabels.List(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -58,7 +54,7 @@ func (d Deps) handleAgentLabelsAttach(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "label_id required", nil)
 		return
 	}
-	out, err := d.AgentLabels.Attach(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), in.LabelID)
+	out, err := d.AgentLabels.Attach(r.Context(), d.ws(r), r.PathValue("agentId"), in.LabelID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -67,8 +63,8 @@ func (d Deps) handleAgentLabelsAttach(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAgentLabelsDetach(w http.ResponseWriter, r *http.Request) {
-	labelID := chi.URLParam(r, "labelId")
-	out, err := d.AgentLabels.Detach(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), labelID)
+	labelID := r.PathValue("labelId")
+	out, err := d.AgentLabels.Detach(r.Context(), d.ws(r), r.PathValue("agentId"), labelID)
 	if err != nil {
 		writeErr(w, err)
 		return

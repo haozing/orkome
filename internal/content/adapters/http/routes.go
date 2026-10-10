@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/content/app"
 	"orkome/internal/contract/apierr"
 	"github.com/haozing/ploykit/platform/storagex"
@@ -48,37 +46,29 @@ func writeErr(w http.ResponseWriter, err error) {
 	webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "internal error", nil)
 }
 
-func MountAPI(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
+func MountAPI(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	if d.Attachments == nil {
 		return
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Post("/upload-file", d.handleUpload)
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
+	}
+	reg("POST /api/upload-file", d.handleUpload)
 
-		r.Get("/work-items/{workItemId}/attachments", d.handleListByWorkItem)
-		r.Route("/attachments/{attachmentId}", func(r chi.Router) {
-			r.Get("/", d.handleGet)
-			r.Get("/download", d.handleDownload)
-			r.Get("/content", d.handleContent)
-			r.Delete("/", d.handleDelete)
-		})
-	})
+	reg("GET /api/work-items/{workItemId}/attachments", d.handleListByWorkItem)
+	reg("GET /api/attachments/{attachmentId}", d.handleGet)
+	reg("GET /api/attachments/{attachmentId}/download", d.handleDownload)
+	reg("GET /api/attachments/{attachmentId}/content", d.handleContent)
+	reg("DELETE /api/attachments/{attachmentId}", d.handleDelete)
 
-	r.Group(func(r chi.Router) {
-		r.Use(auth)
-		r.Get("/attachments/{attachmentId}/signed-download", d.handleSignedDownload)
-	})
+	mux.Handle("GET /api/attachments/{attachmentId}/signed-download", auth(http.HandlerFunc(d.handleSignedDownload)))
 
 	if d.Avatars != nil {
-		r.Group(func(r chi.Router) {
-			r.Get("/avatars/*", d.handleAvatar)
-		})
+		mux.HandleFunc("GET /api/avatars/{rest...}", d.handleAvatar)
 	}
 }
 
-func MountUploads(r chi.Router, d Deps) {
+func MountUploads(mux *http.ServeMux, d Deps) {
 	if d.Local == nil {
 		return
 	}
@@ -107,8 +97,8 @@ func MountUploads(r chi.Router, d Deps) {
 		}
 		_, _ = io.Copy(w, rc)
 	}))
-	r.Get("/uploads/*", h.ServeHTTP)
-	r.Head("/uploads/*", h.ServeHTTP)
+	mux.Handle("GET /uploads/{rest...}", h)
+	mux.Handle("HEAD /uploads/{rest...}", h)
 }
 
 func baseOf(key string) string {
@@ -174,7 +164,7 @@ func (d Deps) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
-	a, err := d.Attachments.Get(r.Context(), d.ws(r), chi.URLParam(r, "attachmentId"))
+	a, err := d.Attachments.Get(r.Context(), d.ws(r), r.PathValue("attachmentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -188,7 +178,7 @@ func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleListByWorkItem(w http.ResponseWriter, r *http.Request) {
-	list, err := d.Attachments.ListByHost(r.Context(), d.ws(r), "work_item", chi.URLParam(r, "workItemId"))
+	list, err := d.Attachments.ListByHost(r.Context(), d.ws(r), "work_item", r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -267,7 +257,7 @@ func (d Deps) handleContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) openStream(w http.ResponseWriter, r *http.Request, disp string) {
-	rc, a, err := d.Attachments.Open(r.Context(), d.ws(r), chi.URLParam(r, "attachmentId"))
+	rc, a, err := d.Attachments.Open(r.Context(), d.ws(r), r.PathValue("attachmentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -276,7 +266,7 @@ func (d Deps) openStream(w http.ResponseWriter, r *http.Request, disp string) {
 }
 
 func (d Deps) handleSignedDownload(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "attachmentId")
+	id := r.PathValue("attachmentId")
 	q := r.URL.Query()
 	intent := q.Get("intent")
 	if intent == "" {
@@ -305,7 +295,7 @@ func (d Deps) handleSignedDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDelete(w http.ResponseWriter, r *http.Request) {
-	a, err := d.Attachments.Get(r.Context(), d.ws(r), chi.URLParam(r, "attachmentId"))
+	a, err := d.Attachments.Get(r.Context(), d.ws(r), r.PathValue("attachmentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -324,7 +314,7 @@ func (d Deps) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAvatar(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimPrefix(r.URL.Path, "/avatars/")
+	key := r.PathValue("rest")
 	if key == "" || !storagex.ValidKey(key) {
 		http.NotFound(w, r)
 		return

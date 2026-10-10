@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 )
@@ -27,19 +25,17 @@ func (e SkillLabelEndpoints) mounted() bool {
 	return e.List != nil && e.Attach != nil && e.Detach != nil
 }
 
-func (d Deps) mountSkillLabels(r chi.Router) {
+func (d Deps) mountSkillLabels(reg func(string, http.HandlerFunc)) {
 	if !d.SkillLabels.mounted() {
 		return
 	}
-	r.Route("/skills/{skillId}/labels", func(r chi.Router) {
-		r.Get("/", d.handleSkillLabelsList)
-		r.Post("/", d.handleSkillLabelsAttach)
-	})
-	r.Delete("/skills/{skillId}/labels/{labelId}", d.handleSkillLabelsDetach)
+	reg("GET /api/skills/{skillId}/labels", d.handleSkillLabelsList)
+	reg("POST /api/skills/{skillId}/labels", d.handleSkillLabelsAttach)
+	reg("DELETE /api/skills/{skillId}/labels/{labelId}", d.handleSkillLabelsDetach)
 }
 
 func (d Deps) handleSkillLabelsList(w http.ResponseWriter, r *http.Request) {
-	out, err := d.SkillLabels.List(r.Context(), d.ws(r), chi.URLParam(r, "skillId"))
+	out, err := d.SkillLabels.List(r.Context(), d.ws(r), r.PathValue("skillId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -58,7 +54,7 @@ func (d Deps) handleSkillLabelsAttach(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "label_id required", nil)
 		return
 	}
-	out, err := d.SkillLabels.Attach(r.Context(), d.ws(r), chi.URLParam(r, "skillId"), in.LabelID)
+	out, err := d.SkillLabels.Attach(r.Context(), d.ws(r), r.PathValue("skillId"), in.LabelID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -67,8 +63,8 @@ func (d Deps) handleSkillLabelsAttach(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleSkillLabelsDetach(w http.ResponseWriter, r *http.Request) {
-	labelID := chi.URLParam(r, "labelId")
-	out, err := d.SkillLabels.Detach(r.Context(), d.ws(r), chi.URLParam(r, "skillId"), labelID)
+	labelID := r.PathValue("labelId")
+	out, err := d.SkillLabels.Detach(r.Context(), d.ws(r), r.PathValue("skillId"), labelID)
 	if err != nil {
 		writeErr(w, err)
 		return

@@ -3,8 +3,6 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 )
@@ -23,7 +21,7 @@ func (d Deps) handleExternalClaim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	t, err := d.External.Claim(r.Context(), d.ws(r), chi.URLParam(r, "taskId"), agentID)
+	t, err := d.External.Claim(r.Context(), d.ws(r), r.PathValue("taskId"), agentID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -44,7 +42,7 @@ func (d Deps) handleExternalMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	seq, err := d.External.ReportMessage(r.Context(), d.ws(r), chi.URLParam(r, "taskId"), agentID,
+	seq, err := d.External.ReportMessage(r.Context(), d.ws(r), r.PathValue("taskId"), agentID,
 		in.Kind, in.CallID, in.Content)
 	if err != nil {
 		writeErr(w, err)
@@ -64,7 +62,7 @@ func (d Deps) handleExternalComplete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.External.Complete(r.Context(), d.ws(r), chi.URLParam(r, "taskId"), agentID, in.Result); err != nil {
+	if err := d.External.Complete(r.Context(), d.ws(r), r.PathValue("taskId"), agentID, in.Result); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -83,7 +81,7 @@ func (d Deps) handleExternalFail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.External.Fail(r.Context(), d.ws(r), chi.URLParam(r, "taskId"), agentID, in.Reason, in.Detail); err != nil {
+	if err := d.External.Fail(r.Context(), d.ws(r), r.PathValue("taskId"), agentID, in.Reason, in.Detail); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -100,7 +98,7 @@ func (d Deps) handleMintRuntimeCredential(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	token, err := d.MintRuntimeCredential(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), in.Name)
+	token, err := d.MintRuntimeCredential(r.Context(), d.ws(r), r.PathValue("agentId"), in.Name)
 	if err != nil {
 		writeErr(w, err)
 		return

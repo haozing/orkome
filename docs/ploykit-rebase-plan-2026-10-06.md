@@ -186,7 +186,8 @@ orkome（本仓库，产品）
 - P2-7 ✅：eventbus/outboxx 本地保留，`event_outbox` 仍由产品迁移 009 创建
 - P2-8 ✅（v3 已取消换框架动作）：六个 contract 包全本地
 - **接受的行为差异**：框架 egressx 对无法解析的 https 域名 fail-closed（本地旧版尽力放行、连接期才失败）——MCP 快照分类从 `connect_failed` 变为 `ssrf_rejected`，终态一致（工具不可用），两个测试已按新语义重写（ADR 0002 血统的安全强化）
-- 验证：`go build` / `go vet` / `go test ./...` 全绿（55 包）；`go mod tidy` 后 ploykit 转直接依赖（go.mod 第一 require 块）
+- **P2-4/P2-6 ✅（2026-10-10 第二批）**：chi → 标准库 ServeMux 全量完成——identity/cmd/e2e 主线 + 3 个并行 agent 转换其余 9 域（合计 300+ 路由，路由集合逐一比对不变）；chi 依赖仅剩 vendor。契约测试改为 `mux.Handler(假请求)` 解析式对账（ServeMux 无枚举 API，单向 table→mux；中间件覆盖断言丢失已记框架 issue F7）。已知行为差异（接受并记录）：①trailing-slash 请求 404（原 chi 200）；②深路径错方法返回 405（原 404）；③`GET /api/work-items/{id}/usage` 原本 work/orchestration 重复注册靠挂载顺序生效，现删 work 侧保留 orchestration（生产行为不变）
+- 验证：`go build` / `go vet` / `go test ./...` 全绿（55 包）；`go mod tidy` 后 ploykit 转直接依赖（go.mod 第一 require 块）；ServeMux 版起服冒烟 healthz=200/readyz=ready/config 正常/未知 API 路径 404/零 panic
 - 迁移冒烟（docker orkome-pg）：老库 39 条状态记录被新执行器正确识别（幂等）；全新库 39 条全量应用成功；起服 healthz=200/readyz=ready（14 worker 健康）。注意：本机 8080 落在 Windows 保留端口段（bind 被拒），冒烟用 `PORT=18180`
 
 - [ ] P2-1 逐包替换 import（**11 包 + metrics**，v2：eventbus/outboxx/schedx/flagsx 按 D7 保留本地）：全仓 grep `orkome/internal/platform/` → `github.com/haozing/ploykit/platform/`；删除对应本地包（**wsx/relayx/webx 及 D7 四包除外**，临时保留并标注 `// DEPRECATED: Phase 5（webx: Phase 3；D7 四包：长期保留）`。webx 延后原因：其 Authenticate 是 orkome JWT 实现，框架版依赖框架会话表，P3-1 才建，提前切换认证即断）

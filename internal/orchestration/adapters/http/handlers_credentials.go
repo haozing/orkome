@@ -3,8 +3,6 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 )
@@ -51,7 +49,7 @@ func (d Deps) handleCredentialDelete(w http.ResponseWriter, r *http.Request) {
 	if !requireWorkspaceAdmin(w, r) {
 		return
 	}
-	if err := d.Credentials.Delete(r.Context(), d.ws(r), chi.URLParam(r, "credentialId")); err != nil {
+	if err := d.Credentials.Delete(r.Context(), d.ws(r), r.PathValue("credentialId")); err != nil {
 		writeErr(w, err)
 		return
 	}

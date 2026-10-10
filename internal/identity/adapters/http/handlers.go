@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/identity/app"
 	"orkome/internal/platform/webx"
@@ -241,7 +239,7 @@ func (d Deps) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ws, err := d.Workspaces.Get(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID)
+	ws, err := d.Workspaces.Get(r.Context(), r.PathValue("workspaceId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -261,7 +259,7 @@ func (d Deps) handlePatchWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ws, err := d.Workspaces.Update(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID, in.Name, in.Slug)
+	ws, err := d.Workspaces.Update(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Name, in.Slug)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -274,7 +272,7 @@ func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.Workspaces.Delete(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID); err != nil {
+	if err := d.Workspaces.Delete(r.Context(), r.PathValue("workspaceId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -283,7 +281,7 @@ func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	wsID := chi.URLParam(r, "workspaceId")
+	wsID := r.PathValue("workspaceId")
 	ms, err := d.Workspaces.ListMembers(r.Context(), wsID, p.UserID)
 	if err != nil {
 		writeErr(w, err)
@@ -301,7 +299,7 @@ func (d Deps) handleInviteMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	inv, err := d.Workspaces.InviteMember(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID, in.Email, in.Role)
+	inv, err := d.Workspaces.InviteMember(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Email, in.Role)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -317,7 +315,7 @@ func (d Deps) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m, err := d.Workspaces.UpdateMemberRole(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "memberId"), in.Role, p.UserID)
+	m, err := d.Workspaces.UpdateMemberRole(r.Context(), r.PathValue("workspaceId"), r.PathValue("memberId"), in.Role, p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -327,7 +325,7 @@ func (d Deps) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Workspaces.RemoveMember(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "memberId"), p.UserID); err != nil {
+	if err := d.Workspaces.RemoveMember(r.Context(), r.PathValue("workspaceId"), r.PathValue("memberId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -336,7 +334,7 @@ func (d Deps) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleLeave(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Workspaces.Leave(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID); err != nil {
+	if err := d.Workspaces.Leave(r.Context(), r.PathValue("workspaceId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -358,7 +356,7 @@ func (d Deps) handleMyInvitations(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleListInvitations(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	invs, err := d.Workspaces.ListWorkspaceInvitations(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID)
+	invs, err := d.Workspaces.ListWorkspaceInvitations(r.Context(), r.PathValue("workspaceId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -368,7 +366,7 @@ func (d Deps) handleListInvitations(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Workspaces.RevokeInvitation(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "invitationId"), p.UserID); err != nil {
+	if err := d.Workspaces.RevokeInvitation(r.Context(), r.PathValue("workspaceId"), r.PathValue("invitationId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -380,7 +378,7 @@ func (d Deps) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m, err := d.Workspaces.AcceptInvitation(r.Context(), chi.URLParam(r, "invitationId"), p)
+	m, err := d.Workspaces.AcceptInvitation(r.Context(), r.PathValue("invitationId"), p)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -393,7 +391,7 @@ func (d Deps) handleDeclineInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.Workspaces.DeclineInvitation(r.Context(), chi.URLParam(r, "invitationId"), p); err != nil {
+	if err := d.Workspaces.DeclineInvitation(r.Context(), r.PathValue("invitationId"), p); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -411,7 +409,7 @@ func (d Deps) handleCreateShareLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ttl := time.Duration(in.TTLHrs) * time.Hour
-	sl, err := d.Workspaces.CreateShareLink(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID, in.Role, in.MaxUses, ttl)
+	sl, err := d.Workspaces.CreateShareLink(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Role, in.MaxUses, ttl)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -421,7 +419,7 @@ func (d Deps) handleCreateShareLink(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleListShareLinks(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	ls, err := d.Workspaces.ListShareLinks(r.Context(), chi.URLParam(r, "workspaceId"), p.UserID)
+	ls, err := d.Workspaces.ListShareLinks(r.Context(), r.PathValue("workspaceId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -431,7 +429,7 @@ func (d Deps) handleListShareLinks(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleDeleteShareLink(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Workspaces.DeleteShareLink(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "linkId"), p.UserID); err != nil {
+	if err := d.Workspaces.DeleteShareLink(r.Context(), r.PathValue("workspaceId"), r.PathValue("linkId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -439,7 +437,7 @@ func (d Deps) handleDeleteShareLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handlePeekShareLink(w http.ResponseWriter, r *http.Request) {
-	sl, err := d.Workspaces.PeekShareLink(r.Context(), chi.URLParam(r, "code"))
+	sl, err := d.Workspaces.PeekShareLink(r.Context(), r.PathValue("code"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -544,7 +542,7 @@ func (d Deps) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.Tokens.Revoke(r.Context(), chi.URLParam(r, "tokenId"), p.UserID); err != nil {
+	if err := d.Tokens.Revoke(r.Context(), r.PathValue("tokenId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -619,7 +617,7 @@ func (d Deps) handleReorderPins(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleRemovePin(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
 	if err := d.pinsService().Remove(r.Context(), p.WorkspaceID, p.UserID,
-		chi.URLParam(r, "itemType"), chi.URLParam(r, "itemId")); err != nil {
+		r.PathValue("itemType"), r.PathValue("itemId")); err != nil {
 		writeErr(w, err)
 		return
 	}

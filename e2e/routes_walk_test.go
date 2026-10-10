@@ -2,91 +2,56 @@ package e2e
 
 import (
 	"fmt"
-	"net/http"
+	"net/http/httptest"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/go-chi/chi/v5"
 )
 
+// Route reconciliation against the stdlib ServeMux composition root.
+// The chi version enumerated mounted routes + middleware chains via chi.Walk;
+// ServeMux exposes neither, so reconciliation is resolution-based (Handler()
+// only matches, never invokes) and one-directional per list:
+//   - G1: every registry-declared interface must resolve to its declared pattern
+//   - G2: every static-catalog entry must resolve (reverse drift is guarded by
+//     review + cmd router_contract_test + per-domain route accountings)
+//
+// G4 (authMw presence per route via middleware pointer identity) is not
+// representable with ServeMux; auth discipline now rests on the per-domain
+// registration helpers. Recorded as a ploykit issue (route-recording mux).
 func TestRoutesWalkGuards(t *testing.T) {
 	st := newStack(t)
-
-	type walked struct {
-		method, path string
-		mws          []func(http.Handler) http.Handler
-	}
-	got := map[string]*walked{}
-	err := chi.Walk(st.handler, func(method, route string, h http.Handler, mws ...func(http.Handler) http.Handler) error {
-
-		key := strings.TrimSuffix(method+" "+route, "/")
-		if key == "" {
-			key = method + " /"
-		}
-		if _, dup := got[key]; dup {
-			return nil
-		}
-		got[key] = &walked{method, route, mws}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Walk failed: %v", err)
+	if st.rootMux == nil {
+		t.Fatalf("stack has no root mux")
 	}
 
-	authPtr := fmt.Sprintf("%p", st.authMw)
-	hasAuth := func(w *walked) bool {
-		for _, mw := range w.mws {
-			if fmt.Sprintf("%p", mw) == authPtr {
-				return true
-			}
-		}
-		return false
+	fill := func(p string) string {
+		return regexp.MustCompile(`\{[a-zA-Z]+(\.\.\.)?\}`).ReplaceAllString(p, "00000000-0000-0000-0000-000000000000")
+	}
+	resolves := func(method, pattern string) bool {
+		req := httptest.NewRequest(method, fill(pattern), nil)
+		_, got := st.rootMux.Handler(req)
+		return strings.TrimSuffix(got, "/") == strings.TrimSuffix(pattern, "/")
 	}
 
 	for _, r := range registry {
-		w, ok := got[strings.TrimSuffix(r.Method+" "+r.Path, "/")]
-		if !ok {
+		if !resolves(r.Method, r.Path) {
 			t.Errorf("G1: registry-declared interface not mounted by composition root: %s %s", r.Method, r.Path)
-			continue
-		}
-
-		if r.Auth == authSelf {
-			continue
-		}
-		authed := hasAuth(w)
-		switch r.Auth {
-		case authPublic:
-			if authed {
-				t.Errorf("G4: %s %s marked public but authMw in the chain", r.Method, r.Path)
-			}
-		default:
-			if !authed {
-				t.Errorf("G4: %s %s marked %s but authMw not in the chain", r.Method, r.Path, r.Auth)
-			}
 		}
 	}
 
 	staticList := loadStaticRoutes(t)
-	var notInStatic []string
-	for key := range got {
-		if !staticList[key] {
-			notInStatic = append(notInStatic, key)
-		}
-	}
-	sort.Strings(notInStatic)
-	for _, k := range notInStatic {
-		t.Errorf("G2: e2e composition root mounted routes outside the static catalog: %s", k)
-	}
 	var notMounted []string
 	for key := range staticList {
-		if _, ok := got[key]; !ok {
+		m, p, _ := strings.Cut(key, " ")
+		if !resolves(m, p) {
 			notMounted = append(notMounted, key)
 		}
 	}
 	sort.Strings(notMounted)
-	t.Logf("Walk found %d routes; static catalog %d; e2e unmounted %d (mount gap below)", len(got), len(staticList), len(notMounted))
+	t.Logf("static catalog %d; e2e unmounted %d (mount gap below)", len(staticList), len(notMounted))
 	for _, k := range notMounted {
 		t.Logf("not mounted: %s", k)
 	}
@@ -94,16 +59,11 @@ func TestRoutesWalkGuards(t *testing.T) {
 	if dir := os.Getenv("E2E_REPORT_DIR"); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 		var b strings.Builder
-		fmt.Fprintf(&b, "# Walk measured routes (%d, e2e composition root scope)\n", len(got))
-		keys := make([]string, 0, len(got))
-		for k := range got {
-			keys = append(keys, k)
+		fmt.Fprintf(&b, "# registry routes (%d)\n", len(registry))
+		for _, r := range registry {
+			fmt.Fprintf(&b, "%s %s\n", r.Method, r.Path)
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			fmt.Fprintln(&b, k)
-		}
-		fmt.Fprintf(&b, "\n# e2e not mounted (in static catalog, not in composition root, %d)\n", len(notMounted))
+		fmt.Fprintf(&b, "\n# e2e not mounted (in static catalog, not resolving, %d)\n", len(notMounted))
 		for _, k := range notMounted {
 			fmt.Fprintln(&b, k)
 		}

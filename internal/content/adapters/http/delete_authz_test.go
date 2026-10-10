@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -58,7 +57,7 @@ func mountDel(t *testing.T, d Deps) http.Handler {
 			})))
 		})
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	MountAPI(r, d, auth)
 	return r
 }
@@ -76,7 +75,7 @@ func newDelFixture(t *testing.T, roleOf func(context.Context, string, string) (s
 }
 
 func delReq(h http.Handler, uid, role, id string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("DELETE", "/attachments/"+id, nil)
+	req := httptest.NewRequest("DELETE", "/api/attachments/"+id, nil)
 	req.Header.Set("X-Workspace-Id", "ws")
 	if uid != "" {
 		req.Header.Set("X-Test-User", uid)
@@ -142,7 +141,7 @@ func TestDeleteAuthzNotFound(t *testing.T) {
 func TestDeleteAuthzCrossWorkspaceIs404(t *testing.T) {
 
 	_, _, h := newDelFixture(t, nil)
-	req := httptest.NewRequest("DELETE", "/attachments/att-1", nil)
+	req := httptest.NewRequest("DELETE", "/api/attachments/att-1", nil)
 	req.Header.Set("X-Workspace-Id", "other-ws")
 	req.Header.Set("X-Test-User", "uploader-1")
 	req.Header.Set("X-Test-Role", "owner")

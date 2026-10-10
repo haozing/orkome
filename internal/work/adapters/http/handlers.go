@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/dispatchreason"
 	"orkome/internal/platform/webx"
@@ -48,7 +46,7 @@ func (d Deps) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
-	wi, err := d.WorkItems.Get(r.Context(), wsID(r), chi.URLParam(r, "workItemId"))
+	wi, err := d.WorkItems.Get(r.Context(), wsID(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -87,7 +85,7 @@ func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wi, err := d.WorkItems.Update(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), workapp.WorkItemPatch{
+	wi, err := d.WorkItems.Update(r.Context(), wsID(r), r.PathValue("workItemId"), workapp.WorkItemPatch{
 		Title: in.Title, Description: in.Description, StatusKey: in.Status, Priority: in.Priority,
 		AssigneeType: in.AssigneeType, AssigneeID: in.AssigneeID, ProjectID: in.ProjectID,
 		DueDate: in.DueDate, StartDate: in.StartDate, ParentID: in.ParentID,
@@ -102,7 +100,7 @@ func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.WorkItems.Delete(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), principal(r).UserID); err != nil {
+	if err := d.WorkItems.Delete(r.Context(), wsID(r), r.PathValue("workItemId"), principal(r).UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -119,7 +117,7 @@ func (d Deps) handleMove(w http.ResponseWriter, r *http.Request) {
 	if in != nil {
 		before, after = in.Before, in.After
 	}
-	if err := d.WorkItems.Move(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), before, after); err != nil {
+	if err := d.WorkItems.Move(r.Context(), wsID(r), r.PathValue("workItemId"), before, after); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -218,7 +216,7 @@ func (d Deps) handleReaction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	counts, err := d.WorkItems.AddReaction(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), p.UserID, in.Emoji)
+	counts, err := d.WorkItems.AddReaction(r.Context(), wsID(r), r.PathValue("workItemId"), p.UserID, in.Emoji)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -237,7 +235,7 @@ func (d Deps) handleReactionDelete(w http.ResponseWriter, r *http.Request) {
 			emoji = in.Emoji
 		}
 	}
-	counts, err := d.WorkItems.RemoveReaction(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), p.UserID, emoji)
+	counts, err := d.WorkItems.RemoveReaction(r.Context(), wsID(r), r.PathValue("workItemId"), p.UserID, emoji)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -246,7 +244,7 @@ func (d Deps) handleReactionDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleUsage(w http.ResponseWriter, r *http.Request) {
-	rows, err := d.WorkItems.Usage(r.Context(), wsID(r), chi.URLParam(r, "workItemId"))
+	rows, err := d.WorkItems.Usage(r.Context(), wsID(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -255,7 +253,7 @@ func (d Deps) handleUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDuplicates(w http.ResponseWriter, r *http.Request) {
-	items, err := d.WorkItems.Duplicates(r.Context(), wsID(r), chi.URLParam(r, "workItemId"))
+	items, err := d.WorkItems.Duplicates(r.Context(), wsID(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -264,12 +262,12 @@ func (d Deps) handleDuplicates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleMetadata(w http.ResponseWriter, r *http.Request) {
-	val, err := d.WorkItems.GetMetadataKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), chi.URLParam(r, "key"))
+	val, err := d.WorkItems.GetMetadataKey(r.Context(), wsID(r), r.PathValue("workItemId"), r.PathValue("key"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"key": chi.URLParam(r, "key"), "value": val})
+	webx.WriteJSON(w, http.StatusOK, map[string]any{"key": r.PathValue("key"), "value": val})
 }
 
 func (d Deps) handleMetadataPut(w http.ResponseWriter, r *http.Request) {
@@ -283,8 +281,8 @@ func (d Deps) handleMetadataPut(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid JSON body", nil)
 		return
 	}
-	meta, wi, err := d.WorkItems.SetMetadataKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"),
-		chi.URLParam(r, "key"), json.RawMessage(raw), p.UserID)
+	meta, wi, err := d.WorkItems.SetMetadataKey(r.Context(), wsID(r), r.PathValue("workItemId"),
+		r.PathValue("key"), json.RawMessage(raw), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -294,8 +292,8 @@ func (d Deps) handleMetadataPut(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleMetadataDel(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.WorkItems.DeleteMetadataKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"),
-		chi.URLParam(r, "key"), p.UserID); err != nil {
+	if err := d.WorkItems.DeleteMetadataKey(r.Context(), wsID(r), r.PathValue("workItemId"),
+		r.PathValue("key"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -303,12 +301,12 @@ func (d Deps) handleMetadataDel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGetPropertyKey(w http.ResponseWriter, r *http.Request) {
-	val, err := d.WorkItems.GetPropertyKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), chi.URLParam(r, "key"))
+	val, err := d.WorkItems.GetPropertyKey(r.Context(), wsID(r), r.PathValue("workItemId"), r.PathValue("key"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"key": chi.URLParam(r, "key"), "value": val})
+	webx.WriteJSON(w, http.StatusOK, map[string]any{"key": r.PathValue("key"), "value": val})
 }
 
 func (d Deps) handlePropertyKeyPut(w http.ResponseWriter, r *http.Request) {
@@ -322,8 +320,8 @@ func (d Deps) handlePropertyKeyPut(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid JSON body", nil)
 		return
 	}
-	key := chi.URLParam(r, "key")
-	val, props, wi, err := d.WorkItems.SetPropertyKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"),
+	key := r.PathValue("key")
+	val, props, wi, err := d.WorkItems.SetPropertyKey(r.Context(), wsID(r), r.PathValue("workItemId"),
 		key, json.RawMessage(raw), p.UserID)
 	if err != nil {
 		writeErr(w, err)
@@ -336,8 +334,8 @@ func (d Deps) handlePropertyKeyPut(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handlePropertyKeyDel(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.WorkItems.DeletePropertyKey(r.Context(), wsID(r), chi.URLParam(r, "workItemId"),
-		chi.URLParam(r, "key"), p.UserID); err != nil {
+	if err := d.WorkItems.DeletePropertyKey(r.Context(), wsID(r), r.PathValue("workItemId"),
+		r.PathValue("key"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -354,7 +352,7 @@ func (d Deps) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, admission, err := d.Comments.Create(r.Context(), workapp.NewComment{
-		WorkItemID: chi.URLParam(r, "workItemId"), WorkspaceID: wsID(r),
+		WorkItemID: r.PathValue("workItemId"), WorkspaceID: wsID(r),
 		AuthorType: "user", AuthorID: p.UserID, Content: in.Content, ParentID: in.ParentID,
 	})
 	if err != nil {
@@ -371,7 +369,7 @@ func (d Deps) handleListComments(w http.ResponseWriter, r *http.Request) {
 		if n, err := strconv.Atoi(q.Get("limit")); err == nil && n > 0 {
 			limit = n
 		}
-		items, next, err := d.Comments.ListThreadPage(r.Context(), chi.URLParam(r, "workItemId"),
+		items, next, err := d.Comments.ListThreadPage(r.Context(), r.PathValue("workItemId"),
 			limit, strings.TrimSpace(q.Get("before")))
 		if err != nil {
 			writeErr(w, err)
@@ -387,7 +385,7 @@ func (d Deps) handleListComments(w http.ResponseWriter, r *http.Request) {
 		webx.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
-	items, err := d.Comments.ListThread(r.Context(), chi.URLParam(r, "workItemId"))
+	items, err := d.Comments.ListThread(r.Context(), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -404,7 +402,7 @@ func (d Deps) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, err := d.Comments.Update(r.Context(), wsID(r), chi.URLParam(r, "commentId"), in.Content, p.UserID, in.ExpectedRevision)
+	c, err := d.Comments.Update(r.Context(), wsID(r), r.PathValue("commentId"), in.Content, p.UserID, in.ExpectedRevision)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -413,7 +411,7 @@ func (d Deps) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
-	if err := d.Comments.Delete(r.Context(), wsID(r), chi.URLParam(r, "commentId"), principal(r).UserID); err != nil {
+	if err := d.Comments.Delete(r.Context(), wsID(r), r.PathValue("commentId"), principal(r).UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -422,7 +420,7 @@ func (d Deps) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleResolve(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Comments.SetResolve(r.Context(), wsID(r), chi.URLParam(r, "commentId"), true, "user", p.UserID); err != nil {
+	if err := d.Comments.SetResolve(r.Context(), wsID(r), r.PathValue("commentId"), true, "user", p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -431,7 +429,7 @@ func (d Deps) handleResolve(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleUnresolve(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := d.Comments.SetResolve(r.Context(), wsID(r), chi.URLParam(r, "commentId"), false, "user", p.UserID); err != nil {
+	if err := d.Comments.SetResolve(r.Context(), wsID(r), r.PathValue("commentId"), false, "user", p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -446,7 +444,7 @@ func (d Deps) handleCommentReaction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	counts, err := d.Comments.AddCommentReaction(r.Context(), wsID(r), chi.URLParam(r, "commentId"), p.UserID, in.Emoji)
+	counts, err := d.Comments.AddCommentReaction(r.Context(), wsID(r), r.PathValue("commentId"), p.UserID, in.Emoji)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -465,7 +463,7 @@ func (d Deps) handleCommentReactionDelete(w http.ResponseWriter, r *http.Request
 			emoji = in.Emoji
 		}
 	}
-	counts, err := d.Comments.RemoveCommentReaction(r.Context(), wsID(r), chi.URLParam(r, "commentId"), p.UserID, emoji)
+	counts, err := d.Comments.RemoveCommentReaction(r.Context(), wsID(r), r.PathValue("commentId"), p.UserID, emoji)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -475,7 +473,7 @@ func (d Deps) handleCommentReactionDelete(w http.ResponseWriter, r *http.Request
 
 func (d Deps) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	items, err := d.Timeline(r.Context(), chi.URLParam(r, "workItemId"), limit, r.URL.Query().Get("before"))
+	items, err := d.Timeline(r.Context(), r.PathValue("workItemId"), limit, r.URL.Query().Get("before"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -484,7 +482,7 @@ func (d Deps) handleTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleSubscribers(w http.ResponseWriter, r *http.Request) {
-	items, err := d.Subscribers(r.Context(), chi.URLParam(r, "workItemId"))
+	items, err := d.Subscribers(r.Context(), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -493,7 +491,7 @@ func (d Deps) handleSubscribers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleSubscribe(w http.ResponseWriter, r *http.Request) {
-	sub, err := d.WorkItems.Subscribe(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), principal(r).UserID)
+	sub, err := d.WorkItems.Subscribe(r.Context(), wsID(r), r.PathValue("workItemId"), principal(r).UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -529,7 +527,7 @@ func (d Deps) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleUpsertLabel(w http.ResponseWriter, r *http.Request) { d.handleCreateLabel(w, r) }
 
 func (d Deps) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
-	if err := d.Catalog.DeleteLabel(r.Context(), wsID(r), chi.URLParam(r, "labelId")); err != nil {
+	if err := d.Catalog.DeleteLabel(r.Context(), wsID(r), r.PathValue("labelId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -537,7 +535,7 @@ func (d Deps) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGetLabels(w http.ResponseWriter, r *http.Request) {
-	items, err := d.WorkItems.Labels(r.Context(), wsID(r), chi.URLParam(r, "workItemId"))
+	items, err := d.WorkItems.Labels(r.Context(), wsID(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -556,7 +554,7 @@ func (d Deps) handleAttachLabel(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "label_id required", nil)
 		return
 	}
-	items, err := d.WorkItems.AttachLabel(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), in.LabelID)
+	items, err := d.WorkItems.AttachLabel(r.Context(), wsID(r), r.PathValue("workItemId"), in.LabelID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -565,7 +563,7 @@ func (d Deps) handleAttachLabel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDetachLabel(w http.ResponseWriter, r *http.Request) {
-	items, err := d.WorkItems.DetachLabel(r.Context(), wsID(r), chi.URLParam(r, "workItemId"), chi.URLParam(r, "labelId"))
+	items, err := d.WorkItems.DetachLabel(r.Context(), wsID(r), r.PathValue("workItemId"), r.PathValue("labelId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -788,7 +786,7 @@ func (d Deps) handleTriggerPreview(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18)).Decode(&in)
 	}
-	id := chi.URLParam(r, "workItemId")
+	id := r.PathValue("workItemId")
 
 	if in.Content == "" && in.ChangeKind != "" {
 		decision := d.WorkItems.WriteTriggerProbe(r.Context(), ws, id, workapp.WriteProbeFacts{

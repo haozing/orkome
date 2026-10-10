@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/conversation/app"
 	"orkome/internal/platform/webx"
@@ -75,60 +73,56 @@ func decode[T any](w http.ResponseWriter, r *http.Request) (*T, bool) {
 	return &in, true
 }
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	if d.Chat == nil {
 		return
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Post("/chat/sessions", d.handleCreateSession)
-		r.Get("/chat/sessions", d.handleListSessions)
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
+	}
+	reg("POST /api/chat/sessions", d.handleCreateSession)
+	reg("GET /api/chat/sessions", d.handleListSessions)
 
-		r.Get("/chat/history", d.handleChatHistory)
-		r.Get("/chat/thread", d.handleChatThread)
+	reg("GET /api/chat/history", d.handleChatHistory)
+	reg("GET /api/chat/thread", d.handleChatThread)
 
-		r.Get("/chat/pending-tasks", d.handlePendingTasks)
-		r.Get("/chat/pending-tasks/has-any", d.handlePendingHasAny)
-		if d.Pins != nil {
-			r.Get("/chat/pinned-agents", d.handlePinList)
-			r.Post("/chat/pinned-agents", d.handlePinAdd)
-			r.Delete("/chat/pinned-agents", d.handlePinDelete)
-		}
-		r.Route("/chat/sessions/{sessionId}", func(r chi.Router) {
-			r.Get("/", d.handleGetSession)
+	reg("GET /api/chat/pending-tasks", d.handlePendingTasks)
+	reg("GET /api/chat/pending-tasks/has-any", d.handlePendingHasAny)
+	if d.Pins != nil {
+		reg("GET /api/chat/pinned-agents", d.handlePinList)
+		reg("POST /api/chat/pinned-agents", d.handlePinAdd)
+		reg("DELETE /api/chat/pinned-agents", d.handlePinDelete)
+	}
+	reg("GET /api/chat/sessions/{sessionId}", d.handleGetSession)
+	reg("PATCH /api/chat/sessions/{sessionId}", d.handleUpdateSession)
+	reg("DELETE /api/chat/sessions/{sessionId}", d.handleDeleteSession)
+	reg("POST /api/chat/sessions/{sessionId}/pin", d.handlePin(true))
+	reg("POST /api/chat/sessions/{sessionId}/unpin", d.handlePin(false))
+	reg("POST /api/chat/sessions/{sessionId}/archive", d.handleArchive(true))
+	reg("POST /api/chat/sessions/{sessionId}/unarchive", d.handleArchive(false))
+	reg("POST /api/chat/sessions/{sessionId}/messages", d.handleSendMessage)
+	reg("GET /api/chat/sessions/{sessionId}/messages", d.handleListMessages)
+	if d.TaskStatus != nil {
+		reg("GET /api/chat/sessions/{sessionId}/pending-task", d.handlePendingTask)
+	}
+	if d.Canceller != nil {
+		reg("DELETE /api/chat/sessions/{sessionId}/pending-task", d.handleCancel)
+		reg("DELETE /api/chat/sessions/{sessionId}/queued-tasks", d.handleCancel)
+	}
 
-			r.Patch("/", d.handleUpdateSession)
-			r.Delete("/", d.handleDeleteSession)
-			r.Post("/pin", d.handlePin(true))
-			r.Post("/unpin", d.handlePin(false))
-			r.Post("/archive", d.handleArchive(true))
-			r.Post("/unarchive", d.handleArchive(false))
-			r.Post("/messages", d.handleSendMessage)
-			r.Get("/messages", d.handleListMessages)
-			if d.TaskStatus != nil {
-				r.Get("/pending-task", d.handlePendingTask)
-			}
-			if d.Canceller != nil {
-				r.Delete("/pending-task", d.handleCancel)
-				r.Delete("/queued-tasks", d.handleCancel)
-			}
+	reg("POST /api/chat/sessions/{sessionId}/queued-tasks/{taskId}/prioritize", d.handlePrioritize)
+	reg("POST /api/chat/sessions/{sessionId}/read", d.handleRead)
+	reg("GET /api/chat/sessions/{sessionId}/draft-restores", d.handleGetDraft)
+	reg("DELETE /api/chat/sessions/{sessionId}/draft-restores", d.handleDiscardDraft)
+	if d.QuickActions != nil {
+		reg("GET /api/quick-actions", d.handleQAList)
+		reg("POST /api/quick-actions", d.handleQACreate)
+		reg("PATCH /api/quick-actions/{quickActionId}", d.handleQAUpdate)
+		reg("DELETE /api/quick-actions/{quickActionId}", d.handleQADelete)
 
-			r.Post("/queued-tasks/{taskId}/prioritize", d.handlePrioritize)
-			r.Post("/read", d.handleRead)
-			r.Get("/draft-restores", d.handleGetDraft)
-			r.Delete("/draft-restores", d.handleDiscardDraft)
-		})
-		if d.QuickActions != nil {
-			r.Get("/quick-actions", d.handleQAList)
-			r.Post("/quick-actions", d.handleQACreate)
-			r.Patch("/quick-actions/{quickActionId}", d.handleQAUpdate)
-			r.Delete("/quick-actions/{quickActionId}", d.handleQADelete)
-
-			r.Post("/work-items/{workItemId}/quick-actions/{quickActionId}/run", d.handleQARun)
-			r.Post("/work-items/{workItemId}/quick-actions/{quickActionId}/render", d.handleQARender)
-		}
-	})
+		reg("POST /api/work-items/{workItemId}/quick-actions/{quickActionId}/run", d.handleQARun)
+		reg("POST /api/work-items/{workItemId}/quick-actions/{quickActionId}/render", d.handleQARender)
+	}
 }
 
 func (d Deps) memberMW(next http.Handler) http.Handler {
@@ -153,7 +147,7 @@ func (d Deps) memberMW(next http.Handler) http.Handler {
 
 func (d Deps) ws(r *http.Request) string { return webx.PrincipalFrom(r.Context()).WorkspaceID }
 
-func (d Deps) sid(r *http.Request) string { return chi.URLParam(r, "sessionId") }
+func (d Deps) sid(r *http.Request) string { return r.PathValue("sessionId") }
 
 func (d Deps) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	in, ok := decode[struct {
@@ -424,7 +418,7 @@ func (d Deps) handlePendingHasAny(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handlePrioritize(w http.ResponseWriter, r *http.Request) {
 	p := webx.PrincipalFrom(r.Context())
-	priority, err := d.Chat.Prioritize(r.Context(), d.ws(r), d.sid(r), chi.URLParam(r, "taskId"), p.UserID)
+	priority, err := d.Chat.Prioritize(r.Context(), d.ws(r), d.sid(r), r.PathValue("taskId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -514,7 +508,7 @@ func (d Deps) handleQAUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := webx.PrincipalFrom(r.Context())
-	q, err := d.QuickActions.Update(r.Context(), d.ws(r), chi.URLParam(r, "quickActionId"), p.UserID, in.Label, in.Prompt)
+	q, err := d.QuickActions.Update(r.Context(), d.ws(r), r.PathValue("quickActionId"), p.UserID, in.Label, in.Prompt)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -524,7 +518,7 @@ func (d Deps) handleQAUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleQADelete(w http.ResponseWriter, r *http.Request) {
 	p := webx.PrincipalFrom(r.Context())
-	if err := d.QuickActions.Delete(r.Context(), d.ws(r), chi.URLParam(r, "quickActionId"), p.UserID); err != nil {
+	if err := d.QuickActions.Delete(r.Context(), d.ws(r), r.PathValue("quickActionId"), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -532,7 +526,7 @@ func (d Deps) handleQADelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleQARender(w http.ResponseWriter, r *http.Request) {
-	q, err := d.QuickActions.Render(r.Context(), d.ws(r), chi.URLParam(r, "quickActionId"), webx.PrincipalFrom(r.Context()).UserID)
+	q, err := d.QuickActions.Render(r.Context(), d.ws(r), r.PathValue("quickActionId"), webx.PrincipalFrom(r.Context()).UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -543,7 +537,7 @@ func (d Deps) handleQARender(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleQARun(w http.ResponseWriter, r *http.Request) {
 	p := webx.PrincipalFrom(r.Context())
 	taskID, err := d.QuickActions.Run(r.Context(), d.ws(r),
-		chi.URLParam(r, "workItemId"), chi.URLParam(r, "quickActionId"), p.UserID)
+		r.PathValue("workItemId"), r.PathValue("quickActionId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return

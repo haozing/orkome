@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 	"orkome/internal/skills/app"
@@ -46,39 +44,36 @@ func writeErr(w http.ResponseWriter, err error) {
 	webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "internal error", nil)
 }
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	if d.Skills == nil {
 		return
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Get("/skills", d.handleList)
-		r.Post("/skills", d.handleCreate)
-		r.Get("/skills/search", d.handleSearch)
-		if d.Import != nil {
-			r.Post("/skills/import", d.handleImport)
-		}
-		r.Route("/skills/{skillId}", func(r chi.Router) {
-			r.Get("/", d.handleGet)
-			r.Put("/", d.handleUpdate)
-			r.Delete("/", d.handleDelete)
-			r.Post("/refresh", d.handleRefresh)
-			r.Get("/files", d.handleFiles)
-			r.Put("/files", d.handleUpsertFile)
-			r.Delete("/files/{fileId}", d.handleDeleteFile)
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
+	}
+	reg("GET /api/skills", d.handleList)
+	reg("POST /api/skills", d.handleCreate)
+	reg("GET /api/skills/search", d.handleSearch)
+	if d.Import != nil {
+		reg("POST /api/skills/import", d.handleImport)
+	}
+	reg("GET /api/skills/{skillId}", d.handleGet)
+	reg("PUT /api/skills/{skillId}", d.handleUpdate)
+	reg("DELETE /api/skills/{skillId}", d.handleDelete)
+	reg("POST /api/skills/{skillId}/refresh", d.handleRefresh)
+	reg("GET /api/skills/{skillId}/files", d.handleFiles)
+	reg("PUT /api/skills/{skillId}/files", d.handleUpsertFile)
+	reg("DELETE /api/skills/{skillId}/files/{fileId}", d.handleDeleteFile)
 
-			r.Get("/agents", d.handleSkillAgents)
-		})
+	reg("GET /api/skills/{skillId}/agents", d.handleSkillAgents)
 
-		r.Get("/agents/{agentId}/skills", d.handleAgentSkills)
-		r.Put("/agents/{agentId}/skills", d.handleSetAgentSkills)
-		r.Post("/agents/{agentId}/skills/add", d.handleAddAgentSkill)
-		r.Put("/agents/{agentId}/skills/{skillId}/enabled", d.handleSetSkillEnabled)
-		r.Delete("/agents/{agentId}/skills/{skillId}", d.handleRemoveAgentSkill)
+	reg("GET /api/agents/{agentId}/skills", d.handleAgentSkills)
+	reg("PUT /api/agents/{agentId}/skills", d.handleSetAgentSkills)
+	reg("POST /api/agents/{agentId}/skills/add", d.handleAddAgentSkill)
+	reg("PUT /api/agents/{agentId}/skills/{skillId}/enabled", d.handleSetSkillEnabled)
+	reg("DELETE /api/agents/{agentId}/skills/{skillId}", d.handleRemoveAgentSkill)
 
-		d.mountSkillLabels(r)
-	})
+	d.mountSkillLabels(reg)
 }
 
 func (d Deps) memberMW(next http.Handler) http.Handler {
@@ -133,7 +128,7 @@ func (d Deps) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
-	sk, err := d.Skills.Get(r.Context(), d.ws(r), chi.URLParam(r, "skillId"))
+	sk, err := d.Skills.Get(r.Context(), d.ws(r), r.PathValue("skillId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -142,7 +137,7 @@ func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.Skills.Delete(r.Context(), d.ws(r), chi.URLParam(r, "skillId")); err != nil {
+	if err := d.Skills.Delete(r.Context(), d.ws(r), r.PathValue("skillId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -158,7 +153,7 @@ func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid JSON body", nil)
 		return
 	}
-	sk, err := d.Skills.Update(r.Context(), d.ws(r), chi.URLParam(r, "skillId"), in.Name, in.Description)
+	sk, err := d.Skills.Update(r.Context(), d.ws(r), r.PathValue("skillId"), in.Name, in.Description)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -175,7 +170,7 @@ func (d Deps) handleUpsertFile(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "path and content required", nil)
 		return
 	}
-	f, manifest, err := d.Skills.UpsertFile(r.Context(), d.ws(r), chi.URLParam(r, "skillId"), in.Path, in.Content)
+	f, manifest, err := d.Skills.UpsertFile(r.Context(), d.ws(r), r.PathValue("skillId"), in.Path, in.Content)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -185,7 +180,7 @@ func (d Deps) handleUpsertFile(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	manifest, err := d.Skills.DeleteFile(r.Context(), d.ws(r),
-		chi.URLParam(r, "skillId"), chi.URLParam(r, "fileId"))
+		r.PathValue("skillId"), r.PathValue("fileId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -206,7 +201,7 @@ func (d Deps) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleFiles(w http.ResponseWriter, r *http.Request) {
-	files, manifest, err := d.Skills.Files(r.Context(), d.ws(r), chi.URLParam(r, "skillId"))
+	files, manifest, err := d.Skills.Files(r.Context(), d.ws(r), r.PathValue("skillId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -260,7 +255,7 @@ func (d Deps) handleImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	n, err := d.Import.Refresh(r.Context(), d.ws(r), chi.URLParam(r, "skillId"))
+	n, err := d.Import.Refresh(r.Context(), d.ws(r), r.PathValue("skillId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -269,7 +264,7 @@ func (d Deps) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleSkillAgents(w http.ResponseWriter, r *http.Request) {
-	list, err := d.Skills.ListSkillAgents(r.Context(), d.ws(r), chi.URLParam(r, "skillId"))
+	list, err := d.Skills.ListSkillAgents(r.Context(), d.ws(r), r.PathValue("skillId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -278,7 +273,7 @@ func (d Deps) handleSkillAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAgentSkills(w http.ResponseWriter, r *http.Request) {
-	list, err := d.Skills.ListAgentSkills(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	list, err := d.Skills.ListAgentSkills(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -297,7 +292,7 @@ func (d Deps) handleSetAgentSkills(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid JSON body", nil)
 		return
 	}
-	if err := d.Skills.SetAgentSkills(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), in.SkillIDs); err != nil {
+	if err := d.Skills.SetAgentSkills(r.Context(), d.ws(r), r.PathValue("agentId"), in.SkillIDs); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -313,7 +308,7 @@ func (d Deps) handleAddAgentSkill(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "skill_id required", nil)
 		return
 	}
-	if err := d.Skills.AddAgentSkill(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), in.SkillID); err != nil {
+	if err := d.Skills.AddAgentSkill(r.Context(), d.ws(r), r.PathValue("agentId"), in.SkillID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -326,7 +321,7 @@ func (d Deps) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in)
 	if err := d.Skills.SetAgentSkillEnabled(r.Context(), d.ws(r),
-		chi.URLParam(r, "agentId"), chi.URLParam(r, "skillId"), in.Enabled); err != nil {
+		r.PathValue("agentId"), r.PathValue("skillId"), in.Enabled); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -335,7 +330,7 @@ func (d Deps) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleRemoveAgentSkill(w http.ResponseWriter, r *http.Request) {
 	if err := d.Skills.RemoveAgentSkill(r.Context(), d.ws(r),
-		chi.URLParam(r, "agentId"), chi.URLParam(r, "skillId")); err != nil {
+		r.PathValue("agentId"), r.PathValue("skillId")); err != nil {
 		writeErr(w, err)
 		return
 	}

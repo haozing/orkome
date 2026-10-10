@@ -3,15 +3,13 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/webx"
 )
 
 func (d Deps) handleGetSquad(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "squadId")
+	id := r.PathValue("squadId")
 	var row map[string]any
 	var err error
 	if d.Squads != nil {
@@ -44,7 +42,7 @@ func (d Deps) handleUpdateSquad(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out, err := d.Squads.Update(r.Context(), d.ws(r), chi.URLParam(r, "squadId"), orchapp.SquadUpdateInput{
+	out, err := d.Squads.Update(r.Context(), d.ws(r), r.PathValue("squadId"), orchapp.SquadUpdateInput{
 		Name: in.Name, Instructions: in.Instructions,
 		LeaderAgentID: in.LeaderAgentID, Choreography: in.Choreography,
 	})
@@ -60,7 +58,7 @@ func (d Deps) handleDeleteSquad(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "squad service not wired", nil)
 		return
 	}
-	if err := d.Squads.Delete(r.Context(), d.ws(r), chi.URLParam(r, "squadId")); err != nil {
+	if err := d.Squads.Delete(r.Context(), d.ws(r), r.PathValue("squadId")); err != nil {
 		writeErr(w, err)
 		return
 	}

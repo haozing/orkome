@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,7 +16,7 @@ import (
 	"orkome/internal/skills/app"
 )
 
-func newSkillLabelsRouter(t *testing.T, mounted []string, notFoundFor string) *chi.Mux {
+func newSkillLabelsRouter(t *testing.T, mounted []string, notFoundFor string) *http.ServeMux {
 	t.Helper()
 	labels := func(ids ...string) []SkillLabelView {
 		out := make([]SkillLabelView, 0, len(ids))
@@ -50,7 +49,7 @@ func newSkillLabelsRouter(t *testing.T, mounted []string, notFoundFor string) *c
 				&webx.Principal{UserID: "u-1", Source: webx.SourceSession})))
 		})
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, deps, auth)
 	return r
 }
@@ -58,9 +57,9 @@ func newSkillLabelsRouter(t *testing.T, mounted []string, notFoundFor string) *c
 func skillLabelsReq(r http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	var req *http.Request
 	if body == "" {
-		req = httptest.NewRequest(method, target, nil)
+		req = httptest.NewRequest(method, "/api"+target, nil)
 	} else {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
+		req = httptest.NewRequest(method, "/api"+target, strings.NewReader(body))
 	}
 	req.Header.Set("X-Workspace-Id", "ws-1")
 	rec := httptest.NewRecorder()
@@ -91,7 +90,7 @@ func TestSkillLabelsEndpoints_MountedAndValidation(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, skillLabelsReq(r, "DELETE", "/skills/sk-1/labels", "").Code)
 	assert.Equal(t, http.StatusNotFound, skillLabelsReq(r, "POST", "/skills/sk-404/labels", `{"label_id":"x"}`).Code)
 
-	bare := chi.NewRouter()
+	bare := http.NewServeMux()
 	Mount(bare, Deps{Skills: &app.SkillService{},
 		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil }},
 		func(next http.Handler) http.Handler {

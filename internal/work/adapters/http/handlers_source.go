@@ -3,8 +3,6 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 	"orkome/internal/work/app"
@@ -13,7 +11,7 @@ import (
 
 func (d Deps) handleSourcePreview(w http.ResponseWriter, r *http.Request) {
 	p := webx.PrincipalFrom(r.Context())
-	out, err := d.SourceCtx.Preview(r.Context(), wsID(r), chi.URLParam(r, "commentId"), p.UserID)
+	out, err := d.SourceCtx.Preview(r.Context(), wsID(r), r.PathValue("commentId"), p.UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -38,7 +36,7 @@ func (d Deps) handleSourceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := webx.PrincipalFrom(r.Context())
-	child, err := d.SourceCtx.CreateFromComment(r.Context(), wsID(r), chi.URLParam(r, "commentId"),
+	child, err := d.SourceCtx.CreateFromComment(r.Context(), wsID(r), r.PathValue("commentId"),
 		p.UserID, in.CaptureToken, in.Mode, in.Title)
 	if err != nil {
 		writeErr(w, err)

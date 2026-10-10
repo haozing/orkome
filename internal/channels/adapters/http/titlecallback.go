@@ -5,8 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/channels/app"
 	"orkome/internal/channels/domain"
 	"orkome/internal/contract/apierr"
@@ -18,8 +16,8 @@ type Deps struct {
 	Repo   app.Repo
 }
 
-func Mount(r chi.Router, d Deps) {
-	r.Post("/channels/title-callback", d.handleTitleCallback)
+func Mount(mux *http.ServeMux, d Deps) {
+	mux.HandleFunc("POST /api/channels/title-callback", d.handleTitleCallback)
 }
 
 type titleCallbackRequest struct {

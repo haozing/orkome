@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -99,7 +98,7 @@ func newB2H(t *testing.T) *b2h {
 		return exists, err
 	}
 
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{
 		Agents: agents, Repo: repo, MemberCheck: memberCheck,
 		TaskMessages: func(ctx context.Context, ws, taskID string, q orchapp.TaskMessagesQuery) ([]orchapp.TaskMessage, error) {
@@ -152,7 +151,7 @@ VALUES ($1, $2, 'b2 fixture', 'todo', $3) RETURNING id::text`, h.wsID, b2wiSeq, 
 func TestB2_AgentCRUDHTTP(t *testing.T) {
 	h := newB2H(t)
 
-	code, out := h.do("POST", "/agents", map[string]any{
+	code, out := h.do("POST", "/api/agents", map[string]any{
 		"name":           "researcher",
 		"description":    "researcher",
 		"runtime_config": map[string]any{"provider": "fake", "model": "m"},
@@ -161,21 +160,21 @@ func TestB2_AgentCRUDHTTP(t *testing.T) {
 	id, _ := out["id"].(string)
 	require.NotEmpty(t, id)
 
-	code, out = h.do("POST", "/agents", map[string]any{"name": "researcher"})
+	code, out = h.do("POST", "/api/agents", map[string]any{"name": "researcher"})
 	assert.Equal(t, 400, code)
 	assert.Equal(t, apierr.Validation, errCodeOf(out), "duplicate names should be E_VALIDATION")
 
-	code, out = h.do("GET", "/agents/"+id, nil)
+	code, out = h.do("GET", "/api/agents/"+id, nil)
 	require.Equal(t, 200, code)
 	assert.Equal(t, "researcher", out["name"])
 	assert.Equal(t, h.userID, out["owner_user_id"], "attribution defaults to the creator (internal archive 05 §2.1)")
 
-	code, out = h.do("GET", "/agents", nil)
+	code, out = h.do("GET", "/api/agents", nil)
 	require.Equal(t, 200, code)
 	list, _ := out["agents"].([]any)
 	assert.Len(t, list, 1)
 
-	code, out = h.do("PUT", "/agents/"+id, map[string]any{
+	code, out = h.do("PUT", "/api/agents/"+id, map[string]any{
 		"name": "researcher-2", "description": "senior researcher",
 		"runtime_config":       map[string]any{"provider": "fake", "model": "m2"},
 		"max_concurrent_tasks": 3, "visibility": "public",
@@ -184,15 +183,15 @@ func TestB2_AgentCRUDHTTP(t *testing.T) {
 	assert.Equal(t, "researcher-2", out["name"])
 	assert.EqualValues(t, 3, out["max_concurrent_tasks"])
 
-	code, _ = h.do("PUT", "/agents/00000000-0000-0000-0000-000000000000", map[string]any{"name": "x"})
+	code, _ = h.do("PUT", "/api/agents/00000000-0000-0000-0000-000000000000", map[string]any{"name": "x"})
 	assert.Equal(t, 404, code)
 
-	code, out = h.do("POST", "/agents/"+id+"/archive", nil)
+	code, out = h.do("POST", "/api/agents/"+id+"/archive", nil)
 	require.Equal(t, 200, code)
 	assert.Equal(t, "archived", out["result"])
 	got, _, _ := h.repo.GetAgent(context.Background(), h.wsID, id)
 	assert.True(t, got.Archived)
-	code, out = h.do("POST", "/agents/"+id+"/restore", nil)
+	code, out = h.do("POST", "/api/agents/"+id+"/restore", nil)
 	require.Equal(t, 200, code)
 	assert.Equal(t, "restored", out["result"])
 
@@ -202,11 +201,11 @@ func TestB2_AgentCRUDHTTP(t *testing.T) {
 			context.Background(), h.wsID, wi, id, h.userID)
 		require.NoError(t, err)
 	}
-	code, out = h.do("POST", "/agents/"+id+"/cancel-tasks", nil)
+	code, out = h.do("POST", "/api/agents/"+id+"/cancel-tasks", nil)
 	require.Equal(t, 200, code, "cancel-tasks: %v", out)
 	assert.EqualValues(t, 2, out["cancelled"], "two unstarted tasks should be cancelled")
 
-	_, out = h.do("POST", "/agents/"+id+"/cancel-tasks", nil)
+	_, out = h.do("POST", "/api/agents/"+id+"/cancel-tasks", nil)
 	assert.EqualValues(t, 0, out["cancelled"])
 }
 
@@ -222,7 +221,7 @@ func TestB2_TaskMessagesEndpoint(t *testing.T) {
 	task, _, err := h.enq.EnqueueAssignment(ctx, h.wsID, wi, a.ID, h.userID)
 	require.NoError(t, err)
 
-	code, out := h.do("GET", "/tasks/"+task.ID+"/messages", nil)
+	code, out := h.do("GET", "/api/tasks/"+task.ID+"/messages", nil)
 	require.Equal(t, 200, code)
 	msgs, _ := out["messages"].([]any)
 	assert.Empty(t, msgs)
@@ -231,7 +230,7 @@ func TestB2_TaskMessagesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	_, err = h.repo.AppendTaskMessage(ctx, h.wsID, task.ID, "text", "", "final conclusion", false)
 	require.NoError(t, err)
-	code, out = h.do("GET", "/tasks/"+task.ID+"/messages", nil)
+	code, out = h.do("GET", "/api/tasks/"+task.ID+"/messages", nil)
 	require.Equal(t, 200, code)
 	msgs, _ = out["messages"].([]any)
 	require.Len(t, msgs, 2)
@@ -240,7 +239,7 @@ func TestB2_TaskMessagesEndpoint(t *testing.T) {
 	assert.Equal(t, "call_1", first["call_id"])
 	assert.EqualValues(t, 1, first["seq"])
 
-	rd := httptest.NewRequest("GET", "/tasks/"+task.ID+"/messages", nil)
+	rd := httptest.NewRequest("GET", "/api/tasks/"+task.ID+"/messages", nil)
 	rd.Header.Set("X-Workspace-Id", "00000000-0000-0000-0000-000000000002")
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, rd)
@@ -249,7 +248,7 @@ func TestB2_TaskMessagesEndpoint(t *testing.T) {
 
 func TestB2_AgentHTTP_ForbiddenNonMember(t *testing.T) {
 	h := newB2H(t)
-	rd := httptest.NewRequest("GET", "/agents", nil)
+	rd := httptest.NewRequest("GET", "/api/agents", nil)
 	rd.Header.Set("X-Workspace-Id", "00000000-0000-0000-0000-000000000001")
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, rd)

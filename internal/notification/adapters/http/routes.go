@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/notification/app"
 	"orkome/internal/platform/webx"
 )
@@ -19,26 +17,26 @@ type Deps struct {
 	MemberCheck  func(ctx context.Context, workspaceID, userID string) (bool, error)
 }
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
-	r.Group(func(r chi.Router) {
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.wsFromHeader(h))))
+	}
 
-		r.Use(auth, webx.RequireAuth, d.wsFromHeader)
-		r.Get("/notifications", d.handleList)
-		r.Get("/notifications/archived", d.handleListArchived)
-		r.Get("/notifications/unread-count", d.handleUnreadCount)
-		r.Get("/notifications/summary", d.handleSummary)
-		r.Get("/notifications/facets", d.handleFacets)
-		r.Post("/notifications/mark-all-read", d.handleMarkAllRead)
-		r.Post("/notifications/archive-all", d.handleArchiveAll)
-		r.Post("/notifications/archive-all-read", d.handleArchiveAllRead)
-		r.Post("/notifications/{itemId}/read", d.handleRead)
-		r.Post("/notifications/{itemId}/unread", d.handleUnread)
-		r.Post("/notifications/{itemId}/archive", d.handleArchive)
-		r.Post("/notifications/{itemId}/unarchive", d.handleUnarchive)
-		r.Get("/notification-preferences", d.handleGetPrefs)
-		r.Patch("/notification-preferences", d.handlePatchPrefs)
-		r.Put("/notification-preferences", d.handlePutPrefs)
-	})
+	reg("GET /api/notifications", d.handleList)
+	reg("GET /api/notifications/archived", d.handleListArchived)
+	reg("GET /api/notifications/unread-count", d.handleUnreadCount)
+	reg("GET /api/notifications/summary", d.handleSummary)
+	reg("GET /api/notifications/facets", d.handleFacets)
+	reg("POST /api/notifications/mark-all-read", d.handleMarkAllRead)
+	reg("POST /api/notifications/archive-all", d.handleArchiveAll)
+	reg("POST /api/notifications/archive-all-read", d.handleArchiveAllRead)
+	reg("POST /api/notifications/{itemId}/read", d.handleRead)
+	reg("POST /api/notifications/{itemId}/unread", d.handleUnread)
+	reg("POST /api/notifications/{itemId}/archive", d.handleArchive)
+	reg("POST /api/notifications/{itemId}/unarchive", d.handleUnarchive)
+	reg("GET /api/notification-preferences", d.handleGetPrefs)
+	reg("PATCH /api/notification-preferences", d.handlePatchPrefs)
+	reg("PUT /api/notification-preferences", d.handlePutPrefs)
 }
 
 func (d Deps) wsFromHeader(next http.Handler) http.Handler {
@@ -164,7 +162,7 @@ func (d Deps) handleUnread(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) mark(w http.ResponseWriter, r *http.Request, read bool) {
 	p := webx.PrincipalFrom(r.Context())
-	if err := d.Notification.MarkRead(r.Context(), p.WorkspaceID, p.UserID, chi.URLParam(r, "itemId"), read); err != nil {
+	if err := d.Notification.MarkRead(r.Context(), p.WorkspaceID, p.UserID, r.PathValue("itemId"), read); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -176,7 +174,7 @@ func (d Deps) handleUnarchive(w http.ResponseWriter, r *http.Request) { d.arch(w
 
 func (d Deps) arch(w http.ResponseWriter, r *http.Request, archived bool) {
 	p := webx.PrincipalFrom(r.Context())
-	if err := d.Notification.Archive(r.Context(), p.WorkspaceID, p.UserID, chi.URLParam(r, "itemId"), archived); err != nil {
+	if err := d.Notification.Archive(r.Context(), p.WorkspaceID, p.UserID, r.PathValue("itemId"), archived); err != nil {
 		writeErr(w, err)
 		return
 	}

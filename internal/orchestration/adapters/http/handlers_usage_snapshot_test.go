@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,7 +29,7 @@ func (f *usageFakeRepo) ListWorkspaceActiveTasks(_ context.Context, _ string) ([
 }
 
 func newUsageRouter(repo orchapp.Repo) http.Handler {
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{Repo: repo,
 		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil },
 	}, passAuth)
@@ -51,7 +50,7 @@ func TestWorkItemUsageEndpoint_ShapeAnd404(t *testing.T) {
 	}}
 	r := newUsageRouter(repo)
 
-	rec := agentLabelsReq(r, "GET", "/work-items/wi-1/usage", "")
+	rec := agentLabelsReq(r, "GET", "/api/work-items/wi-1/usage", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var u orchapp.WorkItemUsage
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &u))
@@ -65,13 +64,13 @@ func TestWorkItemUsageEndpoint_ShapeAnd404(t *testing.T) {
 	assert.Equal(t, "gpt-4o", u.ByProvider[0].Model)
 	assert.EqualValues(t, 300, u.ByProvider[0].CostUSDTicks)
 
-	rec = agentLabelsReq(r, "GET", "/work-items/wi-empty/usage", "")
+	rec = agentLabelsReq(r, "GET", "/api/work-items/wi-empty/usage", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &u))
 	assert.EqualValues(t, 0, u.Tasks)
 	assert.Empty(t, u.ByProvider)
 
-	assert.Equal(t, http.StatusNotFound, agentLabelsReq(r, "GET", "/work-items/ghost/usage", "").Code)
+	assert.Equal(t, http.StatusNotFound, agentLabelsReq(r, "GET", "/api/work-items/ghost/usage", "").Code)
 }
 
 func TestAgentRunSnapshotEndpoint(t *testing.T) {
@@ -82,7 +81,7 @@ func TestAgentRunSnapshotEndpoint(t *testing.T) {
 	}}
 	r := newUsageRouter(repo)
 
-	rec := agentLabelsReq(r, "GET", "/agent-run-snapshot", "")
+	rec := agentLabelsReq(r, "GET", "/api/agent-run-snapshot", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out struct {
 		Items []orchapp.AgentRunSnapshotItem `json:"items"`
@@ -95,7 +94,7 @@ func TestAgentRunSnapshotEndpoint(t *testing.T) {
 	assert.True(t, out.Items[1].StartedAt.Equal(started))
 	assert.Equal(t, "wi-1", out.Items[1].WorkItemID)
 
-	rec = agentLabelsReq(newUsageRouter(&usageFakeRepo{}), "GET", "/agent-run-snapshot", "")
+	rec = agentLabelsReq(newUsageRouter(&usageFakeRepo{}), "GET", "/api/agent-run-snapshot", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"items":[]`)
 }

@@ -3,8 +3,6 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/webx"
 )
@@ -44,7 +42,7 @@ func (d Deps) handleUIEntryDelete(w http.ResponseWriter, r *http.Request) {
 	if !requireWorkspaceAdmin(w, r) {
 		return
 	}
-	if err := d.PackUIEntries.Delete(r.Context(), d.ws(r), chi.URLParam(r, "pack")); err != nil {
+	if err := d.PackUIEntries.Delete(r.Context(), d.ws(r), r.PathValue("pack")); err != nil {
 		writeErr(w, err)
 		return
 	}

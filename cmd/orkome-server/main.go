@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 
 	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
@@ -145,7 +144,7 @@ func main() {
 	relay.DecodePayload = decodeOutboxPayload
 	workersReg.AddFunc("outbox-relay", relay.Run)
 
-	r := chi.NewRouter()
+	root := http.NewServeMux()
 
 	proxies := webx.ParseTrustedProxies(cfg.TrustedProxies)
 	idDeps.TrustedProxies = proxies
@@ -188,15 +187,13 @@ func main() {
 		return nil
 	}
 
-	r.Use(webx.Recover(log), webx.Trace, webx.ClientMetadata, webx.AccessLog(log, proxies...),
-		webx.SecurityHeaders, webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true))
-	r.Handle("/metrics", metricsReg.HandlerWithToken(cfg.MetricsToken))
+	root.Handle("/metrics", metricsReg.HandlerWithToken(cfg.MetricsToken))
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	root.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		if err := db.Ping(ctx); err != nil {
@@ -215,7 +212,7 @@ func main() {
 		_, _ = w.Write([]byte("ready"))
 	})
 
-	api := chi.NewRouter()
+	api := http.NewServeMux()
 
 	authMw := webx.Authenticate(idDeps.AuthCfg(), idDeps.PAT())
 	authGuardMw := func(next http.Handler) http.Handler { return authMw(runtimeAgentWriteGuard(next)) }
@@ -281,15 +278,17 @@ func main() {
 	skillDeps := wiringSkills(db, cfg, idMemberCheck(db))
 	skillhttp.Mount(api, skillDeps, authGuardMw)
 	contenthttp.MountAPI(api, contentDeps, authGuardMw)
-	r.Mount("/api", api)
-	autohttp.MountPublic(r, autoDeps)
-	contenthttp.MountUploads(r, contentDeps)
-	mountWS(r, wsHub, authMw)
-	r.Mount("/", idhttp.RootRouter(idDeps, cfg.IsProd()))
+	root.Handle("/api/", api)
+	autohttp.MountPublic(root, autoDeps)
+	contenthttp.MountUploads(root, contentDeps)
+	mountWS(root, wsHub, authMw)
+	root.Handle("/", idhttp.RootRouter(idDeps, cfg.IsProd()))
 
+	handler := webx.Recover(log)(webx.Trace(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
+		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(root))))))
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           r,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

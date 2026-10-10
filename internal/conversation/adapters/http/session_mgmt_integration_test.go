@@ -25,7 +25,7 @@ func errCodeOf(t *testing.T, out map[string]any) string {
 
 func (h *b4h) doRaw(method, path, rawBody string) (int, map[string]any) {
 	h.t.Helper()
-	rd := httptest.NewRequest(method, path, bytes.NewReader([]byte(rawBody)))
+	rd := httptest.NewRequest(method, "/api"+path, bytes.NewReader([]byte(rawBody)))
 	rd.Header.Set("X-Workspace-Id", h.wsID)
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, rd)

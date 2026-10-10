@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,7 +24,7 @@ func (f *fakeUsageRepo) ClientUsageUpsert(_ context.Context, in app.ClientUsageR
 	return nil
 }
 
-func newUsageRouter(t *testing.T, source webx.Source) (*chi.Mux, *fakeUsageRepo) {
+func newUsageRouter(t *testing.T, source webx.Source) (http.Handler, *fakeUsageRepo) {
 	t.Helper()
 	repo := &fakeUsageRepo{}
 	deps := Deps{
@@ -38,16 +37,14 @@ func newUsageRouter(t *testing.T, source webx.Source) (*chi.Mux, *fakeUsageRepo)
 				&webx.Principal{UserID: "u-1", Source: source})))
 		})
 	}
-	r := chi.NewRouter()
-
-	r.Use(webx.ClientMetadata)
-	Mount(r, deps, auth)
-	return r, repo
+	mux := http.NewServeMux()
+	Mount(mux, deps, auth)
+	return webx.ClientMetadata(mux), repo
 }
 
 func doClientUsage(r http.Handler, platform, version, os, installID string) *httptest.ResponseRecorder {
 
-	req := httptest.NewRequest("POST", "/client-usage", strings.NewReader(`{"install_id":"`+installID+`"}`))
+	req := httptest.NewRequest("POST", "/api/client-usage", strings.NewReader(`{"install_id":"`+installID+`"}`))
 	req.Header.Set("X-Workspace-Id", "ws-1")
 	if platform != "" {
 		req.Header.Set("X-Client-Platform", platform)

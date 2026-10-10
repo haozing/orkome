@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -89,7 +88,7 @@ func newNenv(t *testing.T) *nenv {
 			`SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=$1 AND user_id=$2)`, ws, uid).Scan(&exists)
 		return exists, err
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{Notification: notification, Prefs: prefs, MemberCheck: memberCheck}, auth)
 	return &nenv{t: t, handler: r, repo: repo, notification: notification, prefs: prefs,
 		pool: pool, wsID: wsID, userID: userID}
@@ -100,9 +99,9 @@ func (h *nenv) do(method, path string, body any) (int, map[string]any) {
 	var rd *http.Request
 	if body != nil {
 		b, _ := json.Marshal(body)
-		rd = httptest.NewRequest(method, path, strings.NewReader(string(b)))
+		rd = httptest.NewRequest(method, "/api"+path, strings.NewReader(string(b)))
 	} else {
-		rd = httptest.NewRequest(method, path, nil)
+		rd = httptest.NewRequest(method, "/api"+path, nil)
 	}
 	rd.Header.Set("X-Workspace-Id", h.wsID)
 	w := httptest.NewRecorder()

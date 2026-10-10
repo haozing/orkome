@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -117,7 +116,7 @@ func newB7H(t *testing.T) *b7h {
 		return exists, err
 	}
 	att.SetHostChecker(hostCheck)
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	MountAPI(r, Deps{Attachments: att, Avatars: av, Local: local,
 		MemberCheck: memberCheck, RoleOf: roleOf}, auth)
 	MountUploads(r, Deps{Local: local})
@@ -143,7 +142,7 @@ func (h *b7h) upload(t *testing.T, filename, body string) (int, map[string]any) 
 	_, _ = fw.Write([]byte(body))
 	_ = mw.WriteField("host_kind", "work_item")
 	_ = mw.Close()
-	w := h.req("POST", "/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
+	w := h.req("POST", "/api/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	return w.Code, out
@@ -160,38 +159,40 @@ func TestB7_AttachmentLifecycle(t *testing.T) {
 	assert.Len(t, out["sha256"], 64)
 	assert.NotContains(t, out, "storage_key", "storage key absent from the response")
 
-	w := h.req("GET", "/attachments/"+id, nil, nil)
+	w := h.req("GET", "/api/attachments/"+id, nil, nil)
 	require.Equal(t, 200, w.Code)
 	var meta map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &meta)
 	assert.Equal(t, true, meta["inline"])
 
-	w = h.req("GET", "/attachments/"+id+"/download", nil, nil)
+	w = h.req("GET", "/api/attachments/"+id+"/download", nil, nil)
 	require.Equal(t, 200, w.Code)
 	assert.Equal(t, "hello attachment", w.Body.String())
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
 
-	w = h.req("GET", "/attachments/"+id+"/content", nil, nil)
+	w = h.req("GET", "/api/attachments/"+id+"/content", nil, nil)
 	require.Equal(t, 200, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "inline")
 
 	ctx := context.Background()
 	url, err := h.att.SignedURL(ctx, h.wsID, id, "download", h.userID, 0)
 	require.NoError(t, err)
-	w = h.req("GET", url, nil, nil)
+	w = h.req("GET", "/api"+url, nil, nil)
 	require.Equal(t, 200, w.Code)
 	assert.Equal(t, "hello attachment", w.Body.String())
-	w = h.req("GET", "/attachments/"+id+"/signed-download?exp=99999999999&intent=download&sig=forged", nil, nil)
+	w = h.req("GET", "/api/attachments/"+id+"/signed-download?exp=99999999999&intent=download&sig=forged", nil, nil)
 	assert.Equal(t, 403, w.Code)
 
 	w = h.req("GET", "/uploads/", nil, nil)
 	assert.Equal(t, 404, w.Code)
 	w = h.req("GET", "/uploads/../secret", nil, nil)
-	assert.Equal(t, 404, w.Code)
+	// stdlib ServeMux canonicalizes dot-dot segments with a redirect before
+	// matching (chi answered 404 here); either outcome keeps storage unreachable.
+	assert.Contains(t, []int{http.StatusMovedPermanently, http.StatusNotFound}, w.Code)
 
-	w = h.req("DELETE", "/attachments/"+id, nil, nil)
+	w = h.req("DELETE", "/api/attachments/"+id, nil, nil)
 	require.Equal(t, 200, w.Code)
-	w = h.req("GET", "/attachments/"+id, nil, nil)
+	w = h.req("GET", "/api/attachments/"+id, nil, nil)
 	assert.Equal(t, 404, w.Code)
 }
 
@@ -201,12 +202,12 @@ func TestB7_SVGForcedDownload(t *testing.T) {
 	require.Equal(t, 201, code, "upload: %v", out)
 	id, _ := out["id"].(string)
 
-	w := h.req("GET", "/attachments/"+id, nil, nil)
+	w := h.req("GET", "/api/attachments/"+id, nil, nil)
 	var meta map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &meta)
 	assert.Equal(t, false, meta["inline"], "SVG auto mode should judge non-inline")
 
-	w = h.req("GET", "/attachments/"+id+"/content", nil, nil)
+	w = h.req("GET", "/api/attachments/"+id+"/content", nil, nil)
 	require.Equal(t, 200, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment", "SVG always downloads")
 }
@@ -220,11 +221,11 @@ func TestB7_AvatarSignedURL(t *testing.T) {
 
 	u := h.av.Sign("avatars/u1.png", 0)
 	require.True(t, strings.HasPrefix(u, "/avatars/avatars/u1.png?"), "signed URL form: %s", u)
-	w := h.req("GET", u, nil, nil)
+	w := h.req("GET", "/api"+u, nil, nil)
 	require.Equal(t, 200, w.Code)
 	assert.Equal(t, "pngdata", w.Body.String())
 
-	w = h.req("GET", "/avatars/avatars/u1.png?exp=99999999999&sig=deadbeef", nil, nil)
+	w = h.req("GET", "/api/avatars/avatars/u1.png?exp=99999999999&sig=deadbeef", nil, nil)
 	assert.Equal(t, 403, w.Code)
 }
 
@@ -237,7 +238,7 @@ func TestB7_UploadValidation(t *testing.T) {
 	_, _ = fw.Write([]byte("x"))
 	_ = mw.WriteField("host_kind", "bogus")
 	_ = mw.Close()
-	w := h.req("POST", "/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
+	w := h.req("POST", "/api/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
 	assert.Equal(t, 400, w.Code)
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
@@ -273,24 +274,24 @@ func TestB21_RangeSingleSegment(t *testing.T) {
 		return w, n
 	}
 
-	w, _ := rd("/attachments/"+id+"/download", "bytes=2-5")
+	w, _ := rd("/api/attachments/"+id+"/download", "bytes=2-5")
 	assert.Equal(t, 206, w.Code)
 	assert.Equal(t, "2345", w.Body.String(), "bytes=2-5 means subscripts 2..5")
 	assert.Equal(t, "bytes 2-5/20", w.Header().Get("Content-Range"))
 
-	w, _ = rd("/attachments/"+id+"/download", "bytes=10-")
+	w, _ = rd("/api/attachments/"+id+"/download", "bytes=10-")
 	assert.Equal(t, 206, w.Code)
 	assert.Equal(t, "abcdefghij", w.Body.String())
 
-	w, _ = rd("/attachments/"+id+"/download", "bytes=-4")
+	w, _ = rd("/api/attachments/"+id+"/download", "bytes=-4")
 	assert.Equal(t, 206, w.Code)
 	assert.Equal(t, "ghij", w.Body.String())
 
-	w, _ = rd("/attachments/"+id+"/download", "bytes=0-99")
+	w, _ = rd("/api/attachments/"+id+"/download", "bytes=0-99")
 	assert.Equal(t, 200, w.Code)
 	assert.Len(t, w.Body.String(), 20)
 
-	w, _ = rd("/attachments/"+id+"/download", "bytes=0-1,3-4")
+	w, _ = rd("/api/attachments/"+id+"/download", "bytes=0-1,3-4")
 	assert.Equal(t, 200, w.Code)
 }
 
@@ -313,20 +314,20 @@ func TestB7_DeletePermissionGrading(t *testing.T) {
 	member2 := newUser("member2@x.io", "member")
 	admin2 := newUser("admin2@x.io", "admin")
 
-	w := h.req("DELETE", "/attachments/"+id, nil, map[string]string{"X-Test-User": member2})
+	w := h.req("DELETE", "/api/attachments/"+id, nil, map[string]string{"X-Test-User": member2})
 	require.Equal(t, 403, w.Code)
 	assert.Contains(t, w.Body.String(), apierr.Forbidden)
-	w = h.req("GET", "/attachments/"+id, nil, nil)
+	w = h.req("GET", "/api/attachments/"+id, nil, nil)
 	require.Equal(t, 200, w.Code, "row not deleted after member 403")
 
-	w = h.req("DELETE", "/attachments/"+id, nil, map[string]string{"X-Test-User": admin2})
+	w = h.req("DELETE", "/api/attachments/"+id, nil, map[string]string{"X-Test-User": admin2})
 	require.Equal(t, 200, w.Code, "admin tiered allowance")
-	w = h.req("GET", "/attachments/"+id, nil, nil)
+	w = h.req("GET", "/api/attachments/"+id, nil, nil)
 	assert.Equal(t, 404, w.Code, "invisible after deletion")
 
 	_, err := h.pool.Exec(ctx, `DELETE FROM member WHERE workspace_id=$1 AND user_id=$2`, h.wsID, admin2)
 	require.NoError(t, err)
-	w = h.req("DELETE", "/attachments/"+id, nil, map[string]string{"X-Test-User": admin2})
+	w = h.req("DELETE", "/api/attachments/"+id, nil, map[string]string{"X-Test-User": admin2})
 	assert.Equal(t, 403, w.Code, "memberMW rejects after removal from the workspace")
 }
 
@@ -340,7 +341,7 @@ func TestB7_UploadHostCheckMissingHost(t *testing.T) {
 	_ = mw.WriteField("host_kind", "work_item")
 	_ = mw.WriteField("host_id", "00000000-0000-0000-0000-000000000001")
 	_ = mw.Close()
-	w := h.req("POST", "/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
+	w := h.req("POST", "/api/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
 	require.Equal(t, 404, w.Code, "host does not exist, propagation rejected")
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)

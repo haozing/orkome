@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -103,7 +102,7 @@ func (f *crudFakeRepo) ListFiles(_ context.Context, ws, skillID string) ([]app.S
 	return f.files[skillID], nil
 }
 
-func newCRUDRouter(t *testing.T) (*chi.Mux, *crudFakeRepo) {
+func newCRUDRouter(t *testing.T) (*http.ServeMux, *crudFakeRepo) {
 	t.Helper()
 	repo := &crudFakeRepo{
 		skills: map[string]app.Skill{}, byName: map[string]string{}, files: map[string][]app.SkillFile{},
@@ -125,7 +124,7 @@ func newCRUDRouter(t *testing.T) (*chi.Mux, *crudFakeRepo) {
 	add("sk-1", "f-main", "SKILL.md", "---\nname: demo\n---\n# body")
 	add("sk-1", "f-ref", "refs/x.md", "ref")
 
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{
 		Skills:      app.NewSkillService(repo),
 		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil },
@@ -141,9 +140,9 @@ func newCRUDRouter(t *testing.T) (*chi.Mux, *crudFakeRepo) {
 func crudReq(r http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	var req *http.Request
 	if body == "" {
-		req = httptest.NewRequest(method, target, nil)
+		req = httptest.NewRequest(method, "/api"+target, nil)
 	} else {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
+		req = httptest.NewRequest(method, "/api"+target, strings.NewReader(body))
 	}
 	req.Header.Set("X-Workspace-Id", "ws-1")
 	rec := httptest.NewRecorder()

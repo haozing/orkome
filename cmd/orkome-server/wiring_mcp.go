@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
@@ -26,7 +25,7 @@ type agentMCPDeps struct {
 	external *orchapp.ExternalTaskService
 }
 
-func mountAgentMCP(api chi.Router, auth func(http.Handler) http.Handler,
+func mountAgentMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 	db *pg.DB, bus *eventbus.Bus, external *orchapp.ExternalTaskService,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error)) {
 	orchRepo := orchpgrepo.New(db)
@@ -42,20 +41,16 @@ func mountAgentMCP(api chi.Router, auth func(http.Handler) http.Handler,
 	d.addLoopTools(s)
 	handler := server.NewStreamableHTTPServer(s)
 
-	api.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.workspaceMW(memberCheck))
-
-		r.Post("/mcp/w/{workspaceId}/agent", handler.ServeHTTP)
-		r.Get("/mcp/w/{workspaceId}/agent", handler.ServeHTTP)
-	})
+	guarded := auth(webx.RequireAuth(d.workspaceMW(memberCheck)(handler)))
+	api.Handle("POST /api/mcp/w/{workspaceId}/agent", guarded)
+	api.Handle("GET /api/mcp/w/{workspaceId}/agent", guarded)
 }
 
 func (d *agentMCPDeps) workspaceMW(memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p := webx.PrincipalFrom(r.Context())
-			ws := chi.URLParam(r, "workspaceId")
+			ws := r.PathValue("workspaceId")
 			ok, err := memberCheck(r.Context(), ws, p.UserID)
 			if err != nil || !ok {
 				webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace membership required", nil)

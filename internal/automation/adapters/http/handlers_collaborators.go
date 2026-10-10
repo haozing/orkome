@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 )
 
 func (d Deps) listCollaborators(w http.ResponseWriter, r *http.Request) {
-	out, err := d.Autopilots.ListCollaborators(r.Context(), wsOf(r), chi.URLParam(r, "autopilotId"))
+	out, err := d.Autopilots.ListCollaborators(r.Context(), wsOf(r), r.PathValue("autopilotId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -32,7 +30,7 @@ func (d Deps) addCollaborator(w http.ResponseWriter, r *http.Request) {
 	if p != nil {
 		grantedBy = p.UserID
 	}
-	out, err := d.Autopilots.AddCollaborator(r.Context(), wsOf(r), chi.URLParam(r, "autopilotId"), in.UserID, grantedBy)
+	out, err := d.Autopilots.AddCollaborator(r.Context(), wsOf(r), r.PathValue("autopilotId"), in.UserID, grantedBy)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -46,7 +44,7 @@ func (d Deps) removeCollaborator(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "user_id required", nil)
 		return
 	}
-	if err := d.Autopilots.RemoveCollaborator(r.Context(), wsOf(r), chi.URLParam(r, "autopilotId"), userID); err != nil {
+	if err := d.Autopilots.RemoveCollaborator(r.Context(), wsOf(r), r.PathValue("autopilotId"), userID); err != nil {
 		writeErr(w, err)
 		return
 	}

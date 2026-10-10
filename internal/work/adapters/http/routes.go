@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/webx"
 	"orkome/internal/work/app"
@@ -68,140 +66,127 @@ func principal(r *http.Request) *webx.Principal { return webx.PrincipalFrom(r.Co
 
 func wsID(r *http.Request) string { return webx.PrincipalFrom(r.Context()).WorkspaceID }
 
-func Routes(d Deps, auth func(http.Handler) http.Handler) chi.Router {
-	r := chi.NewRouter()
-	Mount(r, d, auth)
-	return r
+func Routes(d Deps, auth func(http.Handler) http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	Mount(mux, d, auth)
+	return mux
 }
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				p := webx.PrincipalFrom(r.Context())
-				ws := r.Header.Get("X-Workspace-Id")
-				if ws == "" {
-					webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "X-Workspace-Id header required", nil)
-					return
-				}
-				ok, err := d.MemberCheck(r.Context(), ws, p.UserID)
-				if err != nil || !ok {
-					webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "not a member of this workspace", nil)
-					return
-				}
-				p.WorkspaceID = ws
-				next.ServeHTTP(w, r)
-			})
-		})
-
-		r.Get("/work-items", d.handleList)
-		r.Post("/work-items", d.handleCreate)
-		r.Post("/work-items/query", d.handleQuery)
-		r.Post("/work-items/table/rows", d.handleRows)
-		r.Post("/work-items/table/groups", d.handleGroups)
-		r.Post("/work-items/table/facets", d.handleFacets)
-		r.Get("/work-items/search", d.handleSearch)
-		r.Post("/work-items/batch-update", d.handleBatchUpdate)
-		r.Post("/work-items/batch-delete", d.handleBatchDelete)
-		r.Get("/work-items/child-progress", d.handleChildProgress)
-		r.Get("/work-items/children", d.handleChildren)
-		r.Get("/work-items/grouped", d.handleGroupedByAssignee)
-		r.Get("/work-items/assignee-frequency", d.handleAssigneeFreq)
-		r.Post("/work-items/preview-trigger", d.handleTriggerPreview)
-
-		r.Route("/work-items/{workItemId}", func(r chi.Router) {
-			r.Get("/", d.handleGet)
-			r.Put("/", d.handleUpdate)
-			r.Delete("/", d.handleDelete)
-			r.Post("/move", d.handleMove)
-			r.Post("/reactions", d.handleReaction)
-			r.Delete("/reactions", d.handleReactionDelete)
-			r.Get("/comments", d.handleListComments)
-			r.Post("/comments", d.handleCreateComment)
-			r.Post("/comments/trigger-preview", d.handleTriggerPreview)
-
-			r.Get("/labels", d.handleGetLabels)
-			r.Post("/labels", d.handleAttachLabel)
-			r.Delete("/labels/{labelId}", d.handleDetachLabel)
-			r.Get("/timeline", d.handleTimeline)
-			r.Get("/subscribers", d.handleSubscribers)
-			r.Post("/subscribers", d.handleSubscribe)
-			r.Get("/usage", d.handleUsage)
-			r.Get("/duplicates", d.handleDuplicates)
-			r.Get("/metadata/{key}", d.handleMetadata)
-			r.Put("/metadata/{key}", d.handleMetadataPut)
-			r.Delete("/metadata/{key}", d.handleMetadataDel)
-
-			r.Get("/properties/{key}", d.handleGetPropertyKey)
-			r.Put("/properties/{key}", d.handlePropertyKeyPut)
-			r.Delete("/properties/{key}", d.handlePropertyKeyDel)
-		})
-
-		r.Get("/labels", d.handleListLabelsAll)
-		r.Post("/labels", d.handleCreateLabel)
-		r.Route("/labels/{labelId}", func(r chi.Router) {
-			r.Get("/", d.handleGetLabel)
-			r.Delete("/", d.handleDeleteLabel)
-			r.Put("/", d.handleUpsertLabel)
-		})
-		r.Get("/projects", d.handleListProjects)
-		r.Post("/projects", d.handleCreateProject)
-		r.Get("/projects/search", d.handleSearchProjects)
-		r.Route("/projects/{projectId}", func(r chi.Router) {
-			r.Get("/", d.handleGetProject)
-			r.Put("/", d.handleUpdateProject)
-			r.Delete("/", d.handleDeleteProject)
-
-			r.Get("/resources", d.handleListProjectResources)
-			r.Post("/resources", d.handleCreateProjectResource)
-			r.Route("/resources/{resourceId}", func(r chi.Router) {
-				r.Put("/", d.handleUpdateProjectResource)
-				r.Delete("/", d.handleDeleteProjectResource)
-			})
-		})
-		r.Get("/work-item-statuses", d.handleListStatuses)
-		r.Post("/work-item-statuses", d.handleCreateStatus)
-		r.Post("/work-item-statuses/reorder", d.handleReorderStatuses)
-		r.Patch("/work-item-statuses/{statusKey}", d.handleUpdateStatus)
-		r.Get("/properties", d.handleListProps)
-		r.Post("/properties", d.handleCreateProp)
-
-		r.Get("/properties/{key}", d.handleGetPropertyDef)
-		r.Patch("/properties/{key}", d.handleUpdatePropertyDef)
-		r.Delete("/properties/{key}", d.handleDeletePropertyDef)
-
-		r.Get("/work-item-views", d.handleListViews)
-		r.Put("/work-item-views", d.handleSaveView)
-		r.Get("/work-item-view-preferences", d.handleViewPrefGet)
-		r.Put("/work-item-view-preferences", d.handleViewPrefPut)
-
-		r.Post("/unsubscribe", d.handleUnsubscribe(false))
-		r.Post("/unsubscribe/subtree", d.handleUnsubscribe(true))
-
-		if d.ClientUsage != nil {
-			r.Post("/client-usage", webx.RequireHuman(d.handleClientUsage))
-		}
-
-		r.Route("/comments/{commentId}", func(r chi.Router) {
-			r.Put("/", d.handleUpdateComment)
-			r.Delete("/", d.handleDeleteComment)
-
-			r.Delete("/keep-replies", d.handleDeleteComment)
-			r.Post("/resolve", d.handleResolve)
-			r.Delete("/resolve", d.handleUnresolve)
-
-			r.Post("/reactions", d.handleCommentReaction)
-			r.Delete("/reactions", d.handleCommentReactionDelete)
-			if d.SourceCtx != nil {
-				r.Get("/sub-work-item-preview", webx.RequireHuman(d.handleSourcePreview))
-				r.Post("/sub-work-items", webx.RequireHuman(d.handleSourceCreate))
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
+	wsGuard := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := webx.PrincipalFrom(r.Context())
+			ws := r.Header.Get("X-Workspace-Id")
+			if ws == "" {
+				webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "X-Workspace-Id header required", nil)
+				return
 			}
+			ok, err := d.MemberCheck(r.Context(), ws, p.UserID)
+			if err != nil || !ok {
+				webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "not a member of this workspace", nil)
+				return
+			}
+			p.WorkspaceID = ws
+			next.ServeHTTP(w, r)
 		})
+	}
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(wsGuard(h))))
+	}
 
-		if d.SourceCtx != nil {
-			r.Post("/work-items/quick-create", d.handleQuickCreate)
-		}
+	reg("GET /api/work-items", d.handleList)
+	reg("POST /api/work-items", d.handleCreate)
+	reg("POST /api/work-items/query", d.handleQuery)
+	reg("POST /api/work-items/table/rows", d.handleRows)
+	reg("POST /api/work-items/table/groups", d.handleGroups)
+	reg("POST /api/work-items/table/facets", d.handleFacets)
+	reg("GET /api/work-items/search", d.handleSearch)
+	reg("POST /api/work-items/batch-update", d.handleBatchUpdate)
+	reg("POST /api/work-items/batch-delete", d.handleBatchDelete)
+	reg("GET /api/work-items/child-progress", d.handleChildProgress)
+	reg("GET /api/work-items/children", d.handleChildren)
+	reg("GET /api/work-items/grouped", d.handleGroupedByAssignee)
+	reg("GET /api/work-items/assignee-frequency", d.handleAssigneeFreq)
+	reg("POST /api/work-items/preview-trigger", d.handleTriggerPreview)
 
-	})
+	reg("GET /api/work-items/{workItemId}", d.handleGet)
+	reg("PUT /api/work-items/{workItemId}", d.handleUpdate)
+	reg("DELETE /api/work-items/{workItemId}", d.handleDelete)
+	reg("POST /api/work-items/{workItemId}/move", d.handleMove)
+	reg("POST /api/work-items/{workItemId}/reactions", d.handleReaction)
+	reg("DELETE /api/work-items/{workItemId}/reactions", d.handleReactionDelete)
+	reg("GET /api/work-items/{workItemId}/comments", d.handleListComments)
+	reg("POST /api/work-items/{workItemId}/comments", d.handleCreateComment)
+	reg("POST /api/work-items/{workItemId}/comments/trigger-preview", d.handleTriggerPreview)
+
+	reg("GET /api/work-items/{workItemId}/labels", d.handleGetLabels)
+	reg("POST /api/work-items/{workItemId}/labels", d.handleAttachLabel)
+	reg("DELETE /api/work-items/{workItemId}/labels/{labelId}", d.handleDetachLabel)
+	reg("GET /api/work-items/{workItemId}/timeline", d.handleTimeline)
+	reg("GET /api/work-items/{workItemId}/subscribers", d.handleSubscribers)
+	reg("POST /api/work-items/{workItemId}/subscribers", d.handleSubscribe)
+	reg("GET /api/work-items/{workItemId}/duplicates", d.handleDuplicates)
+	reg("GET /api/work-items/{workItemId}/metadata/{key}", d.handleMetadata)
+	reg("PUT /api/work-items/{workItemId}/metadata/{key}", d.handleMetadataPut)
+	reg("DELETE /api/work-items/{workItemId}/metadata/{key}", d.handleMetadataDel)
+
+	reg("GET /api/work-items/{workItemId}/properties/{key}", d.handleGetPropertyKey)
+	reg("PUT /api/work-items/{workItemId}/properties/{key}", d.handlePropertyKeyPut)
+	reg("DELETE /api/work-items/{workItemId}/properties/{key}", d.handlePropertyKeyDel)
+
+	reg("GET /api/labels", d.handleListLabelsAll)
+	reg("POST /api/labels", d.handleCreateLabel)
+	reg("GET /api/labels/{labelId}", d.handleGetLabel)
+	reg("DELETE /api/labels/{labelId}", d.handleDeleteLabel)
+	reg("PUT /api/labels/{labelId}", d.handleUpsertLabel)
+	reg("GET /api/projects", d.handleListProjects)
+	reg("POST /api/projects", d.handleCreateProject)
+	reg("GET /api/projects/search", d.handleSearchProjects)
+	reg("GET /api/projects/{projectId}", d.handleGetProject)
+	reg("PUT /api/projects/{projectId}", d.handleUpdateProject)
+	reg("DELETE /api/projects/{projectId}", d.handleDeleteProject)
+	reg("GET /api/projects/{projectId}/resources", d.handleListProjectResources)
+	reg("POST /api/projects/{projectId}/resources", d.handleCreateProjectResource)
+	reg("PUT /api/projects/{projectId}/resources/{resourceId}", d.handleUpdateProjectResource)
+	reg("DELETE /api/projects/{projectId}/resources/{resourceId}", d.handleDeleteProjectResource)
+	reg("GET /api/work-item-statuses", d.handleListStatuses)
+	reg("POST /api/work-item-statuses", d.handleCreateStatus)
+	reg("POST /api/work-item-statuses/reorder", d.handleReorderStatuses)
+	reg("PATCH /api/work-item-statuses/{statusKey}", d.handleUpdateStatus)
+	reg("GET /api/properties", d.handleListProps)
+	reg("POST /api/properties", d.handleCreateProp)
+
+	reg("GET /api/properties/{key}", d.handleGetPropertyDef)
+	reg("PATCH /api/properties/{key}", d.handleUpdatePropertyDef)
+	reg("DELETE /api/properties/{key}", d.handleDeletePropertyDef)
+
+	reg("GET /api/work-item-views", d.handleListViews)
+	reg("PUT /api/work-item-views", d.handleSaveView)
+	reg("GET /api/work-item-view-preferences", d.handleViewPrefGet)
+	reg("PUT /api/work-item-view-preferences", d.handleViewPrefPut)
+
+	reg("POST /api/unsubscribe", d.handleUnsubscribe(false))
+	reg("POST /api/unsubscribe/subtree", d.handleUnsubscribe(true))
+
+	if d.ClientUsage != nil {
+		reg("POST /api/client-usage", webx.RequireHuman(d.handleClientUsage))
+	}
+
+	reg("PUT /api/comments/{commentId}", d.handleUpdateComment)
+	reg("DELETE /api/comments/{commentId}", d.handleDeleteComment)
+
+	reg("DELETE /api/comments/{commentId}/keep-replies", d.handleDeleteComment)
+	reg("POST /api/comments/{commentId}/resolve", d.handleResolve)
+	reg("DELETE /api/comments/{commentId}/resolve", d.handleUnresolve)
+
+	reg("POST /api/comments/{commentId}/reactions", d.handleCommentReaction)
+	reg("DELETE /api/comments/{commentId}/reactions", d.handleCommentReactionDelete)
+	if d.SourceCtx != nil {
+		reg("GET /api/comments/{commentId}/sub-work-item-preview", webx.RequireHuman(d.handleSourcePreview))
+		reg("POST /api/comments/{commentId}/sub-work-items", webx.RequireHuman(d.handleSourceCreate))
+	}
+
+	if d.SourceCtx != nil {
+		reg("POST /api/work-items/quick-create", d.handleQuickCreate)
+	}
 }

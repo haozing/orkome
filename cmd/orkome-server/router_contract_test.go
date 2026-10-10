@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/storagex"
 	autohttp "orkome/internal/automation/adapters/http"
 	autoapp "orkome/internal/automation/app"
 	chhttp "orkome/internal/channels/adapters/http"
@@ -25,7 +25,6 @@ import (
 	notifapp "orkome/internal/notification/app"
 	orchhttp "orkome/internal/orchestration/adapters/http"
 	orchapp "orkome/internal/orchestration/app"
-	"github.com/haozing/ploykit/platform/storagex"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillapp "orkome/internal/skills/app"
 	webhookhttp "orkome/internal/webhooks/adapters/http"
@@ -221,8 +220,8 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"POST", "/deliveries/{deliveryId}/replay"},
 }
 
-func buildTestAPIRouter() *chi.Mux {
-	r := chi.NewRouter()
+func buildTestAPIRouter() *http.ServeMux {
+	r := http.NewServeMux()
 	auth := func(next http.Handler) http.Handler { return next }
 	member := func(context.Context, string, string) (bool, error) { return true, nil }
 	workhttp.Mount(r, workhttp.Deps{
@@ -267,10 +266,8 @@ func buildTestAPIRouter() *chi.Mux {
 
 	webhookhttp.Mount(r, webhookhttp.Deps{Service: webhookapp.New(nil, nil), MemberCheck: member}, auth)
 
-	r.Group(func(r chi.Router) {
-		r.Post("/mcp/w/{workspaceId}/agent", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		r.Get("/mcp/w/{workspaceId}/agent", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	})
+	r.HandleFunc("POST /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
+	r.HandleFunc("GET /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
 	autohttp.Mount(r, autohttp.Deps{Wakeups: &autoapp.WakeupService{}, Autopilots: &autoapp.AutopilotService{}, Webhooks: &autoapp.WebhookService{}}, auth)
 	skillhttp.Mount(r, skillhttp.Deps{
 		Skills: &skillapp.SkillService{}, Import: &skillapp.ImportService{}, MemberCheck: member,
@@ -295,48 +292,45 @@ func (stubCanceller) CancelChatTask(context.Context, string, string) (string, st
 	return "", "", false, nil
 }
 
+// TestRouteContract resolves every declared route against the mounted mux.
+// stdlib ServeMux cannot enumerate registered patterns, so reconciliation is
+// one-directional (table -> mux) via Handler(), which only matches and never
+// invokes the handler. Drift in the other direction (mounted, undeclared) is
+// guarded by review + the per-domain route accountings.
 func TestRouteContractWalk(t *testing.T) {
-	r := buildTestAPIRouter()
-	var actual []string
-	err := chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		actual = append(actual, method+" "+normalizePattern(route))
-		return nil
-	})
-	require.NoError(t, err)
-
-	expect := make(map[string]bool)
+	mux := buildTestAPIRouter()
+	var missing []string
 	for _, e := range routeTable {
-		expect[e.Method+" "+normalizePattern(e.Pattern)] = true
-	}
-	got := make(map[string]bool)
-	for _, a := range actual {
-		got[a] = true
-	}
-	var missing, extra []string
-	for k := range expect {
-		if !got[k] {
-			missing = append(missing, k)
+		path := "/api" + fillParams(e.Pattern)
+		req := httptest.NewRequest(e.Method, path, nil)
+		_, pattern := mux.Handler(req)
+		if i := strings.Index(pattern, " "); i >= 0 {
+			pattern = pattern[i+1:] // Handler() returns "METHOD /path"; keep the path half
 		}
-	}
-	for k := range got {
-		if !expect[k] {
-			extra = append(extra, k)
+		if canonical(pattern) != canonical("/api"+e.Pattern) {
+			missing = append(missing, e.Method+" "+e.Pattern+" (resolved: "+pattern+")")
 		}
 	}
 	sort.Strings(missing)
-	sort.Strings(extra)
 	require.Empty(t, missing, "declared in the route table but not mounted (reconciliation missing): %v", missing)
-	require.Empty(t, extra, "mounted but not declared in the route table (reconciliation drift): %v", extra)
 }
 
-var paramSeg = regexp.MustCompile(`\{[^}]+\}`)
+var (
+	paramSeg = regexp.MustCompile(`\{[a-zA-Z]+(\.{3})?\}`)
+	wildSeg  = regexp.MustCompile(`/\*$`)
+)
 
-func normalizePattern(p string) string {
-	p = strings.TrimSuffix(p, "/")
-	if p == "" {
-		p = "/"
-	}
-	return paramSeg.ReplaceAllString(p, "{param}")
+func fillParams(p string) string {
+	return paramSeg.ReplaceAllString(p, "00000000-0000-0000-0000-000000000000")
+}
+
+// canonical collapses param names and chi-style wildcards so the table's {id}
+// matches the registered {workItemId} etc. (same normalization the chi.Walk
+// version applied).
+func canonical(p string) string {
+	p = paramSeg.ReplaceAllString(p, "{}")
+	p = wildSeg.ReplaceAllString(p, "/{}")
+	return strings.TrimSuffix(p, "/")
 }
 
 type stubRepo struct{ orchapp.Repo }

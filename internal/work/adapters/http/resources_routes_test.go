@@ -163,7 +163,7 @@ func strIn(xs []string, v string) bool {
 
 func TestProjectResourcesEndpoints(t *testing.T) {
 	r, repo := newCatalogRouter(t)
-	base := "/projects/p-1/resources"
+	base := "/api/projects/p-1/resources"
 	repo.projects["p-9"] = fakeProject{ws: "ws-2", p: app.Project{ID: "p-9", Name: "other-region project"}}
 
 	rec := doCat(r, http.MethodGet, base, "")
@@ -188,8 +188,8 @@ func TestProjectResourcesEndpoints(t *testing.T) {
 	}
 
 	for _, m := range []string{http.MethodGet, http.MethodPost} {
-		assert.Equal(t, http.StatusNotFound, doCat(r, m, "/projects/p-404/resources", `{"kind":"repo","uri":"https://x.example/r"}`).Code)
-		assert.Equal(t, http.StatusNotFound, doCat(r, m, "/projects/p-9/resources", `{"kind":"repo","uri":"https://x.example/r"}`).Code, "cross-workspace 404")
+		assert.Equal(t, http.StatusNotFound, doCat(r, m, "/api/projects/p-404/resources", `{"kind":"repo","uri":"https://x.example/r"}`).Code)
+		assert.Equal(t, http.StatusNotFound, doCat(r, m, "/api/projects/p-9/resources", `{"kind":"repo","uri":"https://x.example/r"}`).Code, "cross-workspace 404")
 	}
 
 	rec = doCat(r, http.MethodPost, base, `{"kind":"repo","uri":"https://github.com/org/repo.git"}`)
@@ -227,7 +227,7 @@ func TestProjectResourcesEndpoints(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Len(t, out.Items, 1)
 
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodDelete, "/projects/p-404/resources/res-1", "").Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodDelete, "/api/projects/p-404/resources/res-1", "").Code)
 }
 
 func TestListInvolvesThreeForms(t *testing.T) {
@@ -241,7 +241,7 @@ func TestListInvolvesThreeForms(t *testing.T) {
 	repo.items["wi-e"] = app.WorkItem{ID: "wi-e", WorkspaceID: "ws-2", Title: "other region"}
 
 	list := func(query string) []app.WorkItem {
-		rec := doCat(r, http.MethodGet, "/work-items"+query, "")
+		rec := doCat(r, http.MethodGet, "/api/work-items"+query, "")
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		var out struct {
 			Items []app.WorkItem `json:"items"`
@@ -260,7 +260,7 @@ func TestListInvolvesThreeForms(t *testing.T) {
 
 	assert.Empty(t, list("?involves=00000000-0000-4000-8000-00000000000E"))
 
-	rec := doCat(r, http.MethodGet, "/work-items?involves=not-a-uuid", "")
+	rec := doCat(r, http.MethodGet, "/api/work-items?involves=not-a-uuid", "")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "E_VALIDATION", codeOf(t, rec))
 }
@@ -281,7 +281,7 @@ func TestListPropOperators(t *testing.T) {
 	}
 
 	ids := func(query string) []string {
-		rec := doCat(r, http.MethodGet, "/work-items"+query, "")
+		rec := doCat(r, http.MethodGet, "/api/work-items"+query, "")
 		require.Equal(t, http.StatusOK, rec.Code, "query=%s: %s", query, rec.Body.String())
 		var out struct {
 			Items []app.WorkItem `json:"items"`
@@ -310,7 +310,7 @@ func TestListPropOperators(t *testing.T) {
 		"?prop_ghost=eq:x",
 		"?prop_estimate=gte:5",
 	} {
-		rec := doCat(r, http.MethodGet, "/work-items"+q, "")
+		rec := doCat(r, http.MethodGet, "/api/work-items"+q, "")
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "query=%s should be 400", q)
 		assert.Equal(t, "E_VALIDATION", codeOf(t, rec))
 	}
@@ -323,7 +323,7 @@ func TestQueryCompileRichDimensions(t *testing.T) {
 	}}
 	uid := "00000000-0000-4000-8000-00000000000A"
 
-	rec := doCat(r, http.MethodPost, "/work-items/query", `{
+	rec := doCat(r, http.MethodPost, "/api/work-items/query", `{
 		"filters": {"involves": "`+uid+`", "props": {"estimate": "gt:5", "notes": "contains:bug"}},
 		"group_by": "status", "sort": ["priority"], "limit": 30
 	}`)
@@ -355,7 +355,7 @@ func TestQueryCompileRichDimensions(t *testing.T) {
 		`{"filters": {"props": {"estimate": "gte:5"}}}`,
 	}
 	for _, body := range bad {
-		rec := doCat(r, http.MethodPost, "/work-items/query", body)
+		rec := doCat(r, http.MethodPost, "/api/work-items/query", body)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "body=%s should be 400", body)
 		assert.Equal(t, "E_VALIDATION", codeOf(t, rec))
 	}

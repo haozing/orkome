@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -82,9 +81,9 @@ func (f *agentAccessRepo) GetInvocationTargets(_ context.Context, _, agentID str
 }
 
 func agentAccessRouter(d *Deps) http.Handler {
-	r := chi.NewRouter()
-	Mount(r, *d, passAuth)
-	return r
+	mux := http.NewServeMux()
+	Mount(mux, *d, passAuth)
+	return mux
 }
 
 func agentAccessDo(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -104,17 +103,17 @@ func TestAgentAccessHTTP_CreateValidation(t *testing.T) {
 	d, repo := newAgentAccessHTTPDeps()
 	h := agentAccessRouter(d)
 
-	rec := agentAccessDo(h, "POST", "/agents", `{"name":"a","visibility":"public_to",
+	rec := agentAccessDo(h, "POST", "/api/agents", `{"name":"a","visibility":"public_to",
 		"conversation_starters":[{"label":"1"},{"label":"2"},{"label":"3"},{"label":"4"}]}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, apierr.Validation, errCodeOfHTTP(rec))
 
-	rec = agentAccessDo(h, "POST", "/agents", `{"name":"a","visibility":"public",
+	rec = agentAccessDo(h, "POST", "/api/agents", `{"name":"a","visibility":"public",
 		"invocation_targets":[{"type":"workspace"}]}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code, "non-public_to with non-empty targets → 400")
 	assert.Equal(t, apierr.Validation, errCodeOfHTTP(rec))
 
-	rec = agentAccessDo(h, "POST", "/agents", `{"name":"a","visibility":"public_to",
+	rec = agentAccessDo(h, "POST", "/api/agents", `{"name":"a","visibility":"public_to",
 		"invocation_targets":[{"type":"member","user_id":"u-out"}]}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code, "member type non-local member → 400 (Mount-wired MemberCheck)")
 	assert.Empty(t, repo.byID, "validation failure creates no rows")
@@ -124,7 +123,7 @@ func TestAgentAccessHTTP_CreateGetWithTargetsAndStarters(t *testing.T) {
 	d, _ := newAgentAccessHTTPDeps()
 	h := agentAccessRouter(d)
 
-	rec := agentAccessDo(h, "POST", "/agents", `{"name":"guard","visibility":"public_to",
+	rec := agentAccessDo(h, "POST", "/api/agents", `{"name":"guard","visibility":"public_to",
 		"conversation_starters":[{"label":" summarize for me "}],
 		"invocation_targets":[{"type":"workspace"},{"type":"member","user_id":"u-in"}]}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -132,7 +131,7 @@ func TestAgentAccessHTTP_CreateGetWithTargetsAndStarters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	assert.Equal(t, []orchapp.ConversationStarter{{Label: "summarize for me"}}, created.ConversationStarters)
 
-	rec = agentAccessDo(h, "GET", "/agents/"+created.ID, "")
+	rec = agentAccessDo(h, "GET", "/api/agents/"+created.ID, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
@@ -146,11 +145,11 @@ func TestAgentAccessHTTP_CreateGetWithTargetsAndStarters(t *testing.T) {
 	starters, _ := got["conversation_starters"].([]any)
 	require.Len(t, starters, 1)
 
-	rec = agentAccessDo(h, "POST", "/agents", `{"name":"plain"}`)
+	rec = agentAccessDo(h, "POST", "/api/agents", `{"name":"plain"}`)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var plain orchapp.Agent
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plain))
-	rec = agentAccessDo(h, "GET", "/agents/"+plain.ID, "")
+	rec = agentAccessDo(h, "GET", "/api/agents/"+plain.ID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	got = map[string]any{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
@@ -163,19 +162,19 @@ func TestAgentAccessHTTP_UpdateClearsTargets(t *testing.T) {
 	d, repo := newAgentAccessHTTPDeps()
 	h := agentAccessRouter(d)
 
-	rec := agentAccessDo(h, "POST", "/agents", `{"name":"guard","visibility":"public_to",
+	rec := agentAccessDo(h, "POST", "/api/agents", `{"name":"guard","visibility":"public_to",
 		"conversation_starters":[{"label":"old"}],
 		"invocation_targets":[{"type":"workspace"}]}`)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created orchapp.Agent
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 
-	rec = agentAccessDo(h, "PUT", "/agents/"+created.ID, `{"name":"guard","visibility":"public_to",
+	rec = agentAccessDo(h, "PUT", "/api/agents/"+created.ID, `{"name":"guard","visibility":"public_to",
 		"invocation_targets":[]}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Empty(t, repo.targets[created.ID], "empty array = clear")
 
-	rec = agentAccessDo(h, "GET", "/agents/"+created.ID, "")
+	rec = agentAccessDo(h, "GET", "/api/agents/"+created.ID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))

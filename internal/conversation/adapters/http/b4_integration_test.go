@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -116,7 +115,7 @@ VALUES ($1, 'b4-chat', '', '{"provider":"fake","model":"m"}'::jsonb) RETURNING i
 			`SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=$1 AND user_id=$2)`, ws, uid).Scan(&exists)
 		return exists, err
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	qa := convapp.NewQuickActionService(convRepo)
 	Mount(r, Deps{
 		Chat: chat, MemberCheck: memberCheck,
@@ -140,9 +139,9 @@ func (h *b4h) do(method, path string, body any) (int, map[string]any) {
 	var rd *http.Request
 	if body != nil {
 		b, _ := json.Marshal(body)
-		rd = httptest.NewRequest(method, path, bytes.NewReader(b))
+		rd = httptest.NewRequest(method, "/api"+path, bytes.NewReader(b))
 	} else {
-		rd = httptest.NewRequest(method, path, nil)
+		rd = httptest.NewRequest(method, "/api"+path, nil)
 	}
 	rd.Header.Set("X-Workspace-Id", h.wsID)
 	w := httptest.NewRecorder()
@@ -157,9 +156,9 @@ func (h *b4h) doAs(uid, method, path string, body any) (int, map[string]any) {
 	var rd *http.Request
 	if body != nil {
 		b, _ := json.Marshal(body)
-		rd = httptest.NewRequest(method, path, bytes.NewReader(b))
+		rd = httptest.NewRequest(method, "/api"+path, bytes.NewReader(b))
 	} else {
-		rd = httptest.NewRequest(method, path, nil)
+		rd = httptest.NewRequest(method, "/api"+path, nil)
 	}
 	rd.Header.Set("X-Workspace-Id", h.wsID)
 	rd.Header.Set("X-Test-User", uid)
@@ -262,7 +261,7 @@ func TestB4_SendMessageValidation(t *testing.T) {
 
 func TestB4_ForbiddenNonMember(t *testing.T) {
 	h := newB4H(t)
-	rd := httptest.NewRequest("GET", "/chat/sessions", nil)
+	rd := httptest.NewRequest("GET", "/api/chat/sessions", nil)
 	rd.Header.Set("X-Workspace-Id", "00000000-0000-0000-0000-000000000003")
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, rd)

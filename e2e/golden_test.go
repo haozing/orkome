@@ -14,7 +14,6 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -97,7 +96,8 @@ func textMsg(c string) *schema.Message {
 type stack struct {
 	t        *testing.T
 	pool     *pgxpool.Pool
-	handler  chi.Router
+	handler  http.Handler
+	rootMux  *http.ServeMux
 	authMw   func(http.Handler) http.Handler
 	orepo    *orchpgrepo.Repo
 	settle   *orchapp.SettlementService
@@ -231,7 +231,7 @@ verification_code, member, workspace, agent_credential, webhook_subscription, ev
 	arepo := autoppgrepo.New(db)
 	auto := autopapp.NewAutopilotService(arepo, creatorAdapter{wRepo: wRepo}, enqAdapter{repo: orepo})
 
-	api := chi.NewRouter()
+	api := http.NewServeMux()
 	idhttp.MountAPI(api, idDeps, false)
 	authMw := webx.Authenticate(idDeps.Auth, idDeps.Tokens)
 	workhttpMount(api, workDeps, authMw)
@@ -438,13 +438,12 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 		}
 		contenthttp.MountAPI(api, contentDeps, authMw)
 	}
-	root := chi.NewRouter()
-	root.Use(webx.ClientMetadata)
-	root.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	root.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	root.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(r.Context()); err != nil {
 			http.Error(w, "db unreachable", http.StatusServiceUnavailable)
 			return
@@ -452,12 +451,12 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	root.Mount("/api", api)
+	root.Handle("/api/", api)
 	contenthttp.MountUploads(root, contentDeps)
-	root.Mount("/", idhttp.RootRouter(idDeps, false))
+	root.Handle("/", idhttp.RootRouter(idDeps, false))
 	autohttp.MountPublic(root, autohttp.Deps{Webhooks: autopapp.NewWebhookService(arepo, auto)})
 
-	s := &stack{t: t, pool: pool, handler: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,
+	s := &stack{t: t, pool: pool, handler: webx.ClientMetadata(root), rootMux: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,
 		wRepo: wRepo, comments: workapp.NewCommentService(wRepo, bus, time.Now),
 		jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
 

@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/orchestration/domain"
@@ -18,58 +16,53 @@ type TaskViewDeps struct {
 	Settle *orchapp.SettlementService
 }
 
-func MountTaskViews(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
+func MountTaskViews(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	if d.Repo == nil {
 		return
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
+	reg := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
+	}
 
-		r.Get("/agents/{agentId}/tasks", d.handleAgentTasks)
-		r.Get("/working-agents", d.handleWorkingAgents)
-		r.Get("/agent-run-counts", d.handleRunCounts)
-		r.Get("/agent-activity-30d", d.handleActivity30d)
+	reg("GET /api/agents/{agentId}/tasks", d.handleAgentTasks)
+	reg("GET /api/working-agents", d.handleWorkingAgents)
+	reg("GET /api/agent-run-counts", d.handleRunCounts)
+	reg("GET /api/agent-activity-30d", d.handleActivity30d)
 
-		r.Get("/agent-run-snapshot", d.handleAgentRunSnapshot)
+	reg("GET /api/agent-run-snapshot", d.handleAgentRunSnapshot)
 
-		r.Get("/tasks", d.handleWorkspaceTasks)
+	reg("GET /api/tasks", d.handleWorkspaceTasks)
 
-		r.Get("/tasks/{taskId}", d.handleTaskGet)
+	reg("GET /api/tasks/{taskId}", d.handleTaskGet)
 
-		r.Get("/squads", d.handleListSquads)
-		r.Post("/squads", d.handleCreateSquad)
-		r.Get("/squads/{squadId}", d.handleGetSquad)
-		r.Put("/squads/{squadId}", d.handleUpdateSquad)
-		r.Delete("/squads/{squadId}", d.handleDeleteSquad)
-		r.Post("/squads/{squadId}/members", d.handleAddSquadMember)
-		r.Get("/squads/{squadId}/members", d.handleListSquadMembers)
-		r.Get("/squads/{squadId}/members/status", d.handleSquadMemberStatus)
-		r.Patch("/squads/{squadId}/members/{agentId}", d.handleUpdateSquadMemberRole)
-		r.Delete("/squads/{squadId}/members/{agentId}", d.handleRemoveSquadMember)
+	reg("GET /api/squads", d.handleListSquads)
+	reg("POST /api/squads", d.handleCreateSquad)
+	reg("GET /api/squads/{squadId}", d.handleGetSquad)
+	reg("PUT /api/squads/{squadId}", d.handleUpdateSquad)
+	reg("DELETE /api/squads/{squadId}", d.handleDeleteSquad)
+	reg("POST /api/squads/{squadId}/members", d.handleAddSquadMember)
+	reg("GET /api/squads/{squadId}/members", d.handleListSquadMembers)
+	reg("GET /api/squads/{squadId}/members/status", d.handleSquadMemberStatus)
+	reg("PATCH /api/squads/{squadId}/members/{agentId}", d.handleUpdateSquadMemberRole)
+	reg("DELETE /api/squads/{squadId}/members/{agentId}", d.handleRemoveSquadMember)
 
-		r.Post("/work-items/{workItemId}/squad-evaluated", d.handleSquadEvaluated)
-	})
+	reg("POST /api/work-items/{workItemId}/squad-evaluated", d.handleSquadEvaluated)
 
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Get("/work-items/{workItemId}/active-task", d.handleActiveTask)
-		r.Get("/work-items/{workItemId}/tasks", d.handleWorkItemTasks)
+	reg("GET /api/work-items/{workItemId}/active-task", d.handleActiveTask)
+	reg("GET /api/work-items/{workItemId}/tasks", d.handleWorkItemTasks)
 
-		r.Get("/work-items/{workItemId}/usage", d.handleWorkItemUsage)
-		r.Post("/work-items/{workItemId}/tasks/{taskId}/cancel", d.handleTaskCancel)
-		r.Post("/work-items/{workItemId}/rerun", d.handleRerun)
+	reg("GET /api/work-items/{workItemId}/usage", d.handleWorkItemUsage)
+	reg("POST /api/work-items/{workItemId}/tasks/{taskId}/cancel", d.handleTaskCancel)
+	reg("POST /api/work-items/{workItemId}/rerun", d.handleRerun)
 
-		r.Post("/work-items/{workItemId}/tasks/{taskId}/supplements", webx.RequireHuman(d.handleSupplement))
+	reg("POST /api/work-items/{workItemId}/tasks/{taskId}/supplements", webx.RequireHuman(d.handleSupplement))
 
-		r.Post("/work-items/{workItemId}/tasks/{taskId}/supplements/{commentId}/retry", webx.RequireHuman(d.handleSupplementRetry))
-		r.Post("/tasks/{taskId}/cancel", d.handleTaskCancelTop)
-	})
+	reg("POST /api/work-items/{workItemId}/tasks/{taskId}/supplements/{commentId}/retry", webx.RequireHuman(d.handleSupplementRetry))
+	reg("POST /api/tasks/{taskId}/cancel", d.handleTaskCancelTop)
 }
 
 func (d Deps) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
-	list, err := d.Repo.ListTasksByAgent(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), 20)
+	list, err := d.Repo.ListTasksByAgent(r.Context(), d.ws(r), r.PathValue("agentId"), 20)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -192,7 +185,7 @@ func (d Deps) handleActivity30d(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleActiveTask(w http.ResponseWriter, r *http.Request) {
-	t, ok, err := d.Repo.GetActiveTask(r.Context(), d.ws(r), chi.URLParam(r, "workItemId"))
+	t, ok, err := d.Repo.GetActiveTask(r.Context(), d.ws(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -214,7 +207,7 @@ func (d Deps) handleWorkItemTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	newestFirst := r.URL.Query().Get("order") == "desc"
 	slim := r.URL.Query().Get("fields") == "slim"
-	list, err := d.Repo.ListTasksByWorkItem(r.Context(), chi.URLParam(r, "workItemId"), newestFirst)
+	list, err := d.Repo.ListTasksByWorkItem(r.Context(), r.PathValue("workItemId"), newestFirst)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -236,7 +229,7 @@ func (d Deps) handleWorkItemTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleTaskGet(w http.ResponseWriter, r *http.Request) {
-	t, ok, err := d.Repo.GetTask(r.Context(), d.ws(r), chi.URLParam(r, "taskId"))
+	t, ok, err := d.Repo.GetTask(r.Context(), d.ws(r), r.PathValue("taskId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -249,11 +242,11 @@ func (d Deps) handleTaskGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
-	d.cancelTask(w, r, chi.URLParam(r, "taskId"))
+	d.cancelTask(w, r, r.PathValue("taskId"))
 }
 
 func (d Deps) handleTaskCancelTop(w http.ResponseWriter, r *http.Request) {
-	d.cancelTask(w, r, chi.URLParam(r, "taskId"))
+	d.cancelTask(w, r, r.PathValue("taskId"))
 }
 
 func (d Deps) cancelTask(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -273,7 +266,7 @@ func (d Deps) handleRerun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws := d.ws(r)
-	wi := chi.URLParam(r, "workItemId")
+	wi := r.PathValue("workItemId")
 
 	agentID := ""
 	if in.SourceTaskID != "" {
@@ -325,8 +318,8 @@ func (d Deps) handleSupplement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws := d.ws(r)
-	wi := chi.URLParam(r, "workItemId")
-	taskID := chi.URLParam(r, "taskId")
+	wi := r.PathValue("workItemId")
+	taskID := r.PathValue("taskId")
 	t, ok2, err := d.Repo.GetTask(r.Context(), ws, taskID)
 	if err != nil || !ok2 {
 		writeErr(w, apierr.New(apierr.NotFound, "task not found"))
@@ -343,8 +336,8 @@ func (d Deps) handleSupplement(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleSupplementRetry(w http.ResponseWriter, r *http.Request) {
 	ws := d.ws(r)
-	taskID := chi.URLParam(r, "taskId")
-	supplementID := chi.URLParam(r, "commentId")
+	taskID := r.PathValue("taskId")
+	supplementID := r.PathValue("commentId")
 	t, ok2, err := d.Repo.GetTask(r.Context(), ws, taskID)
 	if err != nil || !ok2 {
 		writeErr(w, apierr.New(apierr.NotFound, "task not found"))
@@ -409,11 +402,11 @@ func (d Deps) handleAddSquadMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.Squads != nil {
-		if err := d.Squads.AddMember(r.Context(), d.ws(r), chi.URLParam(r, "squadId"), in.AgentID, in.Role); err != nil {
+		if err := d.Squads.AddMember(r.Context(), d.ws(r), r.PathValue("squadId"), in.AgentID, in.Role); err != nil {
 			writeErr(w, err)
 			return
 		}
-	} else if err := d.Repo.AddSquadMember(r.Context(), d.ws(r), chi.URLParam(r, "squadId"), in.AgentID, in.Role); err != nil {
+	} else if err := d.Repo.AddSquadMember(r.Context(), d.ws(r), r.PathValue("squadId"), in.AgentID, in.Role); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -421,7 +414,7 @@ func (d Deps) handleAddSquadMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleRemoveSquadMember(w http.ResponseWriter, r *http.Request) {
-	if err := d.Repo.RemoveSquadMember(r.Context(), d.ws(r), chi.URLParam(r, "squadId"), chi.URLParam(r, "agentId")); err != nil {
+	if err := d.Repo.RemoveSquadMember(r.Context(), d.ws(r), r.PathValue("squadId"), r.PathValue("agentId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -429,7 +422,7 @@ func (d Deps) handleRemoveSquadMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleListSquadMembers(w http.ResponseWriter, r *http.Request) {
-	out, err := d.Repo.ListSquadMembers(r.Context(), d.ws(r), chi.URLParam(r, "squadId"))
+	out, err := d.Repo.ListSquadMembers(r.Context(), d.ws(r), r.PathValue("squadId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -445,7 +438,7 @@ func (d Deps) handleSquadMemberStatus(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "squad service not wired", nil)
 		return
 	}
-	out, err := d.Squads.MembersStatus(r.Context(), d.ws(r), chi.URLParam(r, "squadId"))
+	out, err := d.Squads.MembersStatus(r.Context(), d.ws(r), r.PathValue("squadId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -464,8 +457,8 @@ func (d Deps) handleUpdateSquadMemberRole(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if d.Squads != nil {
-		if err := d.Squads.SetMemberRole(r.Context(), d.ws(r), chi.URLParam(r, "squadId"),
-			chi.URLParam(r, "agentId"), in.Role); err != nil {
+		if err := d.Squads.SetMemberRole(r.Context(), d.ws(r), r.PathValue("squadId"),
+			r.PathValue("agentId"), in.Role); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -475,8 +468,8 @@ func (d Deps) handleUpdateSquadMemberRole(w http.ResponseWriter, r *http.Request
 			webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "role required", nil)
 			return
 		}
-		ok2, err := d.Repo.UpdateSquadMemberRole(r.Context(), d.ws(r), chi.URLParam(r, "squadId"),
-			chi.URLParam(r, "agentId"), role)
+		ok2, err := d.Repo.UpdateSquadMemberRole(r.Context(), d.ws(r), r.PathValue("squadId"),
+			r.PathValue("agentId"), role)
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -498,7 +491,7 @@ func (d Deps) handleSquadEvaluated(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.Squads.RecordEvaluation(r.Context(), d.ws(r), chi.URLParam(r, "workItemId"), *in); err != nil {
+	if err := d.Squads.RecordEvaluation(r.Context(), d.ws(r), r.PathValue("workItemId"), *in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -506,7 +499,7 @@ func (d Deps) handleSquadEvaluated(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAgentEnvGet(w http.ResponseWriter, r *http.Request) {
-	a, err := d.Agents.Get(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	a, err := d.Agents.Get(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -525,7 +518,7 @@ func (d Deps) handleAgentEnvPut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a, err := d.Agents.Get(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	a, err := d.Agents.Get(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return

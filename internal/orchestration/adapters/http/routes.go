@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/webx"
@@ -73,65 +71,52 @@ func decode[T any](w http.ResponseWriter, r *http.Request) (*T, bool) {
 	return &in, true
 }
 
-func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
+func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
+	guard := func(h http.HandlerFunc) http.Handler {
+		return auth(webx.RequireAuth(d.memberMW(h)))
+	}
+	reg := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, guard(h)) }
 
-		r.Use(d.memberMW)
-
-		r.Post("/tasks/{taskId}/approve", webx.RequireHuman(d.handleApprove(true)))
-		r.Post("/tasks/{taskId}/deny", webx.RequireHuman(d.handleApprove(false)))
-		r.Get("/tasks/{taskId}/interrupt", d.handleInterrupt)
-		if d.TaskMessages != nil {
-			r.Get("/tasks/{taskId}/messages", d.handleTaskMessages)
-		}
-
-		if d.External != nil {
-			r.Post("/tasks/{taskId}/claim", d.handleExternalClaim)
-			r.Post("/tasks/{taskId}/messages", d.handleExternalMessage)
-			r.Post("/tasks/{taskId}/complete", d.handleExternalComplete)
-			r.Post("/tasks/{taskId}/fail", d.handleExternalFail)
-		}
-		if d.RetrySourceContext != nil {
-			r.Post("/tasks/{taskId}/retry-source-context", webx.RequireHuman(d.handleRetrySourceContext))
-		}
-	})
-
-	if d.Batches != nil {
-		r.Group(func(r chi.Router) {
-			r.Use(auth, webx.RequireAuth)
-			r.Use(d.memberMW)
-			r.Post("/work-items/{workItemId}/batches", d.handleCreateBatch)
-			r.Get("/work-items/{workItemId}/batches", d.handleListBatches)
-			r.Get("/batches/{batchId}", d.handleGetBatch)
-			r.Get("/batches/{batchId}/items", d.handleBatchItems)
-			r.Post("/batches/{batchId}/pause", d.handleBatchPause)
-			r.Post("/batches/{batchId}/resume", d.handleBatchResume)
-			r.Post("/batches/{batchId}/cancel", d.handleBatchCancel)
-			r.Post("/batches/{batchId}/retry-failed", d.handleBatchRetryFailed)
-		})
+	reg("POST /api/tasks/{taskId}/approve", webx.RequireHuman(d.handleApprove(true)))
+	reg("POST /api/tasks/{taskId}/deny", webx.RequireHuman(d.handleApprove(false)))
+	reg("GET /api/tasks/{taskId}/interrupt", d.handleInterrupt)
+	if d.TaskMessages != nil {
+		reg("GET /api/tasks/{taskId}/messages", d.handleTaskMessages)
 	}
 
-	MountTaskViews(r, d, auth)
+	if d.External != nil {
+		reg("POST /api/tasks/{taskId}/claim", d.handleExternalClaim)
+		reg("POST /api/tasks/{taskId}/messages", d.handleExternalMessage)
+		reg("POST /api/tasks/{taskId}/complete", d.handleExternalComplete)
+		reg("POST /api/tasks/{taskId}/fail", d.handleExternalFail)
+	}
+	if d.RetrySourceContext != nil {
+		reg("POST /api/tasks/{taskId}/retry-source-context", webx.RequireHuman(d.handleRetrySourceContext))
+	}
+
+	if d.Batches != nil {
+		reg("POST /api/work-items/{workItemId}/batches", d.handleCreateBatch)
+		reg("GET /api/work-items/{workItemId}/batches", d.handleListBatches)
+		reg("GET /api/batches/{batchId}", d.handleGetBatch)
+		reg("GET /api/batches/{batchId}/items", d.handleBatchItems)
+		reg("POST /api/batches/{batchId}/pause", d.handleBatchPause)
+		reg("POST /api/batches/{batchId}/resume", d.handleBatchResume)
+		reg("POST /api/batches/{batchId}/cancel", d.handleBatchCancel)
+		reg("POST /api/batches/{batchId}/retry-failed", d.handleBatchRetryFailed)
+	}
+
+	MountTaskViews(mux, d, auth)
 
 	if d.Credentials != nil {
-		r.Group(func(r chi.Router) {
-			r.Use(auth, webx.RequireAuth)
-			r.Use(d.memberMW)
-			r.Get("/credentials", d.handleCredentialList)
-			r.Post("/credentials", d.handleCredentialCreate)
-			r.Delete("/credentials/{credentialId}", d.handleCredentialDelete)
-		})
+		reg("GET /api/credentials", d.handleCredentialList)
+		reg("POST /api/credentials", d.handleCredentialCreate)
+		reg("DELETE /api/credentials/{credentialId}", d.handleCredentialDelete)
 	}
 
 	if d.PackUIEntries != nil {
-		r.Group(func(r chi.Router) {
-			r.Use(auth, webx.RequireAuth)
-			r.Use(d.memberMW)
-			r.Get("/ui-entries", d.handleUIEntryList)
-			r.Put("/ui-entries/{pack}", d.handleUIEntryUpsert)
-			r.Delete("/ui-entries/{pack}", d.handleUIEntryDelete)
-		})
+		reg("GET /api/ui-entries", d.handleUIEntryList)
+		reg("PUT /api/ui-entries/{pack}", d.handleUIEntryUpsert)
+		reg("DELETE /api/ui-entries/{pack}", d.handleUIEntryDelete)
 	}
 
 	if d.Agents == nil {
@@ -141,57 +126,50 @@ func Mount(r chi.Router, d Deps, auth func(http.Handler) http.Handler) {
 	if d.MemberCheck != nil && d.Agents.MemberCheck == nil {
 		d.Agents.MemberCheck = d.MemberCheck
 	}
-	r.Group(func(r chi.Router) {
-		r.Use(auth, webx.RequireAuth)
-		r.Use(d.memberMW)
-		r.Get("/agents", d.handleAgentList)
-		r.Post("/agents", d.handleAgentCreate)
-		r.Route("/agents/{agentId}", func(r chi.Router) {
-			r.Get("/", d.handleAgentGet)
-			r.Put("/", d.handleAgentUpdate)
-			r.Post("/archive", d.handleAgentArchive(true))
-			r.Post("/restore", d.handleAgentArchive(false))
-			r.Post("/cancel-tasks", d.handleAgentCancelTasks)
-			if d.MCP != nil {
-				r.Get("/mcp-servers", d.handleAgentMCP)
-				r.Post("/mcp-servers", d.handleAgentMCPCreate)
-				r.Put("/mcp-servers/{serverId}", d.handleAgentMCPUpdate)
-				r.Delete("/mcp-servers/{serverId}", d.handleAgentMCPDelete)
-			}
-			r.Get("/env", d.handleAgentEnvGet)
-			r.Put("/env", d.handleAgentEnvPut)
 
-			if d.MintRuntimeCredential != nil {
-				r.Post("/runtime-credentials", d.handleMintRuntimeCredential)
-			}
-		})
+	reg("GET /api/agents", d.handleAgentList)
+	reg("POST /api/agents", d.handleAgentCreate)
+	reg("GET /api/agents/{agentId}", d.handleAgentGet)
+	reg("PUT /api/agents/{agentId}", d.handleAgentUpdate)
+	reg("POST /api/agents/{agentId}/archive", d.handleAgentArchive(true))
+	reg("POST /api/agents/{agentId}/restore", d.handleAgentArchive(false))
+	reg("POST /api/agents/{agentId}/cancel-tasks", d.handleAgentCancelTasks)
+	if d.MCP != nil {
+		reg("GET /api/agents/{agentId}/mcp-servers", d.handleAgentMCP)
+		reg("POST /api/agents/{agentId}/mcp-servers", d.handleAgentMCPCreate)
+		reg("PUT /api/agents/{agentId}/mcp-servers/{serverId}", d.handleAgentMCPUpdate)
+		reg("DELETE /api/agents/{agentId}/mcp-servers/{serverId}", d.handleAgentMCPDelete)
+	}
+	reg("GET /api/agents/{agentId}/env", d.handleAgentEnvGet)
+	reg("PUT /api/agents/{agentId}/env", d.handleAgentEnvPut)
 
-		d.mountAgentLabels(r)
-		if d.Builder != nil {
-			r.Get("/agent-builder/sessions", d.handleBuilderList)
-			r.Post("/agent-builder/sessions", d.handleBuilderCreate)
-			r.Get("/agent-builder/sessions/{sessionId}/draft", d.handleBuilderDraft)
-			r.Put("/agent-builder/sessions/{sessionId}/draft", d.handleBuilderDraft)
-		}
-	})
+	if d.MintRuntimeCredential != nil {
+		reg("POST /api/agents/{agentId}/runtime-credentials", d.handleMintRuntimeCredential)
+	}
+
+	d.mountAgentLabels(reg)
+	if d.Builder != nil {
+		reg("GET /api/agent-builder/sessions", d.handleBuilderList)
+		reg("POST /api/agent-builder/sessions", d.handleBuilderCreate)
+		reg("GET /api/agent-builder/sessions/{sessionId}/draft", d.handleBuilderDraft)
+		reg("PUT /api/agent-builder/sessions/{sessionId}/draft", d.handleBuilderDraft)
+	}
 
 	if d.MCP != nil {
-		r.Group(func(r chi.Router) {
-			r.Use(auth, webx.RequireAuth)
-			r.Route("/workspaces/{workspaceId}/mcp-servers", func(r chi.Router) {
-				r.Get("/", d.memberPathMW(d.handleMCPList))
-				r.Post("/", d.memberPathMW(d.handleMCPCreate))
-				r.Put("/{serverId}", d.memberPathMW(d.handleMCPUpdate))
-				r.Delete("/{serverId}", d.memberPathMW(d.handleMCPDelete))
-			})
-		})
+		authReg := func(pattern string, h http.HandlerFunc) {
+			mux.Handle(pattern, auth(webx.RequireAuth(h)))
+		}
+		authReg("GET /api/workspaces/{workspaceId}/mcp-servers", d.memberPathMW(d.handleMCPList))
+		authReg("POST /api/workspaces/{workspaceId}/mcp-servers", d.memberPathMW(d.handleMCPCreate))
+		authReg("PUT /api/workspaces/{workspaceId}/mcp-servers/{serverId}", d.memberPathMW(d.handleMCPUpdate))
+		authReg("DELETE /api/workspaces/{workspaceId}/mcp-servers/{serverId}", d.memberPathMW(d.handleMCPDelete))
 	}
 }
 
 func (d Deps) memberPathMW(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := webx.PrincipalFrom(r.Context())
-		ws := chi.URLParam(r, "workspaceId")
+		ws := r.PathValue("workspaceId")
 		if d.MemberCheck == nil {
 			webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "member check not wired", nil)
 			return
@@ -271,7 +249,7 @@ func (d Deps) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAgentGet(w http.ResponseWriter, r *http.Request) {
-	a, err := d.Agents.Get(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	a, err := d.Agents.Get(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -297,7 +275,7 @@ func (d Deps) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	in.ID = chi.URLParam(r, "agentId")
+	in.ID = r.PathValue("agentId")
 	in.WorkspaceID = d.ws(r)
 	a, err := d.Agents.Update(r.Context(), *in)
 	if err != nil {
@@ -309,7 +287,7 @@ func (d Deps) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleAgentArchive(archived bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := d.Agents.Archive(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), archived); err != nil {
+		if err := d.Agents.Archive(r.Context(), d.ws(r), r.PathValue("agentId"), archived); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -318,7 +296,7 @@ func (d Deps) handleAgentArchive(archived bool) http.HandlerFunc {
 }
 
 func (d Deps) handleAgentCancelTasks(w http.ResponseWriter, r *http.Request) {
-	n, err := d.Agents.CancelTasks(r.Context(), d.ws(r), chi.URLParam(r, "agentId"))
+	n, err := d.Agents.CancelTasks(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -358,7 +336,7 @@ func (d Deps) handleTaskMessages(w http.ResponseWriter, r *http.Request) {
 			q.Kinds = append(q.Kinds, k)
 		}
 	}
-	msgs, err := d.TaskMessages(r.Context(), ws, chi.URLParam(r, "taskId"), q)
+	msgs, err := d.TaskMessages(r.Context(), ws, r.PathValue("taskId"), q)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -392,7 +370,7 @@ func (d Deps) handleApprove(approved bool) http.HandlerFunc {
 			webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "X-Workspace-Id header required", nil)
 			return
 		}
-		if err := d.Settle.Approve(r.Context(), ws, chi.URLParam(r, "taskId"), p.UserID, approved, in.Note); err != nil {
+		if err := d.Settle.Approve(r.Context(), ws, r.PathValue("taskId"), p.UserID, approved, in.Note); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -411,14 +389,14 @@ func (d Deps) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, ok, err := d.Repo.GetTaskAwaiting(r.Context(), ws, chi.URLParam(r, "taskId"))
+	t, ok, err := d.Repo.GetTaskAwaiting(r.Context(), ws, r.PathValue("taskId"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	if !ok {
 
-		if _, exists, gerr := d.Repo.GetTask(r.Context(), ws, chi.URLParam(r, "taskId")); gerr == nil && exists {
+		if _, exists, gerr := d.Repo.GetTask(r.Context(), ws, r.PathValue("taskId")); gerr == nil && exists {
 			writeErr(w, apierr.New(apierr.Conflict, "task not awaiting"))
 			return
 		}
@@ -473,7 +451,7 @@ func (d Deps) handleMCPUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := in.toModel(d.ws(r))
-	m.ID = chi.URLParam(r, "serverId")
+	m.ID = r.PathValue("serverId")
 	updated, err := d.MCP.Update(r.Context(), m)
 	if err != nil {
 		writeErr(w, err)
@@ -495,7 +473,7 @@ func (x mcpWire) toModel(ws string) orchapp.WorkspaceMCP {
 }
 
 func (d Deps) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.MCP.Delete(r.Context(), d.ws(r), chi.URLParam(r, "serverId")); err != nil {
+	if err := d.MCP.Delete(r.Context(), d.ws(r), r.PathValue("serverId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -504,7 +482,7 @@ func (d Deps) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 	ws := d.ws(r)
-	agentID := chi.URLParam(r, "agentId")
+	agentID := r.PathValue("agentId")
 	if r.URL.Query().Get("resolved") == "1" {
 		list, err := d.MCP.Resolved(r.Context(), ws, agentID)
 		if err != nil {
@@ -547,7 +525,7 @@ func (d Deps) handleAgentMCPCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m := in.toModel(d.ws(r), chi.URLParam(r, "agentId"), "")
+	m := in.toModel(d.ws(r), r.PathValue("agentId"), "")
 	created, err := d.MCP.CreateAgentMCP(r.Context(), m)
 	if err != nil {
 		writeErr(w, err)
@@ -561,7 +539,7 @@ func (d Deps) handleAgentMCPUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m := in.toModel(d.ws(r), chi.URLParam(r, "agentId"), chi.URLParam(r, "serverId"))
+	m := in.toModel(d.ws(r), r.PathValue("agentId"), r.PathValue("serverId"))
 	updated, err := d.MCP.UpdateAgentMCP(r.Context(), m)
 	if err != nil {
 		writeErr(w, err)
@@ -571,7 +549,7 @@ func (d Deps) handleAgentMCPUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleAgentMCPDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.MCP.DeleteAgentMCP(r.Context(), d.ws(r), chi.URLParam(r, "agentId"), chi.URLParam(r, "serverId")); err != nil {
+	if err := d.MCP.DeleteAgentMCP(r.Context(), d.ws(r), r.PathValue("agentId"), r.PathValue("serverId")); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -584,7 +562,7 @@ func (d Deps) handleRetrySourceContext(w http.ResponseWriter, r *http.Request) {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "X-Workspace-Id header required", nil)
 		return
 	}
-	out, err := d.RetrySourceContext(r.Context(), ws, chi.URLParam(r, "taskId"), webx.PrincipalFrom(r.Context()).UserID)
+	out, err := d.RetrySourceContext(r.Context(), ws, r.PathValue("taskId"), webx.PrincipalFrom(r.Context()).UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -620,7 +598,7 @@ func (d Deps) handleBuilderCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleBuilderDraft(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "sessionId")
+	id := r.PathValue("sessionId")
 	switch r.Method {
 	case http.MethodGet:
 		sess, err := d.Builder.Get(r.Context(), d.ws(r), id)

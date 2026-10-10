@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/webx"
@@ -26,7 +24,7 @@ func (d Deps) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	p := webx.PrincipalFrom(r.Context())
 	b, err := d.Batches.CreateAndMaterialize(r.Context(), orchapp.Batch{
-		WorkspaceID: d.ws(r), WorkItemID: chi.URLParam(r, "workItemId"),
+		WorkspaceID: d.ws(r), WorkItemID: r.PathValue("workItemId"),
 		Kind: in.Kind, Params: in.Params, Source: in.Source,
 		Concurrency: in.Concurrency, ChunkSize: in.ChunkSize,
 		OriginatorUserID: p.UserID,
@@ -45,7 +43,7 @@ func (d Deps) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleListBatches(w http.ResponseWriter, r *http.Request) {
-	b, err := d.Batches.ListByWorkItem(r.Context(), d.ws(r), chi.URLParam(r, "workItemId"))
+	b, err := d.Batches.ListByWorkItem(r.Context(), d.ws(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -54,7 +52,7 @@ func (d Deps) handleListBatches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGetBatch(w http.ResponseWriter, r *http.Request) {
-	b, ok, err := d.Batches.Get(r.Context(), d.ws(r), chi.URLParam(r, "batchId"))
+	b, ok, err := d.Batches.Get(r.Context(), d.ws(r), r.PathValue("batchId"))
 	if err != nil || !ok {
 		writeErr(w, apierr.New(apierr.NotFound, "batch not found"))
 		return
@@ -70,7 +68,7 @@ func (d Deps) handleBatchItems(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 1000 {
 		limit = n
 	}
-	items, err := d.Batches.ListItems(r.Context(), d.ws(r), chi.URLParam(r, "batchId"),
+	items, err := d.Batches.ListItems(r.Context(), d.ws(r), r.PathValue("batchId"),
 		r.URL.Query().Get("status"), limit)
 	if err != nil {
 		writeErr(w, err)
@@ -80,7 +78,7 @@ func (d Deps) handleBatchItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleBatchPause(w http.ResponseWriter, r *http.Request) {
-	if err := d.Batches.Pause(r.Context(), d.ws(r), chi.URLParam(r, "batchId")); err != nil {
+	if err := d.Batches.Pause(r.Context(), d.ws(r), r.PathValue("batchId")); err != nil {
 		writeErr(w, apierr.New(apierr.Conflict, err.Error()))
 		return
 	}
@@ -88,7 +86,7 @@ func (d Deps) handleBatchPause(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleBatchResume(w http.ResponseWriter, r *http.Request) {
-	if err := d.Batches.Resume(r.Context(), d.ws(r), chi.URLParam(r, "batchId")); err != nil {
+	if err := d.Batches.Resume(r.Context(), d.ws(r), r.PathValue("batchId")); err != nil {
 		writeErr(w, apierr.New(apierr.Conflict, err.Error()))
 		return
 	}
@@ -96,7 +94,7 @@ func (d Deps) handleBatchResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleBatchCancel(w http.ResponseWriter, r *http.Request) {
-	if err := d.Batches.Cancel(r.Context(), d.ws(r), chi.URLParam(r, "batchId")); err != nil {
+	if err := d.Batches.Cancel(r.Context(), d.ws(r), r.PathValue("batchId")); err != nil {
 		writeErr(w, apierr.New(apierr.Conflict, err.Error()))
 		return
 	}
@@ -104,7 +102,7 @@ func (d Deps) handleBatchCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleBatchRetryFailed(w http.ResponseWriter, r *http.Request) {
-	n, err := d.Batches.RequeueFailed(r.Context(), d.ws(r), chi.URLParam(r, "batchId"))
+	n, err := d.Batches.RequeueFailed(r.Context(), d.ws(r), r.PathValue("batchId"))
 	if err != nil {
 		writeErr(w, apierr.New(apierr.Conflict, err.Error()))
 		return

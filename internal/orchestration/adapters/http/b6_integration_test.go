@@ -3,10 +3,10 @@ package http
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +46,7 @@ func newB6H(t *testing.T) *b2h {
 		return sourceCtx.CreateFromDigest(ctx, ws, digest, userID, "")
 	}
 
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{
 		Settle:      orchapp.NewSettlementService(h.repo, h.bus, nil, nil, nil),
 		Agents:      h.agents,
@@ -64,7 +64,7 @@ func newB6H(t *testing.T) *b2h {
 func TestB6_MCPLibraryCRUD(t *testing.T) {
 	h := newB6H(t)
 
-	code, out := h.do("POST", "/workspaces/"+h.wsID+"/mcp-servers", map[string]any{
+	code, out := h.do("POST", "/api/workspaces/"+h.wsID+"/mcp-servers", map[string]any{
 		"name": "search", "transport": "http", "url": "https://mcp.example/sse",
 		"credentials": map[string]any{"api_key": "sk-secret"},
 	})
@@ -75,24 +75,24 @@ func TestB6_MCPLibraryCRUD(t *testing.T) {
 	assert.False(t, hasCreds, "credential fields never in responses (04: redaction)")
 	assert.Equal(t, true, out["has_credentials"])
 
-	code, out = h.do("GET", "/workspaces/"+h.wsID+"/mcp-servers", nil)
+	code, out = h.do("GET", "/api/workspaces/"+h.wsID+"/mcp-servers", nil)
 	require.Equal(t, 200, code)
 	servers, _ := out["servers"].([]any)
 	require.Len(t, servers, 1)
 
-	code, out = h.do("PUT", "/workspaces/"+h.wsID+"/mcp-servers/"+id, map[string]any{
+	code, out = h.do("PUT", "/api/workspaces/"+h.wsID+"/mcp-servers/"+id, map[string]any{
 		"name": "search2", "transport": "http", "url": "https://mcp.example/v2",
 	})
 	require.Equal(t, 200, code, "update: %v", out)
 	assert.Equal(t, "search2", out["name"])
 
-	code, _ = h.do("DELETE", "/workspaces/"+h.wsID+"/mcp-servers/"+id, nil)
+	code, _ = h.do("DELETE", "/api/workspaces/"+h.wsID+"/mcp-servers/"+id, nil)
 	require.Equal(t, 200, code)
-	code, out = h.do("GET", "/workspaces/"+h.wsID+"/mcp-servers", nil)
+	code, out = h.do("GET", "/api/workspaces/"+h.wsID+"/mcp-servers", nil)
 	servers, _ = out["servers"].([]any)
 	assert.Empty(t, servers)
 
-	rd := httptest.NewRequest("GET", "/workspaces/00000000-0000-0000-0000-000000000009/mcp-servers", nil)
+	rd := httptest.NewRequest("GET", "/api/workspaces/00000000-0000-0000-0000-000000000009/mcp-servers", nil)
 	rd.Header.Set("X-Workspace-Id", h.wsID)
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, rd)
@@ -117,7 +117,7 @@ INSERT INTO agent_mcp_server (agent_id, name, transport, url, enabled) VALUES
 ($1,'a','http','https://x/a2',false), ($1,'c','http','https://x/c',true)`, a.ID)
 	require.NoError(t, err)
 
-	code, out := h.do("GET", "/agents/"+a.ID+"/mcp-servers?resolved=1", nil)
+	code, out := h.do("GET", "/api/agents/"+a.ID+"/mcp-servers?resolved=1", nil)
 	require.Equal(t, 200, code, "resolved: %v", out)
 	servers, _ := out["servers"].([]any)
 	require.Len(t, servers, 2)
@@ -130,7 +130,7 @@ INSERT INTO agent_mcp_server (agent_id, name, transport, url, enabled) VALUES
 	}
 	assert.Equal(t, map[string]bool{"b": true, "c": true}, names)
 
-	code, out = h.do("GET", "/agents/"+a.ID+"/mcp-servers", nil)
+	code, out = h.do("GET", "/api/agents/"+a.ID+"/mcp-servers", nil)
 	require.Equal(t, 200, code)
 	servers, _ = out["servers"].([]any)
 	assert.Len(t, servers, 2, "two agent-level rows (a/c)")
@@ -143,7 +143,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	agent, err := h.agents.Create(ctx, orchapp.Agent{WorkspaceID: h.wsID, Name: "crud-agent",
 		RuntimeConfig: map[string]any{"provider": "fake", "model": "m"}})
 	require.NoError(t, err)
-	base := "/agents/" + agent.ID + "/mcp-servers"
+	base := "/api/agents/" + agent.ID + "/mcp-servers"
 
 	code, out := h.do("POST", base, map[string]any{
 		"name": "jira", "transport": "http", "url": "https://mcp.example/jira",
@@ -193,7 +193,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	servers, _ = out["servers"].([]any)
 	assert.Empty(t, servers)
 
-	code, _ = h.do("POST", "/agents/00000000-0000-0000-0000-0000000000c0/mcp-servers",
+	code, _ = h.do("POST", "/api/agents/00000000-0000-0000-0000-0000000000c0/mcp-servers",
 		map[string]any{"name": "x", "url": "https://mcp.example/x"})
 	assert.Equal(t, 404, code)
 	code, _ = h.do("PUT", base+"/00000000-0000-0000-0000-0000000000dd",
@@ -231,7 +231,7 @@ UPDATE agent_task_queue SET context = context || jsonb_build_object('source_cont
 WHERE id=$1`, task.ID, digest)
 	require.NoError(t, err)
 
-	code, out := h.do("POST", "/tasks/"+task.ID+"/retry-source-context", nil)
+	code, out := h.do("POST", "/api/tasks/"+task.ID+"/retry-source-context", nil)
 	require.Equal(t, 201, code, "retry: %v", out)
 	parent, _ := out["parent_work_item_id"].(string)
 	assert.Equal(t, wi.ID, parent)
@@ -241,7 +241,7 @@ WHERE id=$1`, task.ID, digest)
 	require.NoError(t, err)
 	task2, _, err := h.enq.EnqueueAssignment(ctx, h.wsID, wi2.ID, agent.ID, h.userID)
 	require.NoError(t, err)
-	code, out = h.do("POST", "/tasks/"+task2.ID+"/retry-source-context", nil)
+	code, out = h.do("POST", "/api/tasks/"+task2.ID+"/retry-source-context", nil)
 	assert.Equal(t, 404, code)
 	errObj, _ := out["error"].(map[string]any)
 	require.NotNil(t, errObj)

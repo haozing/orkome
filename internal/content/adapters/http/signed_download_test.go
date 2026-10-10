@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,6 +111,7 @@ func TestSignedDownloadEndpoint(t *testing.T) {
 
 	url, err := svc.SignedURL(context.Background(), "ws", "att-1", "download", "m-1", time.Minute)
 	require.NoError(t, err)
+	url = "/api" + url // MountAPI registers the endpoint under /api
 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
@@ -122,6 +122,7 @@ func TestSignedDownloadEndpoint(t *testing.T) {
 	past := newSDSvc(repo, fs, func() time.Time { return now.Add(-2 * time.Hour) })
 	expiredURL, err := past.SignedURL(context.Background(), "ws", "att-1", "download", "m-1", time.Minute)
 	require.NoError(t, err)
+	expiredURL = "/api" + expiredURL
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", expiredURL, nil))
 	assert.Equal(t, 403, w.Code)
@@ -150,6 +151,7 @@ func TestSignedDownloadEndpoint(t *testing.T) {
 
 	contentURL, err := svc.SignedURL(context.Background(), "ws", "att-1", "content", "m-1", time.Minute)
 	require.NoError(t, err)
+	contentURL = "/api" + contentURL
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", contentURL, nil))
 	require.Equal(t, 200, w.Code)
@@ -162,6 +164,7 @@ func TestSignedDownloadDigestTamperRefused(t *testing.T) {
 	h := mountSD(Deps{Attachments: svc})
 	url, err := svc.SignedURL(context.Background(), "ws", "att-1", "download", "m-1", time.Minute)
 	require.NoError(t, err)
+	url = "/api" + url // MountAPI registers the endpoint under /api
 
 	fs.objs["ws/k1"] = []byte("tlean")
 	w := httptest.NewRecorder()
@@ -171,7 +174,7 @@ func TestSignedDownloadDigestTamperRefused(t *testing.T) {
 }
 
 func mountSD(d Deps) http.Handler {
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	MountAPI(r, d, authStub)
 	return r
 }

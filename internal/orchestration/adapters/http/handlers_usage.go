@@ -3,15 +3,13 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/webx"
 )
 
 func (d Deps) handleWorkItemUsage(w http.ResponseWriter, r *http.Request) {
-	u, ok, err := d.Repo.WorkItemUsage(r.Context(), d.ws(r), chi.URLParam(r, "workItemId"))
+	u, ok, err := d.Repo.WorkItemUsage(r.Context(), d.ws(r), r.PathValue("workItemId"))
 	if err != nil {
 		writeErr(w, err)
 		return

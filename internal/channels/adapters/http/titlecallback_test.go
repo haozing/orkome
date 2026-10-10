@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -44,7 +43,7 @@ func (f *cbRepo) UpdateRouteTitle(_ context.Context, _, externalChatID, title, s
 	return true, nil
 }
 
-func newCBHandler(t *testing.T, instCfg string) (*chi.Mux, *cbRepo) {
+func newCBHandler(t *testing.T, instCfg string) (*http.ServeMux, *cbRepo) {
 	t.Helper()
 	inst := app.Installation{
 		ID: "inst-1", WorkspaceID: "ws-1", Kind: "fake", Status: "active",
@@ -57,7 +56,7 @@ func newCBHandler(t *testing.T, instCfg string) (*chi.Mux, *cbRepo) {
 		sources: map[string]string{},
 		locked:  map[string]bool{},
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, Deps{Titles: app.NewTitleCallbackService(repo), Repo: repo})
 	return r, repo
 }
@@ -67,7 +66,7 @@ func doPost(t *testing.T, h http.Handler, cfg, instID, chatID, title string) (in
 	body, _ := json.Marshal(map[string]string{
 		"installation_id": instID, "external_chat_id": chatID, "title": title,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/channels/title-callback", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/title-callback", bytes.NewReader(body))
 	if cfg != "" {
 		req.Header.Set("X-Channel-Config", cfg)
 	}

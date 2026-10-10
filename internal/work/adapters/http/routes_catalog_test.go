@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -309,7 +308,7 @@ func (f *fakeCatalogRepo) SearchProjects(_ context.Context, _, q string, _ int) 
 	return out, nil
 }
 
-func newCatalogRouter(t *testing.T) (*chi.Mux, *fakeCatalogRepo) {
+func newCatalogRouter(t *testing.T) (*http.ServeMux, *fakeCatalogRepo) {
 	t.Helper()
 	repo := newFakeCatalogRepo()
 	repo.comments["c-1"] = app.Comment{ID: "c-1", WorkspaceID: "ws-1", WorkItemID: "wi-1"}
@@ -334,7 +333,7 @@ func newCatalogRouter(t *testing.T) (*chi.Mux, *fakeCatalogRepo) {
 				&webx.Principal{UserID: "u-1", Source: webx.SourceSession})))
 		})
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, deps, auth)
 	return r, repo
 }
@@ -361,7 +360,7 @@ func codeOf(t *testing.T, rec *httptest.ResponseRecorder) string {
 
 func TestLabelsIncrementalMount(t *testing.T) {
 	r, repo := newCatalogRouter(t)
-	base := "/work-items/wi-1/labels"
+	base := "/api/work-items/wi-1/labels"
 
 	assert.Equal(t, http.StatusMethodNotAllowed, doCat(r, http.MethodPut, base, `{"label_ids":[]}`).Code)
 
@@ -385,7 +384,7 @@ func TestLabelsIncrementalMount(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPost, base, `{}`).Code)
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, base, `{"label_id":"lab-x"}`).Code)
 
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, "/work-items/wi-x/labels", `{"label_id":"lab-1"}`).Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, "/api/work-items/wi-x/labels", `{"label_id":"lab-1"}`).Code)
 
 	rec = doCat(r, http.MethodDelete, base+"/lab-1", "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -399,7 +398,7 @@ func TestLabelsIncrementalMount(t *testing.T) {
 func TestSubscribeEndpoint(t *testing.T) {
 	r, repo := newCatalogRouter(t)
 
-	rec := doCat(r, http.MethodPost, "/work-items/wi-1/subscribers", "")
+	rec := doCat(r, http.MethodPost, "/api/work-items/wi-1/subscribers", "")
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var sub app.Subscriber
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sub))
@@ -407,20 +406,20 @@ func TestSubscribeEndpoint(t *testing.T) {
 	assert.Equal(t, "manual", sub.Source, "source recorded as manual (a seventh type beyond internal archive 05 §3.10)")
 	assert.Equal(t, "all", sub.Level)
 
-	rec = doCat(r, http.MethodPost, "/work-items/wi-1/subscribers", "")
+	rec = doCat(r, http.MethodPost, "/api/work-items/wi-1/subscribers", "")
 	require.Equal(t, http.StatusCreated, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sub))
 	assert.Equal(t, "manual", sub.Source)
 	assert.Equal(t, 2, repo.subCalls)
 
-	rec = doCat(r, http.MethodPost, "/work-items/wi-x/subscribers", "")
+	rec = doCat(r, http.MethodPost, "/api/work-items/wi-x/subscribers", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, "E_NOT_FOUND", codeOf(t, rec))
 }
 
 func TestCommentReactions(t *testing.T) {
 	r, _ := newCatalogRouter(t)
-	base := "/comments/c-1/reactions"
+	base := "/api/comments/c-1/reactions"
 
 	rec := doCat(r, http.MethodPost, base, `{"emoji":"👍"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -447,7 +446,7 @@ func TestCommentReactions(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPost, base, `{"emoji":"`+strings.Repeat("🎉", 20)+`"}`).Code)
 
 	for _, c := range []string{"c-2", "c-3", "c-404"} {
-		rec := doCat(r, http.MethodPost, "/comments/"+c+"/reactions", `{"emoji":"👍"}`)
+		rec := doCat(r, http.MethodPost, "/api/comments/"+c+"/reactions", `{"emoji":"👍"}`)
 		assert.Equal(t, http.StatusNotFound, rec.Code, "comment %s should be 404", c)
 		assert.Equal(t, "E_NOT_FOUND", codeOf(t, rec))
 	}
@@ -455,7 +454,7 @@ func TestCommentReactions(t *testing.T) {
 
 func TestPropertyKeyEndpoints(t *testing.T) {
 	r, _ := newCatalogRouter(t)
-	base := "/work-items/wi-1/properties/"
+	base := "/api/work-items/wi-1/properties/"
 
 	cases := []struct {
 		key  string
@@ -512,7 +511,7 @@ func TestPropertyKeyEndpoints(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodGet, base+"severity", "").Code)
 	assert.Equal(t, http.StatusNoContent, doCat(r, http.MethodDelete, base+"severity", "").Code, "key does not exist idempotent 204")
 
-	missing := "/work-items/wi-x/properties/severity"
+	missing := "/api/work-items/wi-x/properties/severity"
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodGet, missing, "").Code)
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPut, missing, `"x"`).Code)
 	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPut, base+"notes", `{"broken":`).Code)
@@ -520,7 +519,7 @@ func TestPropertyKeyEndpoints(t *testing.T) {
 
 func TestPropertyDefManagement(t *testing.T) {
 	r, _ := newCatalogRouter(t)
-	base := "/properties/"
+	base := "/api/properties/"
 
 	rec := doCat(r, http.MethodGet, base+"severity", "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -547,7 +546,7 @@ func TestPropertyDefManagement(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, doCat(r, http.MethodDelete, base+"severity", "").Code)
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodGet, base+"severity", "").Code)
 	assert.Equal(t, http.StatusNoContent, doCat(r, http.MethodDelete, base+"severity", "").Code)
-	rec = doCat(r, http.MethodGet, "/properties", "")
+	rec = doCat(r, http.MethodGet, "/api/properties", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var defs []app.PropertyDef
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defs))
@@ -567,7 +566,7 @@ func TestPropertyDefManagement(t *testing.T) {
 func TestStatusPatch(t *testing.T) {
 	r, _ := newCatalogRouter(t)
 
-	rec := doCat(r, http.MethodPatch, "/work-item-statuses/verifying",
+	rec := doCat(r, http.MethodPatch, "/api/work-item-statuses/verifying",
 		`{"name":"verifying (strict)","icon":"🔬","category":"done"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var def app.StatusDef
@@ -577,12 +576,12 @@ func TestStatusPatch(t *testing.T) {
 	assert.Equal(t, "🔬", def.Icon)
 	assert.Equal(t, "done", def.Category)
 
-	rec = doCat(r, http.MethodPatch, "/work-item-statuses/todo", `{"name":"todo","icon":"📥"}`)
+	rec = doCat(r, http.MethodPatch, "/api/work-item-statuses/todo", `{"name":"todo","icon":"📥"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &def))
 	assert.Equal(t, "todo", def.Name)
 	assert.Equal(t, "📥", def.Icon)
-	rec = doCat(r, http.MethodPatch, "/work-item-statuses/todo", `{"category":"done"}`)
+	rec = doCat(r, http.MethodPatch, "/api/work-item-statuses/todo", `{"category":"done"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "built-in status categories immutable")
 	assert.Equal(t, "E_VALIDATION", codeOf(t, rec))
 
@@ -591,11 +590,11 @@ func TestStatusPatch(t *testing.T) {
 		body string
 		code int
 	}{
-		{"/work-item-statuses/verifying", `{"category":"bogus"}`, http.StatusBadRequest},
-		{"/work-item-statuses/verifying", `{"icon":""}`, http.StatusBadRequest},
-		{"/work-item-statuses/verifying", `{"icon":"` + strings.Repeat("🔥", 33) + `"}`, http.StatusBadRequest},
-		{"/work-item-statuses/verifying", `{"name":""}`, http.StatusBadRequest},
-		{"/work-item-statuses/nope", `{"name":"x"}`, http.StatusNotFound},
+		{"/api/work-item-statuses/verifying", `{"category":"bogus"}`, http.StatusBadRequest},
+		{"/api/work-item-statuses/verifying", `{"icon":""}`, http.StatusBadRequest},
+		{"/api/work-item-statuses/verifying", `{"icon":"` + strings.Repeat("🔥", 33) + `"}`, http.StatusBadRequest},
+		{"/api/work-item-statuses/verifying", `{"name":""}`, http.StatusBadRequest},
+		{"/api/work-item-statuses/nope", `{"name":"x"}`, http.StatusNotFound},
 	}
 	for _, tc := range bad {
 		assert.Equal(t, tc.code, doCat(r, http.MethodPatch, tc.path, tc.body).Code, "body=%s", tc.body)
@@ -605,29 +604,29 @@ func TestStatusPatch(t *testing.T) {
 func TestProjectCRUD(t *testing.T) {
 	r, _ := newCatalogRouter(t)
 
-	rec := doCat(r, http.MethodGet, "/projects/p-1", "")
+	rec := doCat(r, http.MethodGet, "/api/projects/p-1", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var p app.Project
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 	assert.Equal(t, "Alpha project", p.Name)
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodGet, "/projects/p-x", "").Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodGet, "/api/projects/p-x", "").Code)
 
-	rec = doCat(r, http.MethodPut, "/projects/p-1", `{"name":"Alpha v2","description":"upgrade"}`)
+	rec = doCat(r, http.MethodPut, "/api/projects/p-1", `{"name":"Alpha v2","description":"upgrade"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 	assert.Equal(t, "Alpha v2", p.Name)
 	assert.Equal(t, "upgrade", p.Description)
-	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPut, "/projects/p-1", `{"name":" "}`).Code)
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPut, "/projects/p-x", `{"name":"x"}`).Code)
+	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPut, "/api/projects/p-1", `{"name":" "}`).Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPut, "/api/projects/p-x", `{"name":"x"}`).Code)
 
-	rec = doCat(r, http.MethodDelete, "/projects/p-2", "")
+	rec = doCat(r, http.MethodDelete, "/api/projects/p-2", "")
 	assert.Equal(t, http.StatusConflict, rec.Code, "linked work items not cleared should be 409: "+rec.Body.String())
 	assert.Equal(t, "E_REVISION_CONFLICT", codeOf(t, rec), "task vocabulary has no separate reference conflict code, lands on the existing 409")
-	assert.Equal(t, http.StatusNoContent, doCat(r, http.MethodDelete, "/projects/p-1", "").Code)
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodDelete, "/projects/p-1", "").Code)
+	assert.Equal(t, http.StatusNoContent, doCat(r, http.MethodDelete, "/api/projects/p-1", "").Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodDelete, "/api/projects/p-1", "").Code)
 
 	r2, _ := newCatalogRouter(t)
-	rec = doCat(r2, http.MethodGet, "/projects/search?q=beta", "")
+	rec = doCat(r2, http.MethodGet, "/api/projects/search?q=beta", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var sr struct {
 		Items []app.Project `json:"items"`
@@ -635,24 +634,24 @@ func TestProjectCRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sr))
 	require.Len(t, sr.Items, 1)
 	assert.Equal(t, "Beta", sr.Items[0].Name)
-	rec = doCat(r2, http.MethodGet, "/projects/search?q=flagship", "")
+	rec = doCat(r2, http.MethodGet, "/api/projects/search?q=flagship", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sr))
 	assert.NotEmpty(t, sr.Items, "description ILIKE also hits")
-	assert.Equal(t, http.StatusBadRequest, doCat(r2, http.MethodGet, "/projects/search?q=", "").Code)
+	assert.Equal(t, http.StatusBadRequest, doCat(r2, http.MethodGet, "/api/projects/search?q=", "").Code)
 }
 
 func TestGetLabel(t *testing.T) {
 	r, _ := newCatalogRouter(t)
 
-	rec := doCat(r, http.MethodGet, "/labels/lab-1", "")
+	rec := doCat(r, http.MethodGet, "/api/labels/lab-1", "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var l app.Label
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &l))
 	assert.Equal(t, "lab-1", l.ID)
 	assert.Equal(t, "core", l.Name)
 
-	rec = doCat(r, http.MethodGet, "/labels/lab-x", "")
+	rec = doCat(r, http.MethodGet, "/api/labels/lab-x", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code, "missing/cross-workspace → 404 (I6)")
 	assert.Equal(t, "E_NOT_FOUND", codeOf(t, rec))
 }

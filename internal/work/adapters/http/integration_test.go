@@ -14,7 +14,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,14 +112,11 @@ func newM2(t *testing.T) *m2h {
 			e.WorkspaceID, wiID, "user", e.ActorUserID, e.Event, map[string]any{})
 	})
 
-	api := chi.NewRouter()
-	idhttp.MountAPI(api, idDeps, false)
+	full := http.NewServeMux()
+	idhttp.MountAPI(full, idDeps, false)
 	authMw := webx.Authenticate(idDeps.Auth, idDeps.Tokens)
-	Mount(api, workDeps, authMw)
-	root := idhttp.RootRouter(idDeps, false)
-	full := chi.NewRouter()
-	full.Mount("/api", api)
-	full.Mount("/", root)
+	Mount(full, workDeps, authMw)
+	full.Handle("/", idhttp.RootRouter(idDeps, false))
 
 	return &m2h{t: t, handler: full, pool: pool, jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
 }

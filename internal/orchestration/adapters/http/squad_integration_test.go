@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -71,8 +70,8 @@ func newSqhEnv(t *testing.T) *sqhEnv {
 	d := Deps{Repo: repo, Squads: svc,
 		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil }}
 
-	r := chi.NewRouter()
-	r.Route("/api", func(r chi.Router) { Mount(r, d, passAuth) })
+	r := http.NewServeMux()
+	Mount(r, d, passAuth)
 	return &sqhEnv{t: t, handler: r, pool: pool, repo: repo, wsUserID: userID, wsID: wsID}
 }
 

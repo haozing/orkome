@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,7 +16,7 @@ import (
 	"orkome/internal/platform/webx"
 )
 
-func newAgentLabelsRouter(t *testing.T, mounted []string, notFoundFor string) (*chi.Mux, *map[string]int) {
+func newAgentLabelsRouter(t *testing.T, mounted []string, notFoundFor string) (*http.ServeMux, *map[string]int) {
 	t.Helper()
 	calls := map[string]int{}
 	labels := func(ids ...string) []AgentLabelView {
@@ -55,7 +54,7 @@ func newAgentLabelsRouter(t *testing.T, mounted []string, notFoundFor string) (*
 				&webx.Principal{UserID: "u-1", Source: webx.SourceSession})))
 		})
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, deps, auth)
 	return r, &calls
 }
@@ -76,19 +75,19 @@ func agentLabelsReq(r http.Handler, method, target, body string) *httptest.Respo
 func TestAgentLabelsEndpoints_MountedListAttachDetach(t *testing.T) {
 	r, calls := newAgentLabelsRouter(t, []string{"lab-1"}, "")
 
-	rec := agentLabelsReq(r, "GET", "/agents/ag-1/labels", "")
+	rec := agentLabelsReq(r, "GET", "/api/agents/ag-1/labels", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got []AgentLabelView
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Len(t, got, 1)
 	assert.Equal(t, "lab-1", got[0].ID)
 
-	rec = agentLabelsReq(r, "POST", "/agents/ag-1/labels", `{"label_id":"lab-2"}`)
+	rec = agentLabelsReq(r, "POST", "/api/agents/ag-1/labels", `{"label_id":"lab-2"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Len(t, got, 2, "attach response equals updated catalog")
 
-	rec = agentLabelsReq(r, "DELETE", "/agents/ag-1/labels/lab-2", "")
+	rec = agentLabelsReq(r, "DELETE", "/api/agents/ag-1/labels/lab-2", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Empty(t, got)
@@ -99,10 +98,10 @@ func TestAgentLabelsEndpoints_MountedListAttachDetach(t *testing.T) {
 
 func TestAgentLabelsEndpoints_ValidationAndNotFound(t *testing.T) {
 	r, _ := newAgentLabelsRouter(t, nil, "ag-404")
-	assert.Equal(t, http.StatusBadRequest, agentLabelsReq(r, "POST", "/agents/ag-1/labels", `{}`).Code)
-	assert.Equal(t, http.StatusBadRequest, agentLabelsReq(r, "POST", "/agents/ag-1/labels", `not-json`).Code)
-	assert.Equal(t, http.StatusMethodNotAllowed, agentLabelsReq(r, "DELETE", "/agents/ag-1/labels", "").Code)
-	assert.Equal(t, http.StatusNotFound, agentLabelsReq(r, "POST", "/agents/ag-404/labels", `{"label_id":"x"}`).Code)
+	assert.Equal(t, http.StatusBadRequest, agentLabelsReq(r, "POST", "/api/agents/ag-1/labels", `{}`).Code)
+	assert.Equal(t, http.StatusBadRequest, agentLabelsReq(r, "POST", "/api/agents/ag-1/labels", `not-json`).Code)
+	assert.Equal(t, http.StatusMethodNotAllowed, agentLabelsReq(r, "DELETE", "/api/agents/ag-1/labels", "").Code)
+	assert.Equal(t, http.StatusNotFound, agentLabelsReq(r, "POST", "/api/agents/ag-404/labels", `{"label_id":"x"}`).Code)
 }
 
 func TestAgentLabelsEndpoints_NilNotMounted(t *testing.T) {
@@ -110,13 +109,13 @@ func TestAgentLabelsEndpoints_NilNotMounted(t *testing.T) {
 		Agents:      &orchapp.AgentService{},
 		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil },
 	}
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 	Mount(r, deps, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r2 *http.Request) {
 			next.ServeHTTP(w, r2.WithContext(webx.WithPrincipal(r2.Context(),
 				&webx.Principal{UserID: "u-1", Source: webx.SourceSession})))
 		})
 	})
-	rec := agentLabelsReq(r, "GET", "/agents/ag-1/labels", "")
+	rec := agentLabelsReq(r, "GET", "/api/agents/ag-1/labels", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code, "nil injection = routes not registered")
 }

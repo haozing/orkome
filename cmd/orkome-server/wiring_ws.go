@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 
 	"orkome/internal/contract/events"
@@ -87,11 +86,8 @@ func (h hubBroadcaster) SendToUser(ctx context.Context, userID string, frame wsw
 	h.hub.SendToUser(ctx, userID, frame)
 }
 
-func mountWS(r chi.Router, hub *wsx.Hub, auth func(http.Handler) http.Handler) {
-	r.Group(func(r chi.Router) {
-		r.Use(auth)
-		r.Get("/ws", hub.ServeWS)
-	})
+func mountWS(mux *http.ServeMux, hub *wsx.Hub, auth func(http.Handler) http.Handler) {
+	mux.Handle("GET /ws", auth(http.HandlerFunc(hub.ServeWS)))
 }
 
 type notifUserFrames struct{ cast wsx.Broadcaster }

@@ -5,8 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
+	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/automation/domain"
 	"orkome/internal/contract/events"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
@@ -15,7 +14,6 @@ import (
 	"orkome/internal/orchestration/adapters/engine"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/platform/webx"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
@@ -45,7 +43,7 @@ func workhttpDeps(db *pg.DB, bus *eventbus.Bus, wRepo *workpgrepo.Repo, idRepo *
 	}
 }
 
-func workhttpMount(api chi.Router, d workhttp.Deps, authMw func(http.Handler) http.Handler) {
+func workhttpMount(api *http.ServeMux, d workhttp.Deps, authMw func(http.Handler) http.Handler) {
 	workhttp.Mount(api, d, authMw)
 }
 

@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/identity/adapters/pgrepo"
@@ -657,14 +655,25 @@ func TestM1_SlidingRenewal(t *testing.T) {
 
 func TestM1_RouteAccounting(t *testing.T) {
 	h := newHarness(t)
-	mux, ok := h.handler.(chi.Router)
-	require.True(t, ok, "Routes should return chi.Router")
+	mux, ok := h.handler.(*http.ServeMux)
+	require.True(t, ok, "Routes should return *http.ServeMux")
 
-	got := map[string]bool{}
-	require.NoError(t, chi.Walk(mux, func(method, pattern string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		got[method+" "+strings.TrimSuffix(pattern, "/")] = true
-		return nil
-	}))
+	// stdlib ServeMux cannot enumerate patterns; resolve each expected route
+	// with a dummy request instead — Handler() only matches, never invokes.
+	dummies := map[string]string{
+		"code": "abc123", "itemType": "work_item", "itemId": "00000000-0000-0000-0000-000000000000",
+	}
+	uuid := "00000000-0000-0000-0000-000000000000"
+	fill := func(pattern string) string {
+		out := pattern
+		for name, v := range dummies {
+			out = strings.ReplaceAll(out, "{"+name+"}", v)
+		}
+		for _, name := range []string{"workspaceId", "memberId", "invitationId", "tokenId", "linkId"} {
+			out = strings.ReplaceAll(out, "{"+name+"}", uuid)
+		}
+		return out
+	}
 
 	expected := []string{
 
@@ -688,7 +697,10 @@ func TestM1_RouteAccounting(t *testing.T) {
 		"DELETE /api/workspaces/{workspaceId}/share-links/{linkId}",
 	}
 	for _, e := range expected {
-		assert.True(t, got[e], "04 contract route not mounted: %s", e)
+		method, pattern, _ := strings.Cut(e, " ")
+		req := httptest.NewRequest(method, fill(pattern), nil)
+		_, got := mux.Handler(req)
+		assert.Equal(t, pattern, got, "04 contract route not mounted: %s", e)
 	}
-	t.Logf("route reconciliation: all %d contract routes mounted (%d actual)", len(expected), len(got))
+	t.Logf("route reconciliation: all %d contract routes mounted", len(expected))
 }
