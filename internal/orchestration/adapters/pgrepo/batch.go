@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"orkome/internal/orchestration/app"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type BatchRepo struct{ DB *pg.DB }

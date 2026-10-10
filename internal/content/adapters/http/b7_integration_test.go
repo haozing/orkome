@@ -19,13 +19,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/storagex"
 	contentpgrepo "orkome/internal/content/adapters/pgrepo"
 	contentapp "orkome/internal/content/app"
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
-	"orkome/internal/platform/storagex"
 	"orkome/internal/platform/webx"
+	"orkome/migrations"
 )
 
 type b7h struct {
@@ -53,7 +54,7 @@ func newB7H(t *testing.T) *b7h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `TRUNCATE attachment, member, workspace, "user" RESTART IDENTITY CASCADE`)

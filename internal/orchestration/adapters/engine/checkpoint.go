@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 const checkpointFingerprint = "eino/1"

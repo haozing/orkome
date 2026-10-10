@@ -55,6 +55,10 @@ func TestBuildMCPTools_SSRFGate(t *testing.T) {
 	assert.NotContains(t, snap, "credentials")
 }
 
+// Framework egressx (ploykit) is fail-closed on unresolvable https hosts; the
+// old local gate passed them best-effort and the failure surfaced at connect
+// time. Both of these test hosts are unresolvable domains, so they are now
+// classified at the gate.
 func TestBuildMCPTools_UnsupportedTransport(t *testing.T) {
 	e := &EinoEngine{MCPResolver: &fakeMCPResolver{servers: []orchapp.ResolvedMCPServer{
 		{Name: "weird", Transport: "stdio", URL: "https://mcp.example.com/x"},
@@ -64,10 +68,10 @@ func TestBuildMCPTools_UnsupportedTransport(t *testing.T) {
 	require.NotNil(t, br)
 	assert.Empty(t, br.tools)
 	require.Len(t, br.snapshot, 1)
-	assert.Equal(t, mcpStatusConnectFail, br.snapshot[0].Status)
+	assert.Equal(t, mcpStatusSSRF, br.snapshot[0].Status)
 }
 
-func TestBuildMCPTools_PublicHostBestEffort(t *testing.T) {
+func TestBuildMCPTools_PublicHostUnresolvableFailClosed(t *testing.T) {
 	e := &EinoEngine{MCPResolver: &fakeMCPResolver{servers: []orchapp.ResolvedMCPServer{
 		{Name: "remote", Transport: "http", URL: "https://mcp.invalid.example/mcp"},
 	}}}
@@ -76,7 +80,7 @@ func TestBuildMCPTools_PublicHostBestEffort(t *testing.T) {
 	require.NotNil(t, br)
 	assert.Empty(t, br.tools)
 	require.Len(t, br.snapshot, 1)
-	assert.NotEqual(t, mcpStatusSSRF, br.snapshot[0].Status, "public domain not rejected by the SSRF gate")
+	assert.Equal(t, mcpStatusSSRF, br.snapshot[0].Status, "unresolvable https host is rejected at the gate (fail-closed)")
 }
 
 func TestBuildMCPTools_NilResolver(t *testing.T) {

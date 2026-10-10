@@ -178,6 +178,16 @@ orkome（本仓库，产品）
 
 **目标**：底座换血，行为等价。
 
+**执行记录（2026-10-10，M1+M5 完成并提交，P2-4/P2-6 待下批）**：
+- P2-1 ✅：75 个文件换 import；11 个本地平台包（pg/pgmigrate/redisx/storagex/cronx/egressx/sealx/redactx/ids/logx/metrics）删除；保留 7 包（D7 四包 + webx/wsx/relayx），其中 outboxx→框架 pg、schedx→框架 cronx、relayx→框架 logx 的兄弟依赖已重指向；`sealx.DeriveKey`（框架无此 API）下沉为产品侧 `deriveSealKey`（wiring_orchestration.go）；arch 测试与 depguard 放行 `github.com/haozing/ploykit/platform/*`
+- P2-2 顺延：框架 `platform/workers` 在 v0.3.0 之后才落地，orkome cmd 本地注册表保持至升版本
+- P2-3 并入 Phase 3：框架 webx 的 RequestID/Timeout/BodyLimit 与本地 webx 整体交换时一起上，避免混插半个栈
+- P2-5 ✅：新增 `migrations/embed.go`（`//go:embed *.sql`）；cmd/migrate 与 main.go readyz 检查、26 个集成/e2e 测试文件全部改 `pgmigrate.New(pool, migrations.FS, ".")`（框架包名为 `pgm`，需别名 import）；仅挂产品 FS，框架 FS 待 P3-1
+- P2-7 ✅：eventbus/outboxx 本地保留，`event_outbox` 仍由产品迁移 009 创建
+- P2-8 ✅（v3 已取消换框架动作）：六个 contract 包全本地
+- **接受的行为差异**：框架 egressx 对无法解析的 https 域名 fail-closed（本地旧版尽力放行、连接期才失败）——MCP 快照分类从 `connect_failed` 变为 `ssrf_rejected`，终态一致（工具不可用），两个测试已按新语义重写（ADR 0002 血统的安全强化）
+- 验证：`go build` / `go vet` / `go test ./...` 全绿（55 包）；`go mod tidy` 后 ploykit 转直接依赖（go.mod 第一 require 块）
+
 - [ ] P2-1 逐包替换 import（**11 包 + metrics**，v2：eventbus/outboxx/schedx/flagsx 按 D7 保留本地）：全仓 grep `orkome/internal/platform/` → `github.com/haozing/ploykit/platform/`；删除对应本地包（**wsx/relayx/webx 及 D7 四包除外**，临时保留并标注 `// DEPRECATED: Phase 5（webx: Phase 3；D7 四包：长期保留）`。webx 延后原因：其 Authenticate 是 orkome JWT 实现，框架版依赖框架会话表，P3-1 才建，提前切换认证即断）
 - [ ] P2-2 `cmd/orkome-server/workers.go` 换框架 `platform/workers`（同形状：Add/AddFunc/Start/Drain/AllHealthy；`/readyz` 联动核对）
 - [ ] P2-3 中间件栈**补插框架新增件**（RequestID / Timeout / BodyLimit）进现有 orkome 栈；Authenticate、CSRF 等身份相关中间件**保持 orkome webx 版本至 Phase 3**；`/ws` 豁免 DB 超时层

@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/egressx"
-	"orkome/internal/platform/redactx"
+	"github.com/haozing/ploykit/platform/egressx"
+	"github.com/haozing/ploykit/platform/redactx"
 	"orkome/internal/skills/domain"
 )
 

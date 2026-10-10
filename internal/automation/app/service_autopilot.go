@@ -11,7 +11,7 @@ import (
 
 	"orkome/internal/automation/domain"
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/cronx"
+	"github.com/haozing/ploykit/platform/cronx"
 )
 
 type AutopilotService struct {

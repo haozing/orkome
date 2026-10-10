@@ -13,9 +13,9 @@ import (
 
 	"orkome/internal/content/domain"
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/ids"
-	"orkome/internal/platform/redactx"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/ids"
+	"github.com/haozing/ploykit/platform/redactx"
+	"github.com/haozing/ploykit/platform/storagex"
 )
 
 const MaxAttachmentBytes = 100 << 20

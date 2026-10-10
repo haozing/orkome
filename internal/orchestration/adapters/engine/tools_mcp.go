@@ -15,7 +15,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/egressx"
+	"github.com/haozing/ploykit/platform/egressx"
 )
 
 const (

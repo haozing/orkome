@@ -14,9 +14,9 @@ import (
 	"orkome/internal/contract/modelmeta"
 	"orkome/internal/contract/wswire"
 	"orkome/internal/orchestration/domain"
-	"orkome/internal/platform/egressx"
-	"orkome/internal/platform/ids"
-	"orkome/internal/platform/redactx"
+	"github.com/haozing/ploykit/platform/egressx"
+	"github.com/haozing/ploykit/platform/ids"
+	"github.com/haozing/ploykit/platform/redactx"
 )
 
 type AgentService struct {

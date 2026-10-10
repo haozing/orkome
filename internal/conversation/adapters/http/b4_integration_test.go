@@ -16,16 +16,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/apierr"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/platform/webx"
+	"orkome/migrations"
 )
 
 type b4h struct {
@@ -59,7 +60,7 @@ func newB4H(t *testing.T) *b4h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `TRUNCATE task_message, event_outbox, task_supplement,

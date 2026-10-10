@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"orkome/internal/contract/wswire"
-	"orkome/internal/platform/logx"
+	"github.com/haozing/ploykit/platform/logx"
 )
 
 func redisUp(t *testing.T) *redis.Client {

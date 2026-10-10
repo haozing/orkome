@@ -23,12 +23,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/egressx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/events"
-	"orkome/internal/platform/egressx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	webhookworkers "orkome/internal/webhooks/adapters/workers"
 	"orkome/internal/webhooks/app"
+	"orkome/migrations"
 
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 )
@@ -51,7 +52,7 @@ func webhooksEnv(t *testing.T) (*app.Service, *pgxpool.Pool, string, string) {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 

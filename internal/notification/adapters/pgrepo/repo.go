@@ -11,7 +11,7 @@ import (
 
 	"orkome/internal/notification/app"
 	"orkome/internal/notification/domain"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }

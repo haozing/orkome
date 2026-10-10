@@ -16,7 +16,7 @@ import (
 	"orkome/internal/contract/failuretax"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/orchestration/domain"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type CredentialSealer interface {

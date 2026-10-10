@@ -13,7 +13,7 @@ import (
 	autopapp "orkome/internal/automation/app"
 	autodomain "orkome/internal/automation/domain"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type captureEmitter struct {

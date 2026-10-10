@@ -21,6 +21,11 @@ import (
 
 	"orkome/internal/contract/apierr"
 
+	"github.com/haozing/ploykit/platform/egressx"
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/storagex"
 	autohttp "orkome/internal/automation/adapters/http"
 	autoppgrepo "orkome/internal/automation/adapters/pgrepo"
 	autopworkers "orkome/internal/automation/adapters/workers"
@@ -47,18 +52,14 @@ import (
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	"orkome/internal/orchestration/adapters/workers"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/egressx"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
-	"orkome/internal/platform/storagex"
 	"orkome/internal/platform/webx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillpgrepo "orkome/internal/skills/adapters/pgrepo"
 	skillapp "orkome/internal/skills/app"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
+	"orkome/migrations"
 )
 
 type scriptModel struct{}
@@ -125,7 +126,7 @@ func newStack(t *testing.T) *stack {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `TRUNCATE channel_chat_session_binding, channel_inbound_message_dedup,

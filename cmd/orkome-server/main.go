@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
@@ -31,18 +30,20 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/flagsx"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/metrics"
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/metrics"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
-	"orkome/internal/platform/redisx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/redisx"
 	"orkome/internal/platform/webx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	webhookhttp "orkome/internal/webhooks/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
+
+	"orkome/migrations"
 )
 
 func main() {
@@ -202,7 +203,7 @@ func main() {
 			http.Error(w, "db unreachable", http.StatusServiceUnavailable)
 			return
 		}
-		if missing := missingMigrations(ctx, db, "migrations"); len(missing) > 0 {
+		if missing := missingMigrations(ctx, db); len(missing) > 0 {
 			http.Error(w, "migrations pending: "+joinVersions(missing), http.StatusServiceUnavailable)
 			return
 		}
@@ -347,12 +348,8 @@ func decodeOutboxPayload(event string, raw []byte) any {
 	return nil
 }
 
-func missingMigrations(ctx context.Context, db *pg.DB, dir string) []string {
-	pool, ok := db.Tx(ctx).(*pgxpool.Pool)
-	if !ok {
-		return nil
-	}
-	m := pgmigrate.New(pool, dir)
+func missingMigrations(ctx context.Context, db *pg.DB) []string {
+	m := pgmigrate.New(db.Pool(), migrations.FS, ".")
 	rows, err := m.Status(ctx)
 	if err != nil {
 		return []string{"status-error"}

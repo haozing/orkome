@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
 	"orkome/internal/orchestration/domain"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
+	"orkome/migrations"
 )
 
 func TestCancelByCommentSQLMirrorsPredicate(t *testing.T) {
@@ -57,7 +58,7 @@ func newDeferredEnv(t *testing.T) *deferredEnv {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `TRUNCATE agent_task_checkpoint, task_message, task_supplement, task_usage,

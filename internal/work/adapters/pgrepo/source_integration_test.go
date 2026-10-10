@@ -12,8 +12,8 @@ import (
 
 	"orkome/internal/contract/apierr"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/work/app"
 )
 

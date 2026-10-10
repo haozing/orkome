@@ -19,11 +19,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/identity/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/platform/webx"
+	"orkome/migrations"
 )
 
 type captureSender struct {
@@ -104,7 +105,7 @@ func newHarnessCfg(t *testing.T, cfg app.SessionConfig) *harness {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 

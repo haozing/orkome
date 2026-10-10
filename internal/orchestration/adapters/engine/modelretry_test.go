@@ -17,7 +17,7 @@ import (
 	"orkome/internal/contract/failuretax"
 	"orkome/internal/contract/modelmeta"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/egressx"
+	"github.com/haozing/ploykit/platform/egressx"
 )
 
 func zeroBackoff(context.Context, int) time.Duration { return 0 }

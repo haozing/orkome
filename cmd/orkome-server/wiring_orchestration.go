@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,11 +22,11 @@ import (
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	"orkome/internal/orchestration/adapters/workers"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/egressx"
+	"github.com/haozing/ploykit/platform/egressx"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/sealx"
+	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/sealx"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
 	workdomain "orkome/internal/work/domain"
@@ -40,12 +42,20 @@ func credentialSealer(log *slog.Logger, cfg *Config) *sealx.Sealer {
 		return s
 	}
 	log.Warn("ENGINE_CREDENTIAL_MASTER_KEY not set: non-production fallback—credential key derived from JWT_SECRET (must be set explicitly in production)")
-	s, err := sealx.New(sealx.DeriveKey(cfg.JWTSecret, "credential"))
+	s, err := sealx.New(deriveSealKey(cfg.JWTSecret, "credential"))
 	if err != nil {
 		log.Error("failed to construct credential sealer", "err", err)
 		os.Exit(1)
 	}
 	return s
+}
+
+// deriveSealKey derives a per-domain 32-byte sealing key from a base secret
+// (product policy; the framework sealx only takes ready-made keys).
+func deriveSealKey(baseSecret, domain string) []byte {
+	mac := hmac.New(sha256.New, []byte(baseSecret))
+	mac.Write([]byte("orkome:seal:" + domain))
+	return mac.Sum(nil)
 }
 
 func egressGuardOf(cfg *Config) *egressx.Guard {

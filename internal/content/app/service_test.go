@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/storagex"
 )
 
 type fakeStore struct{ objs map[string]storeObj }

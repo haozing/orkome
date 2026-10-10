@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 func fixtureNarrow(t *testing.T) (repo *Repo, wsID, u1, other, sess1, sess2, msgID string) {

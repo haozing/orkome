@@ -12,10 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/identity/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/platform/webx"
+	"orkome/migrations"
 )
 
 var uitAuth = &webx.AuthConfig{Secret: []byte("test-secret-0123456789abcdef0123456789")}
@@ -38,7 +39,7 @@ func uitokenEnv(t *testing.T) (app.UITokenRepo, string, string) {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 	repo := New(pg.WrapPool(pool))

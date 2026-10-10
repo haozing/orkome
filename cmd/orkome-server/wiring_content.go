@@ -10,8 +10,8 @@ import (
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/storagex"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 )
 

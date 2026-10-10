@@ -80,10 +80,11 @@ func TestDependencyIronLaws(t *testing.T) {
 			switch {
 			case isTestkit:
 
-				if internal && !strings.HasPrefix(p, "orkome/internal/contract") &&
-					!strings.HasPrefix(p, "orkome/internal/platform") {
-					violations = append(violations, violation{rel, "testkit purity", p})
-				}
+			if internal && !strings.HasPrefix(p, "orkome/internal/contract") &&
+				!strings.HasPrefix(p, "orkome/internal/platform") &&
+				!strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") {
+				violations = append(violations, violation{rel, "testkit purity", p})
+			}
 			case isDomain:
 
 				if !std && !strings.HasPrefix(p, "orkome/internal/contract") {
@@ -98,7 +99,8 @@ func TestDependencyIronLaws(t *testing.T) {
 			case isApp:
 
 				if std || strings.HasPrefix(p, "orkome/internal/contract") ||
-					strings.HasPrefix(p, "orkome/internal/platform") {
+					strings.HasPrefix(p, "orkome/internal/platform") ||
+					strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") {
 					continue
 				}
 				if strings.HasPrefix(p, "orkome/internal/"+dom+"/domain") ||
@@ -111,7 +113,7 @@ func TestDependencyIronLaws(t *testing.T) {
 				if internal && dom != "" {
 					other := strings.TrimPrefix(p, modulePrefix)
 					otherDom := strings.SplitN(other, "/", 2)[0]
-					if otherDom != dom && otherDom != "contract" && otherDom != "platform" && otherDom != "testkit" {
+					if otherDom != dom && otherDom != "contract" && otherDom != "platform" && otherDom != "testkit" && otherDom != "migrations" {
 						violations = append(violations, violation{rel, "rule 3 no cross-domain imports", p})
 					}
 				}

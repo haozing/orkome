@@ -17,7 +17,7 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 	workhttp "orkome/internal/work/adapters/http"
 	"orkome/internal/work/adapters/pgrepo"
 	workworkers "orkome/internal/work/adapters/workers"

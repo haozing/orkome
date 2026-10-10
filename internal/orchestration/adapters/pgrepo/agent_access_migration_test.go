@@ -12,10 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
+	"orkome/migrations"
 )
 
 type agentAccessEnv struct {
@@ -46,7 +47,7 @@ func newAgentAccessEnv(t *testing.T) *agentAccessEnv {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 
@@ -109,7 +110,7 @@ func TestAgentAccess_MigrationShapeAndReplay(t *testing.T) {
 		`SELECT count(*) FROM agent_invocation_target WHERE agent_id=$1`, agentID).Scan(&n))
 	assert.Zero(t, n, "agent deletion cascades the allowlist clean")
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	steps := migrationsFrom(t, "028")
 	rolled, err := m.Down(ctx, steps)
 	require.NoError(t, err)

@@ -14,7 +14,7 @@ import (
 	"orkome/internal/channels/app"
 	"orkome/internal/channels/domain"
 	"orkome/internal/channels/wire"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }

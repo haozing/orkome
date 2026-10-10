@@ -9,7 +9,7 @@ import (
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	notifworkers "orkome/internal/notification/adapters/workers"
 	notifapp "orkome/internal/notification/app"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 func wiringNotification(db *pg.DB, log *slog.Logger, frames notifapp.UserFrames, reg *Workers,

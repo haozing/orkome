@@ -15,6 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/dispatchreason"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
@@ -25,11 +28,9 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/orchestration/domain"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
+	"orkome/migrations"
 )
 
 type env struct {
@@ -142,7 +143,7 @@ func newEnv(t *testing.T) *env {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `TRUNCATE channel_chat_session_binding, channel_inbound_message_dedup, channel_installation, attachment, agent_skill, skill_file, skill, notification_preference, event_outbox, notification, agent_task_checkpoint, agent_model_credential, task_usage,

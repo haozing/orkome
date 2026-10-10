@@ -7,7 +7,7 @@ import (
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/dispatchreason"
 	"orkome/internal/contract/events"
-	"orkome/internal/platform/redactx"
+	"github.com/haozing/ploykit/platform/redactx"
 	"orkome/internal/work/domain"
 )
 

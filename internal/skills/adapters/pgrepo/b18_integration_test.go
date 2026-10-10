@@ -14,10 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/skills/app"
+	"orkome/migrations"
 )
 
 func skillsEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string) {
@@ -34,7 +35,7 @@ func skillsEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string) {
 	pool, err := pgxpool.New(context.Background(), strings.Replace(base, "/orkome", "/orkome_b18", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 

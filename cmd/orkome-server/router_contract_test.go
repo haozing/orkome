@@ -25,7 +25,7 @@ import (
 	notifapp "orkome/internal/notification/app"
 	orchhttp "orkome/internal/orchestration/adapters/http"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/storagex"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillapp "orkome/internal/skills/app"
 	webhookhttp "orkome/internal/webhooks/adapters/http"

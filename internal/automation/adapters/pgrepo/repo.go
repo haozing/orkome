@@ -12,7 +12,7 @@ import (
 
 	"orkome/internal/automation/app"
 	"orkome/internal/automation/domain"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }

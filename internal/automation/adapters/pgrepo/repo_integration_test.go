@@ -14,10 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	autopapp "orkome/internal/automation/app"
 	"orkome/internal/automation/domain"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
+	"orkome/migrations"
 )
 
 type quotaFixture struct {
@@ -46,7 +47,7 @@ func newQuotaFixture(t *testing.T) *quotaFixture {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `TRUNCATE autopilot_run, autopilot_quota_reservation,

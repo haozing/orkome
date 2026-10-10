@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"orkome/internal/platform/ids"
+	"github.com/haozing/ploykit/platform/ids"
 )
 
 var pathParamRe = regexp.MustCompile(`\{[a-zA-Z]+\}`)

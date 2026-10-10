@@ -20,19 +20,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/modelmeta"
 	"orkome/internal/contract/wswire"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/platform/webx"
 	"orkome/internal/platform/wsx"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
+	"orkome/migrations"
 )
 
 const (
@@ -81,7 +82,7 @@ func perfEnv(t *testing.T) *perfStack {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	_, err = pgmigrate.New(pool, "../migrations").Up(ctx, 0)
+	_, err = pgmigrate.New(pool, migrations.FS, ".").Up(ctx, 0)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)

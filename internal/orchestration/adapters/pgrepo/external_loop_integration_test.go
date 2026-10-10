@@ -9,7 +9,7 @@ import (
 
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 func externalEnv(t *testing.T) (*pg.DB, string, string, string) {

@@ -12,7 +12,7 @@ import (
 	"orkome/internal/automation/domain"
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/events"
-	"orkome/internal/platform/cronx"
+	"github.com/haozing/ploykit/platform/cronx"
 )
 
 const ChildDoneDefaultInstruction = "The sub work items of this work item have finished: the trigger facts list each stage's convergence and the next stage to start." +

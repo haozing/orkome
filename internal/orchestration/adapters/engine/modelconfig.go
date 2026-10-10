@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 
 	"orkome/internal/contract/modelmeta"
-	"orkome/internal/platform/egressx"
+	"github.com/haozing/ploykit/platform/egressx"
 )
 
 var (

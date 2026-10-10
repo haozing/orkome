@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"orkome/internal/content/app"
-	"orkome/internal/platform/pg"
+	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }

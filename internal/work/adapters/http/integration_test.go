@@ -19,17 +19,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/events"
 	idhttp "orkome/internal/identity/adapters/http"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	idapp "orkome/internal/identity/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/logx"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
 	"orkome/internal/platform/webx"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	"orkome/internal/work/app"
+	"orkome/migrations"
 )
 
 type m2h struct {
@@ -53,7 +54,7 @@ func newM2(t *testing.T) *m2h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 

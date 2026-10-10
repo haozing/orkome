@@ -16,9 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/channels/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
+	"orkome/migrations"
 )
 
 const (
@@ -43,7 +44,7 @@ func newChanDB(t *testing.T) *pgxpool.Pool {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cchan", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 	return pool
@@ -474,7 +475,7 @@ func TestPGMigration023UpDownUp(t *testing.T) {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cchan_mig", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 

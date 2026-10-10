@@ -7,7 +7,7 @@ import (
 
 	"orkome/internal/channels/domain"
 	"orkome/internal/channels/wire"
-	"orkome/internal/platform/redactx"
+	"github.com/haozing/ploykit/platform/redactx"
 )
 
 type OutboundService struct {

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	contentapp "orkome/internal/content/app"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/storagex"
 	"orkome/internal/platform/webx"
 )
 

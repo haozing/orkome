@@ -9,12 +9,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"orkome/internal/platform/pgmigrate"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+
+	"orkome/migrations"
 )
 
 func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "database DSN (defaults to DATABASE_URL)")
-	dir := flag.String("dir", "migrations", "migrations directory")
 	flag.Parse()
 
 	if *dsn == "" {
@@ -40,7 +41,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	m := pgmigrate.New(pool, *dir)
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	switch cmd {
 	case "up":
 		applied, err := m.Up(ctx, limit)

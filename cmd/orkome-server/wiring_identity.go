@@ -12,8 +12,8 @@ import (
 	"orkome/internal/identity/adapters/pgrepo"
 	idworkers "orkome/internal/identity/adapters/workers"
 	"orkome/internal/identity/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/redisx"
+	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/redisx"
 	"orkome/internal/platform/webx"
 )
 

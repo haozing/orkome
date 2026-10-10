@@ -17,9 +17,9 @@ import (
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/metrics"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/storagex"
+	"github.com/haozing/ploykit/platform/metrics"
+	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/storagex"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
 )

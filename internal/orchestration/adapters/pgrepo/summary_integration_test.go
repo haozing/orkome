@@ -11,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
-	"orkome/internal/platform/pg"
-	"orkome/internal/platform/pgmigrate"
+	"orkome/migrations"
 )
 
 func summaryEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string) {
@@ -36,7 +37,7 @@ func summaryEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string) {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	m := pgmigrate.New(pool, "../../../../migrations")
+	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `TRUNCATE task_message, agent_task_queue, agent, work_item, workspace, "user" RESTART IDENTITY CASCADE`)
