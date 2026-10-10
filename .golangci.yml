@@ -21,6 +21,7 @@ linters:
             - orkome/internal/contract
             - orkome/internal/platform
             - orkome/internal/**/domain
+            - github.com/haozing/ploykit
           deny:
             - pkg: orkome/internal/**/adapters
               desc: "app must not import own-domain or foreign-domain adapters (internal archive 02 §4 rules 2/3)"
