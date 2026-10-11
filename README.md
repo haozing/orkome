@@ -14,6 +14,7 @@ built on a battle-tested Go + PostgreSQL core — no vendor lock-in, no hosted d
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![MCP](https://img.shields.io/badge/Agents-MCP-blueviolet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **English | [简体中文](README.zh.md)**
 
@@ -221,6 +222,8 @@ Pre-1.0 and moving fast, with a test suite that gates every merge (unit + DB-bac
 cost budgets, and a packaged self-host distribution (Docker Compose / Helm).
 
 ---
+
+Licensed under the [MIT License](LICENSE) — free to use, modify, and self-host.
 
 <p align="center">
   <sub>Humans decide. Agents deliver.</sub>
