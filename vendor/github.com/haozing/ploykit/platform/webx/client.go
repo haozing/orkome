@@ -21,7 +21,6 @@ const (
 
 const ClientUnknown = "unknown"
 
-// ClientMetadata 从 X-Client-* 请求头提取客户端自报元数据，注入请求上下文。
 func ClientMetadata(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

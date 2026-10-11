@@ -10,11 +10,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 type LocalBackend struct {
 	Root string
+
+	rootOnce sync.Once
+	rootReal string
+	rootErr  error
 }
 
 func NewLocal(root string) (*LocalBackend, error) {
@@ -32,6 +37,36 @@ type meta struct {
 	Filename    string `json:"filename,omitempty"`
 }
 
+func (l *LocalBackend) realRoot() (string, error) {
+	l.rootOnce.Do(func() {
+		real, err := filepath.EvalSymlinks(l.Root)
+		if err != nil {
+			l.rootErr = err
+			return
+		}
+		l.rootReal, l.rootErr = filepath.Abs(real)
+	})
+	return l.rootReal, l.rootErr
+}
+
+func resolveExisting(p string) string {
+	cur, tail := p, ""
+	for {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			if tail == "" {
+				return real
+			}
+			return filepath.Join(real, tail)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		tail = filepath.Join(filepath.Base(cur), tail)
+		cur = parent
+	}
+}
+
 func (l *LocalBackend) path(key string) (string, error) {
 	if !ValidKey(key) {
 		return "", errors.New("storagex: invalid key")
@@ -46,7 +81,17 @@ func (l *LocalBackend) path(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	if pAbs != rootAbs && !strings.HasPrefix(pAbs, rootAbs+string(os.PathSeparator)) {
+		return "", errors.New("storagex: path escape rejected")
+	}
+
+	rootReal, err := l.realRoot()
+	if err != nil {
+		return "", err
+	}
+	resolved := resolveExisting(pAbs)
+	if resolved != rootReal && !strings.HasPrefix(resolved, rootReal+string(os.PathSeparator)) {
 		return "", errors.New("storagex: path escape rejected")
 	}
 	return pAbs, nil
@@ -58,13 +103,6 @@ func (l *LocalBackend) metaPath(key string) (string, error) {
 		return "", err
 	}
 	return p + ".meta.json", nil
-}
-
-func dispositionFor(contentType, filename string) string {
-	if strings.Contains(contentType, "svg") {
-		return "attachment"
-	}
-	return "inline"
 }
 
 func (l *LocalBackend) Put(_ context.Context, key, contentType string, r io.Reader) (Object, error) {
@@ -98,12 +136,30 @@ func (l *LocalBackend) Put(_ context.Context, key, contentType string, r io.Read
 		return Object{}, err
 	}
 	m := meta{ContentType: contentType, Size: size, SHA256: hex.EncodeToString(h.Sum(nil)),
-		Disposition: dispositionFor(contentType, key), Filename: filepath.Base(key)}
+		Disposition: dispositionFor(contentType), Filename: filepath.Base(key)}
 	mb, _ := json.Marshal(m)
-	if err := os.WriteFile(p+".meta.json", mb, 0o644); err != nil {
+
+	if err := writeFileAtomic(p+".meta.json", mb, 0o644); err != nil {
 		return Object{}, err
 	}
 	return Object{Key: key, ContentType: contentType, Size: size, SHA256: m.SHA256}, nil
+}
+
+func writeFileAtomic(p string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".meta-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, p)
 }
 
 func (l *LocalBackend) Open(_ context.Context, key string) (io.ReadCloser, Object, error) {
@@ -135,19 +191,21 @@ func (l *LocalBackend) Delete(_ context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	_ = os.Remove(p + ".meta.json")
-	err = os.Remove(p)
-	if os.IsNotExist(err) {
-		return nil
+
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return err
 	}
-	return err
+	if err := os.Remove(p + ".meta.json"); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (l *LocalBackend) DeleteMulti(ctx context.Context, keys ...string) error {
 	return deleteMulti(ctx, keys, l.Delete)
 }
 
-func (l *LocalBackend) URL(key string) string { return "/uploads/" + key }
+func (l *LocalBackend) URL(key string) string { return "/uploads/" + escapeKey(key) }
 
 func (l *LocalBackend) Presign(_ context.Context, key string, _ time.Duration) (string, error) {
 	return l.URL(key), nil

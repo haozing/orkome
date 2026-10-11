@@ -6,7 +6,6 @@ import (
 	"net/http"
 )
 
-// Error 是服务层返回的结构化业务错误；handler 统一用它写响应，其余错误一律 500。
 type Error struct {
 	Status  int
 	Code    string
@@ -27,7 +26,6 @@ func NewConflict(msg string) *Error        { return NewError(409, CodeConflict, 
 func NewRateLimited(msg string) *Error     { return NewError(429, CodeRateLimited, msg) }
 func NewQuotaExceeded(msg string) *Error   { return NewError(402, CodeQuotaExceeded, msg) }
 
-// WriteErr 把任意 error 映射为响应：webx.Error 按其状态码，其余按 500（并打印原始错误）。
 func WriteErr(w http.ResponseWriter, err error) {
 	var we *Error
 	if errors.As(err, &we) {

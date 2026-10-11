@@ -7,13 +7,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/resend/resend-go/v2"
 
+	"github.com/haozing/ploykit/platform/pg"
+	idadapters "orkome/internal/identity/adapters"
 	"orkome/internal/identity/adapters/email"
 	idhttp "orkome/internal/identity/adapters/http"
 	"orkome/internal/identity/adapters/pgrepo"
 	idworkers "orkome/internal/identity/adapters/workers"
 	"orkome/internal/identity/app"
-	"github.com/haozing/ploykit/platform/pg"
-	"github.com/haozing/ploykit/platform/redisx"
 	"orkome/internal/platform/webx"
 )
 
@@ -50,7 +50,7 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	}, time.Now)
 	var patCache app.Cache = app.NoopCache{}
 	if redisCli != nil {
-		patCache = redisx.StringCache{C: redisCli}
+		patCache = idadapters.RedisStringCache{C: redisCli}
 	}
 	tokens := app.NewTokenService(repo, patCache, time.Now)
 	workspaces := app.NewWorkspaceService(repo, sender, tokens, time.Now)

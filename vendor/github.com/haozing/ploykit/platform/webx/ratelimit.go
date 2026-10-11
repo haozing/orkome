@@ -10,17 +10,14 @@ import (
 	"time"
 )
 
-// Limiter 是限流后端的抽象。Allow 返回是否放行以及建议的重试等待。
 type Limiter interface {
 	Allow(ctx context.Context, key string, perMinute int) (ok bool, retryAfter time.Duration)
 }
 
-// FailOpenLimiter 永远放行，供未部署限流后端（如本地开发）时兜底。
 type FailOpenLimiter struct{}
 
 func (FailOpenLimiter) Allow(context.Context, string, int) (bool, time.Duration) { return true, 0 }
 
-// RateLimit 按 keyFn 提取的维度限流；超限返回 429 与 Retry-After。
 func RateLimit(l Limiter, dimension string, perMinute int, keyFn func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,13 +33,10 @@ func RateLimit(l Limiter, dimension string, perMinute int, keyFn func(r *http.Re
 	}
 }
 
-// ClientIP 解析客户端真实 IP：仅当 RemoteAddr 命中可信代理网段时才采信 X-Forwarded-For，
-// 且从右往左跳过仍属于可信代理的条目。
 func ClientIP(r *http.Request, trustedProxies ...*net.IPNet) string {
 	return extractIP(r, trustedProxies)
 }
 
-// ParseTrustedProxies 解析逗号分隔的 CIDR 列表，非法条目跳过并告警。
 func ParseTrustedProxies(raw string) []*net.IPNet {
 	if strings.TrimSpace(raw) == "" {
 		return nil

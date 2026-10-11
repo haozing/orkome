@@ -1,4 +1,3 @@
-// Package webx 提供与框架各域共用的 HTTP 基础件：统一响应、Principal 上下文、认证中间件。
 package webx
 
 import (
@@ -7,7 +6,6 @@ import (
 	"net/http"
 )
 
-// ErrorBody 是全框架统一的错误响应包体。
 type ErrorBody struct {
 	Code    string `json:"error"`
 	Message string `json:"message"`
@@ -26,11 +24,6 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// DecodeJSON 严格解码请求体：未知字段报错、仅接受单个 JSON 对象
-// （W7：首个对象解码成功后若仍有尾随数据——如 {"a":1}{"b":2}——按 400
-// 拒绝，兑现注释承诺）。
-// 请求体超过 BodyLimit 设置的上限时（MaxBytesReader 读出 *http.MaxBytesError），
-// 返回 413 E_PAYLOAD_TOO_LARGE 而非笼统的 400。
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -50,7 +43,6 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-// 常用错误码与 HTTP 状态的固定搭配，避免各 handler 各写一套。
 const (
 	CodeUnauthenticated = "E_UNAUTHENTICATED"
 	CodeForbidden       = "E_FORBIDDEN"
@@ -63,6 +55,11 @@ const (
 	CodeTimeout         = "E_TIMEOUT"
 	CodePayloadTooLarge = "E_PAYLOAD_TOO_LARGE"
 	CodeUnavailable     = "E_UNAVAILABLE"
+
+	// CodeReauthRequired is the step-up challenge (RequireRecentAuth): the
+	// caller is authenticated but the password confirmation is stale — confirm
+	// via POST /auth/confirm-password, then retry. 403, never 401.
+	CodeReauthRequired = "E_REAUTH_REQUIRED"
 )
 
 func ErrUnauthenticated(w http.ResponseWriter, msg string) {

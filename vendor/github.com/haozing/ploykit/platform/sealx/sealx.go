@@ -27,10 +27,6 @@ func New(key []byte) (*Sealer, error) {
 	return &Sealer{aead: aead}, nil
 }
 
-// （SL3，2026-10-07 删除）DeriveKey(baseSecret, domain)——HMAC 域派生密钥方案
-// 曾与"env 直供 32 字节主密钥"并存且零生产消费者，留着会诱导第二套密钥
-// 体系（历史签名见 docs/archive/2026-10/platform-four-audit-2026-10-07.md SL3）。
-
 func (s *Sealer) Encrypt(plaintext string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("sealx: sealer not constructed")
