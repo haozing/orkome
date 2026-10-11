@@ -2,6 +2,7 @@ ANY /metrics
 DELETE /api/agents/{agentId}/labels/{labelId}
 DELETE /api/agents/{agentId}/mcp-servers/{serverId}
 DELETE /api/agents/{agentId}/skills/{skillId}
+DELETE /api/tokens/{id}
 DELETE /api/attachments/{attachmentId}
 DELETE /api/autopilots/{autopilotId}
 DELETE /api/autopilots/{autopilotId}/collaborators
@@ -27,7 +28,6 @@ DELETE /api/skills/{skillId}/files/{fileId}
 DELETE /api/skills/{skillId}/labels/{labelId}
 DELETE /api/squads/{squadId}
 DELETE /api/squads/{squadId}/members/{agentId}
-DELETE /api/tokens/{tokenId}
 DELETE /api/ui-entries/{pack}
 DELETE /api/webhook-subscriptions/{subscriptionId}
 DELETE /api/work-items/{workItemId}
@@ -117,7 +117,6 @@ GET /api/tasks
 GET /api/tasks/{taskId}
 GET /api/tasks/{taskId}/interrupt
 GET /api/tasks/{taskId}/messages
-GET /api/tokens
 GET /api/ui-entries
 GET /api/webhook-subscriptions
 GET /api/webhook-subscriptions/{subscriptionId}/deliveries
@@ -183,7 +182,6 @@ POST /api/agents/{agentId}/mcp-servers
 POST /api/agents/{agentId}/restore
 POST /api/agents/{agentId}/runtime-credentials
 POST /api/agents/{agentId}/skills/add
-POST /api/auth/refresh
 POST /api/autopilots
 POST /api/autopilots/cron-preview
 POST /api/autopilots/{autopilotId}/collaborators
@@ -240,8 +238,6 @@ POST /api/tasks/{taskId}/deny
 POST /api/tasks/{taskId}/fail
 POST /api/tasks/{taskId}/messages
 POST /api/tasks/{taskId}/retry-source-context
-POST /api/tokens
-POST /api/tokens/current/renew
 POST /api/ui-tokens
 POST /api/ui-tokens/consume
 POST /api/unsubscribe
@@ -320,3 +316,29 @@ PUT /api/work-items/{workItemId}/properties/{key}
 PUT /api/work-items/{workItemId}/wakeups/{wakeupId}
 PUT /api/work-items/{workItemId}/wakeups/{wakeupId}/instruction
 PUT /api/workspaces/{workspaceId}/mcp-servers/{serverId}
+
+# --- ploykit rebase P3 surface (framework identity + product extensions) ---
+GET /auth/me
+PATCH /auth/me
+DELETE /auth/me
+POST /auth/register
+POST /auth/login
+POST /auth/logout
+POST /auth/forgot-password
+POST /auth/reset-password
+POST /auth/send-verification
+POST /auth/verify-email
+POST /auth/change-password
+POST /auth/confirm-password
+GET /auth/sessions
+DELETE /auth/sessions
+DELETE /auth/sessions/{sessionId}
+POST /api/tokens
+GET /api/tokens
+DELETE /api/tokens/{id}
+POST /api/ui-tokens
+POST /api/ui-tokens/consume
+GET /api/pins
+PUT /api/pins
+PUT /api/pins/reorder
+DELETE /api/pins/{itemType}/{itemId}

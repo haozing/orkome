@@ -77,7 +77,18 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	}, auth.SessionTTL, 0, time.Now)
 	tokens := fwapp.NewTokenService(repo, nil, time.Now).WithPATPrefix("ork_")
 
-	catalog := authz.NewCatalog(authz.DefaultPerms()...)
+	catalog := authz.NewCatalog(append(authz.DefaultPerms(),
+		// orkome product permission points (rebase plan Appendix B)
+		"work:read", "work:write", "work:delete", "work:move", "work:catalog",
+		"comment:write",
+		"orch:agent:read", "orch:agent:write", "orch:agent:credentials",
+		"orch:squad:read", "orch:squad:write", "orch:batch:write", "orch:approve:decide", "orch:usage:read",
+		"conv:read", "conv:write",
+		"channel:read", "channel:write", "channel:connection:write",
+		"content:upload", "content:avatar:write",
+		"skill:read", "skill:write", "skill:import",
+		"auto:wakeup:write", "auto:autopilot:read", "auto:autopilot:write",
+	)...)
 	az := authz.New(catalog, authz.DefaultRoles())
 	wsRepo := workspacepg.New(db.Pool())
 	ws := wsapp.NewWorkspaceService(wsRepo, az, sender, nil, wsapp.WorkspaceConfig{MaxPerUser: -1}, time.Now)
