@@ -235,6 +235,16 @@ orkome（本仓库，产品）
 
 **完成标准**：webhook 投递 e2e（签名头、退避、重放）绿；通知角标/偏好/已读流绿。
 
+### Phase 4 · 执行记录（2026-10-11 完成）
+
+双 agent 并行替换 + 主线集成，全量 53 包绿 + fresh 库冒烟全通（登录/建区/事件目录 33 词表/订阅创建 201·密封 secret/通知双表面 badge+unread-count）：
+
+- **P4-1 ✅ webhooks**：internal/webhooks 整域删除；框架 webhookpg + NewWebhookService + EventCatalog（33 个 orkome 事件词表注册，内部管道帧故意排除）；bus PhaseProject→svc.Emit 挂接；框架 DeliveryWorker 注册（webhook_delivery，5s/20批）；**webhook secret 密封存储**（WithSecrets + sealx.DeriveKey(JWTSecret,"webhook")，框架拒绝明文）；pack-provision/契约测试/静态目录同步；路由换框架版（/api/workspaces/{ws}/webhooks/*，9 条，ping/rotate-secret/redeliver 齐备）
+- **P4-2 ✅ notification**：框架 notify 走**过滤路由**共存（badge/read-all/PUT prefs 三条框架版 + 16 条产品版，重叠 4 条保留产品版——无 workspace 作用域/cursor 信封/WS 推送，ServeMux 重复注册会 panic 故必须过滤）；写入路径=**产品 repo 直插双列**（user_id 供框架读 + recipient/workspace 供产品读；NotifyInput 装不下产品字段且 bell Insert 缺 NOT NULL workspace_id——F8 实锤）；偏好=框架 018 表 + 产品迁移 **1034**（workspace_id/muted_types/muted_work_item_ids + mute 哨兵行部分唯一索引，与框架 PK 共存）；eventbus 投影/orchestration NotificationWriter/ArchiveSweeper 全保留
+- **P4-3 ✅**：automation 入站管线未动，路由无回归
+- **P4-4 ✅**：契约测试/静态目录重录（webhooks 9 条框架版 + notification 框架/产品分节 + 重叠标注）；e2e registry 零改动（形状不变）
+- 框架 issue：F14（Mount 无中间件钩子→runtime 围栏盖不到框架路由）、F15（事件浏览面缺失）、F8 扩展（NotifyInput 无 workspace 列/Mount 全有或全无/偏好 PK 不能按区/无通知留存 sweeper）
+
 ### Phase 5 · 实时层原子切换 + 前端收编
 
 **目标**：WS 前后端同批切换 + 前端底座收编（§3.3）。

@@ -372,7 +372,7 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 	}
 
 	var subList listSubs
-	if err := c.do("GET", "/api/webhook-subscriptions", nil, &subList); err != nil {
+	if err := c.do("GET", "/api/workspaces/"+c.WS+"/webhooks/subscriptions", nil, &subList); err != nil {
 		return fmt.Errorf("list subscriptions: %w", err)
 	}
 	subURL := map[string]bool{}
@@ -384,7 +384,7 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 			fmt.Printf("- subscription %s already exists, skipped\n", ev.URL)
 			continue
 		}
-		if err := c.do("POST", "/api/webhook-subscriptions",
+		if err := c.do("POST", "/api/workspaces/"+c.WS+"/webhooks/subscriptions",
 			map[string]any{"url": ev.URL, "events": ev.Types, "description": "pack " + p.Name}, nil); err != nil {
 			return fmt.Errorf("create subscription %s: %w", ev.URL, err)
 		}
@@ -451,7 +451,7 @@ func uninstall(ctx context.Context, c *apiClient, p *packSpec) error {
 	_ = ctx
 
 	var subList listSubs
-	if err := c.do("GET", "/api/webhook-subscriptions", nil, &subList); err != nil {
+	if err := c.do("GET", "/api/workspaces/"+c.WS+"/webhooks/subscriptions", nil, &subList); err != nil {
 		return err
 	}
 	wantURL := map[string]bool{}
@@ -460,7 +460,7 @@ func uninstall(ctx context.Context, c *apiClient, p *packSpec) error {
 	}
 	for _, s := range subList.Items {
 		if wantURL[s.URL] {
-			if err := c.do("DELETE", "/api/webhook-subscriptions/"+s.ID, nil, nil); err == nil {
+			if err := c.do("DELETE", "/api/workspaces/"+c.WS+"/webhooks/subscriptions/"+s.ID, nil, nil); err == nil {
 				fmt.Printf("- subscription %s deleted\n", s.URL)
 			}
 		}

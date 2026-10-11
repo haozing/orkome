@@ -8,10 +8,16 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/authz"
+	fwnotifyhttp "github.com/haozing/ploykit/notify/adapters/http"
+	fwnotifapp "github.com/haozing/ploykit/notify/app"
 	"github.com/haozing/ploykit/platform/storagex"
+	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
+	webhookapp "github.com/haozing/ploykit/webhooks/app"
 	autohttp "orkome/internal/automation/adapters/http"
 	autoapp "orkome/internal/automation/app"
 	chhttp "orkome/internal/channels/adapters/http"
@@ -27,8 +33,6 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillapp "orkome/internal/skills/app"
-	webhookhttp "orkome/internal/webhooks/adapters/http"
-	webhookapp "orkome/internal/webhooks/app"
 	workhttp "orkome/internal/work/adapters/http"
 	workapp "orkome/internal/work/app"
 )
@@ -94,17 +98,19 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"POST", "/agents/{agentId}/runtime-credentials"},
 	{"POST", "/mcp/w/{workspaceId}/agent"},
 	{"GET", "/mcp/w/{workspaceId}/agent"},
-	{"GET", "/events"},
 	{"GET", "/ui-entries"},
 	{"PUT", "/ui-entries/{pack}"},
 	{"DELETE", "/ui-entries/{pack}"},
 
-	{"GET", "/webhook-subscriptions"},
-	{"POST", "/webhook-subscriptions"},
-	{"DELETE", "/webhook-subscriptions/{subscriptionId}"},
-	{"GET", "/webhook-subscriptions/{subscriptionId}/deliveries"},
-	{"POST", "/webhook-subscriptions/{subscriptionId}/deliveries/{deliveryId}/replay"},
-	{"POST", "/webhook-subscriptions/{subscriptionId}/test"},
+	{"GET", "/workspaces/{workspaceId}/webhooks/events"},
+	{"GET", "/workspaces/{workspaceId}/webhooks/deliveries"},
+	{"POST", "/workspaces/{workspaceId}/webhooks/deliveries/{deliveryId}/redeliver"},
+	{"GET", "/workspaces/{workspaceId}/webhooks/subscriptions"},
+	{"POST", "/workspaces/{workspaceId}/webhooks/subscriptions"},
+	{"POST", "/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}/ping"},
+	{"POST", "/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}/rotate-secret"},
+	{"PATCH", "/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}"},
+	{"DELETE", "/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}"},
 	{"POST", "/agents/{agentId}/cancel-tasks"},
 	{"GET", "/agents/{agentId}/mcp-servers"}, {"POST", "/agents/{agentId}/mcp-servers"},
 	{"PUT", "/agents/{agentId}/mcp-servers/{id}"}, {"DELETE", "/agents/{agentId}/mcp-servers/{id}"},
@@ -168,6 +174,9 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"POST", "/notifications/{id}/archive"}, {"POST", "/notifications/{id}/unarchive"},
 	{"GET", "/notification-preferences"}, {"PATCH", "/notification-preferences"},
 	{"PUT", "/notification-preferences"},
+
+	{"GET", "/notifications/badge"}, {"POST", "/notifications/read-all"},
+	{"PUT", "/notification-preferences/{type}"},
 
 	{"GET", "/skills"}, {"POST", "/skills"},
 	{"GET", "/skills/{skillId}/labels"}, {"POST", "/skills/{skillId}/labels"},
@@ -264,7 +273,20 @@ func buildTestAPIRouter() *http.ServeMux {
 	}, auth)
 	notifhttp.Mount(r, notifhttp.Deps{Notification: &notifapp.NotificationService{}, Prefs: &notifapp.PreferenceService{}}, auth)
 
-	webhookhttp.Mount(r, webhookhttp.Deps{Service: webhookapp.New(nil, nil), MemberCheck: member}, auth)
+	// framework notify domain: Mount through the filtered router — the product
+	// Mount above supersedes four of the framework patterns, so a direct
+	// notifyhttp.Mount(r, ...) would panic on duplicate registration.
+	fwNotifyDeps := fwnotifyhttp.Deps{Svc: fwnotifapp.NewNotifyService(nil, nil, nil)}
+	fwnotifyhttp.Mount(NotificationWiring{Framework: fwNotifyDeps}.FrameworkRouter(r, auth), fwNotifyDeps)
+
+	// framework webhooks domain: Mount(webx.Router, Deps) — auth comes from the
+	// globally applied Authenticate middleware (PrincipalFromRequest).
+	memberRole := func(context.Context, string, string) (string, bool, error) { return "owner", true, nil }
+	webhookhttp.Mount(r, webhookhttp.Deps{
+		Service:     webhookapp.NewWebhookService(nil, webhookapp.NewEventCatalog(), nil, time.Now),
+		MemberCheck: memberRole,
+		Authz:       authz.New(authz.NewCatalog(authz.DefaultPerms()...), authz.DefaultRoles()),
+	})
 
 	r.HandleFunc("POST /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
 	r.HandleFunc("GET /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})

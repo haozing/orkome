@@ -17,6 +17,19 @@ type Deps struct {
 	MemberCheck  func(ctx context.Context, workspaceID, userID string) (bool, error)
 }
 
+// Mount registers the orkome notification extension surface — everything the
+// ploykit notify domain lacks (workspace-scoped cursor inbox, summary/facets,
+// unread|unarchive toggles, batch archive ops, mute-group preferences) plus
+// the four patterns whose product versions supersede the framework Mount
+// (GET /api/notifications, {id}/read, {id}/archive, GET /api/notification-preferences:
+// the framework shapes lack workspace scoping, cursors and the WS frame push,
+// so the composition root filters those out of the framework notifyhttp.Mount
+// — see cmd/orkome-server/wiring_notification.go). The framework's remaining
+// routes (badge, read-all, PUT /api/notification-preferences/{type}) are
+// mounted by the composition root next to this set.
+//
+// auth is the composition root's auth guard; every route additionally runs
+// webx.RequireAuth plus the X-Workspace-Id active-membership gate.
 func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	reg := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, auth(webx.RequireAuth(d.wsFromHeader(h))))

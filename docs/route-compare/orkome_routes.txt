@@ -29,7 +29,6 @@ DELETE /api/skills/{skillId}/labels/{labelId}
 DELETE /api/squads/{squadId}
 DELETE /api/squads/{squadId}/members/{agentId}
 DELETE /api/ui-entries/{pack}
-DELETE /api/webhook-subscriptions/{subscriptionId}
 DELETE /api/work-items/{workItemId}
 DELETE /api/work-items/{workItemId}/labels/{labelId}
 DELETE /api/work-items/{workItemId}/metadata/{key}
@@ -80,18 +79,11 @@ GET /api/comments/{commentId}/sub-work-item-preview
 GET /api/credentials
 GET /api/deliveries
 GET /api/deliveries/{deliveryId}
-GET /api/events
 GET /api/invitations
 GET /api/labels
 GET /api/labels/{labelId}
 GET /api/mcp/w/{workspaceId}/agent
 GET /api/me
-GET /api/notification-preferences
-GET /api/notifications
-GET /api/notifications/archived
-GET /api/notifications/facets
-GET /api/notifications/summary
-GET /api/notifications/unread-count
 GET /api/pins
 GET /api/projects
 GET /api/projects/search
@@ -118,8 +110,6 @@ GET /api/tasks/{taskId}
 GET /api/tasks/{taskId}/interrupt
 GET /api/tasks/{taskId}/messages
 GET /api/ui-entries
-GET /api/webhook-subscriptions
-GET /api/webhook-subscriptions/{subscriptionId}/deliveries
 GET /api/work-item-statuses
 GET /api/work-item-view-preferences
 GET /api/work-item-views
@@ -166,7 +156,6 @@ PATCH /api/autopilots/{autopilotId}
 PATCH /api/autopilots/{autopilotId}/triggers/{triggerId}
 PATCH /api/chat/sessions/{sessionId}
 PATCH /api/me
-PATCH /api/notification-preferences
 PATCH /api/properties/{key}
 PATCH /api/quick-actions/{quickActionId}
 PATCH /api/squads/{squadId}/members/{agentId}
@@ -212,13 +201,6 @@ POST /api/invitations/{invitationId}/accept
 POST /api/invitations/{invitationId}/decline
 POST /api/labels
 POST /api/mcp/w/{workspaceId}/agent
-POST /api/notifications/archive-all
-POST /api/notifications/archive-all-read
-POST /api/notifications/mark-all-read
-POST /api/notifications/{itemId}/archive
-POST /api/notifications/{itemId}/read
-POST /api/notifications/{itemId}/unarchive
-POST /api/notifications/{itemId}/unread
 POST /api/projects
 POST /api/projects/{projectId}/resources
 POST /api/properties
@@ -243,9 +225,6 @@ POST /api/ui-tokens/consume
 POST /api/unsubscribe
 POST /api/unsubscribe/subtree
 POST /api/upload-file
-POST /api/webhook-subscriptions
-POST /api/webhook-subscriptions/{subscriptionId}/deliveries/{deliveryId}/replay
-POST /api/webhook-subscriptions/{subscriptionId}/test
 POST /api/work-item-statuses
 POST /api/work-item-statuses/reorder
 POST /api/work-items
@@ -297,7 +276,6 @@ PUT /api/agents/{agentId}/skills/{skillId}/enabled
 PUT /api/autopilots/{autopilotId}/triggers/{triggerId}/signing-secret
 PUT /api/comments/{commentId}
 PUT /api/labels/{labelId}
-PUT /api/notification-preferences
 PUT /api/pins
 PUT /api/pins/reorder
 PUT /api/projects/{projectId}
@@ -342,3 +320,44 @@ GET /api/pins
 PUT /api/pins
 PUT /api/pins/reorder
 DELETE /api/pins/{itemType}/{itemId}
+
+# --- ploykit rebase P3 webhooks (framework webhooks domain, replaces product /api/webhook-subscriptions) ---
+GET /api/workspaces/{workspaceId}/webhooks/events
+GET /api/workspaces/{workspaceId}/webhooks/deliveries
+POST /api/workspaces/{workspaceId}/webhooks/deliveries/{deliveryId}/redeliver
+GET /api/workspaces/{workspaceId}/webhooks/subscriptions
+POST /api/workspaces/{workspaceId}/webhooks/subscriptions
+POST /api/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}/ping
+POST /api/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}/rotate-secret
+PATCH /api/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}
+DELETE /api/workspaces/{workspaceId}/webhooks/subscriptions/{subscriptionId}
+
+# --- ploykit rebase P4 notifications (framework notify + product projection) ---
+# framework (ploykit notifyhttp.Mount via the filtered router in wiring_notification.go;
+# four framework patterns are superseded by the richer product shapes below and are
+# NOT registered: GET /api/notifications, POST /api/notifications/{id}/read,
+# POST /api/notifications/{id}/archive, GET /api/notification-preferences)
+GET /api/notifications/badge
+POST /api/notifications/read-all
+PUT /api/notification-preferences/{type}
+# product projection (orkome internal/notification/adapters/http.Mount; workspace-scoped
+# via X-Workspace-Id + member gate; cursor inbox, WS frames, mute groups)
+GET /api/notifications
+GET /api/notifications/archived
+GET /api/notifications/facets
+GET /api/notifications/summary
+GET /api/notifications/unread-count
+GET /api/notification-preferences
+PATCH /api/notification-preferences
+PUT /api/notification-preferences
+POST /api/notifications/mark-all-read
+POST /api/notifications/archive-all
+POST /api/notifications/archive-all-read
+POST /api/notifications/{itemId}/read
+POST /api/notifications/{itemId}/unread
+POST /api/notifications/{itemId}/archive
+POST /api/notifications/{itemId}/unarchive
+# deliberate overlaps (kept on purpose): badge (user-scoped unread count) vs unread-count
+# (workspace-scoped); read-all (user-scoped) vs mark-all-read (workspace-scoped, skips
+# archived, emits WS frames); PUT prefs/{type} (framework email/in-app toggles) vs
+# GET/PATCH/PUT prefs (product mute groups)

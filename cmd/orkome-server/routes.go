@@ -51,7 +51,10 @@ var RouteContract = map[string][]string{
 	"notification": {
 		"GET /notifications", "GET /notifications/unread-count", "POST /notifications/mark-all-read", "POST /notifications/archive-all",
 		"POST /notifications/{id}/read|unread|archive|unarchive", "GET/PATCH/PUT /notification-preferences",
-		"GET /notifications/archived|summary|facets",
+		"GET /notifications/archived|summary|facets", "POST /notifications/archive-all-read",
+	},
+	"notification_framework": { // ploykit notifyhttp.Mount via filtered router; product supersedes its list/{id}/read/{id}/archive/GET-prefs
+		"GET /notifications/badge", "POST /notifications/read-all", "PUT /notification-preferences/{type}",
 	},
 	"content": {
 		"POST /upload-file", "GET/DELETE /attachments/{id}", "GET .../download|content|signed-download",
@@ -63,6 +66,14 @@ var RouteContract = map[string][]string{
 		"POST .../wakeups/{wakeupId}/enable", "POST /autopilots", "POST /autopilots/{id}/trigger",
 		"PUT /autopilots/{id}/triggers/{triggerId}/signing-secret",
 		"POST /autopilots/{id}/triggers/{triggerId}/rotate-webhook-token",
+	},
+	"webhooks": { // framework webhooks domain (ploykit/webhooks)
+		"GET /workspaces/{id}/webhooks/events", "GET /workspaces/{id}/webhooks/deliveries",
+		"POST /workspaces/{id}/webhooks/deliveries/{deliveryId}/redeliver",
+		"GET/POST /workspaces/{id}/webhooks/subscriptions",
+		"POST .../subscriptions/{subscriptionId}/ping",
+		"POST .../subscriptions/{subscriptionId}/rotate-secret",
+		"PATCH/DELETE .../subscriptions/{subscriptionId}",
 	},
 }
 

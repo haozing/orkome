@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/notification/app"
 	"orkome/internal/notification/domain"
-	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }
@@ -23,11 +23,18 @@ var _ app.Repo = (*Repo)(nil)
 func (r *Repo) q(ctx context.Context) pg.DBTX { return r.DB.Tx(ctx) }
 func noRow(err error) bool                    { return errors.Is(err, pgx.ErrNoRows) }
 
+// InsertNotification writes one inbox row into the framework notification
+// table filling BOTH column sets: user_id (the framework read surface —
+// notifyhttp list/badge/read — queries it) and workspace_id/recipient_user_id/
+// work_item_id (the product projection surface queries them). Idempotency
+// rides the framework's uq_notification_dedup unique index (user_id,
+// dedup_key): product dedup keys are already namespaced and are stored raw,
+// unlike framework Notify() writes which prefix the notification type.
 func (r *Repo) InsertNotification(ctx context.Context, ws, uid string, wi *string, typ, title, body, link, dedup string) error {
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-		ws, uid, wi, typ,
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+		uid, ws, uid, wi, typ,
 		domain.TruncateRunes(title, domain.TitleMaxRunes),
 		domain.TruncateRunes(body, domain.SummaryMaxRunes),
 		link, dedup)
@@ -165,10 +172,10 @@ func (r *Repo) WriteNotice(ctx context.Context, workspaceID, userID, typ, title,
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,NULL,$3,$4,$5,'',$6)
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
+VALUES ($1,$2,$3,NULL,$4,$5,$6,'',$7)
 ON CONFLICT DO NOTHING`,
-		workspaceID, userID, typ,
+		userID, workspaceID, userID, typ,
 		domain.TruncateRunes(title, domain.TitleMaxRunes),
 		domain.TruncateRunes(body, domain.SummaryMaxRunes),
 		dedupKey)
@@ -195,12 +202,18 @@ func mergeMutedTypes(types, sessionIDs []string) []string {
 	return out
 }
 
+// MuteRowType is the notification_type sentinel marking orkome mute-group
+// rows inside the framework notification_preference table (migration 1034):
+// framework per-type toggle rows and product mute rows share the table, kept
+// apart by the partial unique index uq_notification_preference_mute.
+const MuteRowType = "mute"
+
 func (r *Repo) GetPreference(ctx context.Context, ws, uid string) (app.Preference, error) {
 	var p app.Preference
 	var mt, mw []string
 	err := r.q(ctx).QueryRow(ctx, `
 SELECT muted_types, muted_work_item_ids FROM notification_preference
-WHERE workspace_id=$1 AND user_id=$2`, ws, uid).Scan(&mt, &mw)
+WHERE workspace_id=$1 AND user_id=$2 AND notification_type=$3`, ws, uid, MuteRowType).Scan(&mt, &mw)
 	if noRow(err) {
 		return app.Preference{}, nil
 	}
@@ -214,11 +227,11 @@ WHERE workspace_id=$1 AND user_id=$2`, ws, uid).Scan(&mt, &mw)
 
 func (r *Repo) UpsertPreference(ctx context.Context, ws, uid string, p app.Preference) error {
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification_preference (user_id, workspace_id, muted_types, muted_work_item_ids)
-VALUES ($1,$2,$3,$4)
-ON CONFLICT (user_id, workspace_id) DO UPDATE
+INSERT INTO notification_preference (user_id, workspace_id, notification_type, muted_types, muted_work_item_ids)
+VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT (user_id, workspace_id) WHERE notification_type = 'mute' DO UPDATE
 SET muted_types=EXCLUDED.muted_types, muted_work_item_ids=EXCLUDED.muted_work_item_ids, updated_at=now()`,
-		uid, ws,
+		uid, ws, MuteRowType,
 		emptyIfNil(mergeMutedTypes(p.MutedTypes, p.MutedConversationIDs)),
 		emptyIfNil(p.MutedWorkItemIDs))
 	return err
@@ -229,10 +242,10 @@ func (r *Repo) WriteTaskCompleted(ctx context.Context, workspaceID, userID, work
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,nullif($3,'')::uuid,'task_completed',$4,$5,'',$6)
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
+VALUES ($1,$2,$3,nullif($4,'')::uuid,'task_completed',$5,$6,'',$7)
 ON CONFLICT DO NOTHING`,
-		workspaceID, userID, workItemID,
+		userID, workspaceID, userID, workItemID,
 		domain.TruncateRunes("Agent "+agentName+" completed the task", domain.TitleMaxRunes),
 		domain.TruncateRunes(result, domain.SummaryMaxRunes),
 		"task_completed:"+userID+":"+workItemID)
@@ -251,9 +264,9 @@ func (r *Repo) WriteApprovalRequest(ctx context.Context, ws, userID, taskID, pay
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,'approval_request',$3,$4,'',$5) ON CONFLICT DO NOTHING`,
-		ws, userID,
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, link, dedup_key)
+VALUES ($1,$2,$3,'approval_request',$4,$5,'',$6) ON CONFLICT DO NOTHING`,
+		userID, ws, userID,
 		domain.TruncateRunes("needs your approval", domain.TitleMaxRunes),
 		domain.TruncateRunes(payload, domain.BodyMaxRunes),
 		"approval:"+taskID)
@@ -265,10 +278,10 @@ func (r *Repo) WriteEvalReport(ctx context.Context, ws, userID, taskID, title, b
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,'eval_report',$3,$4,'',$5)
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, link, dedup_key)
+VALUES ($1,$2,$3,'eval_report',$4,$5,'',$6)
 ON CONFLICT DO NOTHING`,
-		ws, userID,
+		userID, ws, userID,
 		domain.TruncateRunes(title, domain.TitleMaxRunes),
 		domain.TruncateRunes(body, domain.BodyMaxRunes),
 		"eval:"+taskID)

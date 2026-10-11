@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/webx"
@@ -57,6 +58,12 @@ func newNenv(t *testing.T) *nenv {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	// framework substrate first (notification / notification_preference come
+	// from ploykit migrations 009/018), then the product queue (1005 projection
+	// columns, 1034 preference mute columns) — same order as cmd/migrate.
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)

@@ -125,7 +125,7 @@ func TestProvisionE2E(t *testing.T) {
 	}
 	assert.EqualValues(t, 1, n, "exactly one skill")
 	var subs listSubs
-	require.NoError(t, c.do("GET", "/api/webhook-subscriptions", nil, &subs))
+	require.NoError(t, c.do("GET", "/api/workspaces/"+ws+"/webhooks/subscriptions", nil, &subs))
 	n = 0
 	for _, s := range subs.Items {
 		if s.URL == "http://127.0.0.1:19998/hook" {
@@ -136,7 +136,7 @@ func TestProvisionE2E(t *testing.T) {
 
 	require.NoError(t, uninstall(context.Background(), c, p), "uninstall")
 
-	require.NoError(t, c.do("GET", "/api/webhook-subscriptions", nil, &subs))
+	require.NoError(t, c.do("GET", "/api/workspaces/"+ws+"/webhooks/subscriptions", nil, &subs))
 	for _, s := range subs.Items {
 		assert.NotEqual(t, "http://127.0.0.1:19998/hook", s.URL, "subscription deleted")
 	}

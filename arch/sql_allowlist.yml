@@ -99,22 +99,8 @@ table_owners:
     - search_index_change
     - search_index_prune_mark
     - client_usage_daily
-  webhooks:
-    - webhook_subscription
-    - event_delivery
 
 rules:
-  - id: WEBHOOKS-EVENTS-QUERY-OUTBOX
-    domain: webhooks
-    source: internal/webhooks/adapters/pgrepo/repo.go
-    anchor: event_delivery
-    foreign_tables: [event_outbox]
-    func: (*pgrepo.Repo).ListEvents
-    reason: plugin design §2.3.4 / contract §2.4—GET /api/events query fallback reads event_outbox
-      directly (platform base table; post-publish row retention verified by the M1 spike);
-      domain→platform dependency direction is legal; this rule records the read boundary
-      explicitly (read-only keyset projection, no writes).
-
   - id: CHECKPOINT-JANITOR-SESSION
     domain: orchestration
     source: internal/orchestration/adapters/pgrepo/queries/settlement.sql

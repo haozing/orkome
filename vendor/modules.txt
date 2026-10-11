@@ -293,6 +293,9 @@ github.com/haozing/ploykit/identity/app
 github.com/haozing/ploykit/identity/domain
 github.com/haozing/ploykit/internal/contract/apierr
 github.com/haozing/ploykit/migrations
+github.com/haozing/ploykit/notify/adapters/bell
+github.com/haozing/ploykit/notify/adapters/http
+github.com/haozing/ploykit/notify/app
 github.com/haozing/ploykit/platform/cronx
 github.com/haozing/ploykit/platform/egressx
 github.com/haozing/ploykit/platform/ids
@@ -305,6 +308,11 @@ github.com/haozing/ploykit/platform/redisx
 github.com/haozing/ploykit/platform/sealx
 github.com/haozing/ploykit/platform/storagex
 github.com/haozing/ploykit/platform/webx
+github.com/haozing/ploykit/webhooks
+github.com/haozing/ploykit/webhooks/adapters/http
+github.com/haozing/ploykit/webhooks/adapters/pgrepo
+github.com/haozing/ploykit/webhooks/adapters/workers
+github.com/haozing/ploykit/webhooks/app
 github.com/haozing/ploykit/workspace
 github.com/haozing/ploykit/workspace/adapters/http
 github.com/haozing/ploykit/workspace/adapters/pgrepo

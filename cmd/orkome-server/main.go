@@ -12,12 +12,14 @@ import (
 
 	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
 	pkgmigrations "github.com/haozing/ploykit/migrations"
+	fwnotifyhttp "github.com/haozing/ploykit/notify/adapters/http"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/metrics"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/redisx"
 	"github.com/haozing/ploykit/platform/webx"
+	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
 	"github.com/haozing/ploykit/workspace"
 	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
 	"github.com/jackc/pgx/v5"
@@ -41,7 +43,6 @@ import (
 	"orkome/internal/platform/flagsx"
 	"orkome/internal/platform/outboxx"
 	skillhttp "orkome/internal/skills/adapters/http"
-	webhookhttp "orkome/internal/webhooks/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
@@ -138,7 +139,7 @@ func main() {
 			wswire.Frame{Type: "task:progress", Payload: b})
 	}
 
-	notifDeps := wiringNotification(db, log, notifUserFrames{cast: wsCast}, workersReg, idMemberCheck(db))
+	notifW := wiringNotification(db, log, notifUserFrames{cast: wsCast}, workersReg, idMemberCheck(db))
 	relay := outboxx.NewRelay(db, func(ctx context.Context, e events.Envelope) error {
 		bus.Emit(ctx, e)
 		return nil
@@ -228,14 +229,15 @@ func main() {
 
 	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db))
 	workhttp.Mount(api, workDeps, authGuardMw)
-	notifhttp.Mount(api, notifDeps, authGuardMw)
+	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
+	notifhttp.Mount(api, notifW.Product, authGuardMw)
 	orchhttp.Mount(api, orchHTTPDeps, authGuardMw)
 	convhttp.Mount(api, convDeps, authGuardMw)
 	autoDeps := wiringAutomation(ctx, log, db, bus, workersReg, cfg, redisCli)
 	autoDeps.MemberCheck = idMemberCheck(db)
 
-	webhookDeps := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), egressGuardOf(cfg))
-	webhookhttp.Mount(api, webhookDeps, authGuardMw)
+	webhookDeps := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), idDeps.Az, cfg)
+	webhookhttp.Mount(api, webhookDeps)
 
 	{
 		notifRepo := notifpgrepo.New(db)

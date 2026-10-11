@@ -147,7 +147,7 @@ autopilot_subscriber, autopilot_rule_version, autopilot_quota_period, autopilot_
 autopilot_quota_reservation, search_index_change, search_index_prune_mark, skill_to_label, agent_to_label,
 chat_draft_restore, chat_pinned_agent, chat_message, chat_cancel_pending, chat_session,
 source_context_object_intent, system_wakeup_setting, agent_builder_draft, quick_action,
-verification_code, member, workspace, agent_credential, webhook_subscription, event_delivery, ui_token, pack_ui_entry, "user" RESTART IDENTITY CASCADE`)
+verification_code, member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_token, pack_ui_entry, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)
