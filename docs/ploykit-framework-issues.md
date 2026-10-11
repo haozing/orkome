@@ -10,7 +10,9 @@
 | F4 | 发布流程 | v0.3.0 tag 打在 Next.js 历史上后被 Go 版复用——sumdb 记录不可变，公共生态里该版本永久作废（任何人 `go get` 校验失败） | Go 线打新 tag（v0.4.0+）；发布流程加"tag 不可复用"检查 | GONOSUMDB 绕过记录见 rebase 计划 §0 v3 |
 | F5 | 架构 | contract 词汇包在 `ploykit/internal/contract/`——外部模块按 Go 可见性规则**无法 import**，产品各自持有一套词汇；且框架 wswire 能力常量含母本产品词（CapAutopilot/CapSquad） | 二选一：移出 internal 成为公共 API；或声明"产品自持词汇"为设计意图并清理母本残留 | orkome 六个 contract 包全部本地保留的裁定依据 |
 | F6 | 一致性 | ~~wsx Hub.PATPrefix 双源~~ **升级：PAT 前缀三源一致性**——消费方必须同时配 `webx.AuthConfig.PATPrefix`（Bearer 解析）+ `identitypg.Config.PATPrefix`（repo 格式预检，配错静默返回 nil→401 invalid token）+ `TokenService.WithPATPrefix`（铸币），缺一处即断 | 单一来源：repo cfg 缺省回落 AuthConfig；或 TokenService 构造收 AuthConfig | orkome P3-3 冒烟实测踩中三处 |
-| F7 | 功能缺口 | webx 无"带路由清单的 Mux 包装"——产品无法枚举已注册路由做契约对账（chi.Walk 的等价物），orkome 只能用 `mux.Handler(假请求)` 解析法做单向对账，且**中间件覆盖断言完全丢失** | 框架提供 `webx.NewRecordingMux()`（记录 pattern + 包装链，支持导出对账）或 contractx 吸收该能力 | e2e/routes_walk_test.go 重写说明 |
+| F7 | 功能缺口 | ~~webx 无"带路由清单的 Mux 包装"~~ ✅ v0.4.0 已提供 `webx.Router` 接口 + `*webx.Mux` 路由录制（RouteInfo 枚举）；orkome 尚未迁移到 webx.Mux（后续批次） | — | 已修复，待采用 |
+| F8 | API 设计 | notify 域路由面窄（无 unread-count/summary/facets/preferences/archived 端点，inbox 无 workspace 作用域）——产品被迫叠层：框架端点查 user_id 列、产品端点查 recipient_user_id+workspace_id 列，**同表双列写入**维持两套表面 | notify 支持 workspace 作用域收件箱（或注入扩展路由位）；偏好表面进框架 | orkome P4 notification 替换的设计约束 |
+| F9 | 一致性 | 域间认证模式不一致：identity Mount 不带认证（要求产品在链上包 Authenticate），webhooks/workspace 域内自带 authz guard——两种心智模型并存，产品接线易错（identity 侧漏包即全员 401） | 统一为一种模式（建议全部域内 guard，identity 提供带认证的便捷 Routes()） | P3-3 踩坑 #1 + P4 接线差异 |
 
 ## 提交策略
 
