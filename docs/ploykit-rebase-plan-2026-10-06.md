@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | 日期 | 2026-10-06 |
-| 状态 | Draft（待批准后按阶段执行） |
+| 状态 | **Completed（2026-10-11，Phase 0–6 全部执行完毕；ADR 0013 为最终裁定记录）** |
 | 参与仓库 | `D:\code\miniCrew\orkome`（产品，本仓库）<br>`github.com/haozing/ploykit`（框架，**线上 module 消费**，钉住 **v0.3.0**；验证基线为 master 42386ff） |
 | 关联文档 | `docs/adr/0005`（工作区解析）、`docs/adr/0012`（设计独立性）、`docs/route-compare/`、`cmd/orkome-server/router_contract_test.go` |
 | 分支策略 | 长线分支 `rebase-ploykit`，每阶段完成即合入 `main`；框架侧改动先合入框架仓库并打 tag |
@@ -265,7 +265,16 @@ orkome（本仓库，产品）
 - **P5-6 ✅ 浏览器冒烟（真实浏览器全流程）**：登录（发码→验证→DB 会话）→ onboarding 建区 → 主界面 → **WS"实时已连"**。冒烟揪出并修复四个真问题：①主链缺 CSRFConditional（P3 遗留安全项，/config 无 token）②框架 AccessLog statusRecorder 不透传 Hijacker 破坏 WS 升级（F21，产品 logExceptWS 豁免）③CSRF 层拦 /ws 升级（ExemptPrefixes=["/ws"]）④vite /ws 代理 target ws:// scheme 错误（改 http://）。**遗留小尾巴**：onboarding 判定在前端（API 数据在但页面停留 onboarding，直访 /work-items 正常——前端路由判定 bug，下批修）；开发环境需 WS_ALLOWED_ORIGINS=http://localhost:5173（生产同源免配）
 - 本批框架 issue：F16（P0 client/hub 协议断裂）、F17（hooks 包外不可用）、F18（auth 帧死协议）、F19（CSRF token 配套）、F20（ConfigHandler 静默缺 token）、F21（P1 AccessLog 破坏 WS 升级）@ploykit/client/@ploykit/ui 收编（alias 指向 module cache v0.4.0 源码）、错误信封扁平化适配、/auth/me、refresh 移除、queryKeys、通知实时推送
 
-### Phase 6 · 契约收尾与白赚能力接线
+### Phase 6 · 执行记录（2026-10-11 完成）
+
+- **P6-2 ✅（billing 挂起）**：`wiring_commercial.go` 挂载 audit（Recorder）/quota usage/admin（模拟登录走框架会话+产品钩子）/analytics（TrackService）；**billing 域挂起**——框架 billing 硬依赖 platform/events（River），与 D7 冲突，商业化启动时随 River 一并采用（plans/checkout届时可用）
+- 冒烟：CSRF 感知 curl 全流程（send 200→login 200）；usage 200（成员）/audit 200 空列表/admin E_FORBIDDEN（非平台管理员，语义正确）/billing plans 404（挂起符合预期）；非成员 403（D2 语义复核通过）
+- onboarding 尾巴：**非问题**（后端下线瞬态；根路径判定实测正确直达 /work-items）
+- **P6-4 ✅**：`docs/adr/0013-ploykit-rebase.md`（D1–D7 终态、对外契约五项变化、ADR 0012 修订、21 条框架 issue 回 feeder）
+- **P6-5 ✅**：README Layout/事实源刷新为 ploykit 消费者视角；`.gitignore` 收编 orkome-server.exe
+- 终态：全量 50 包绿 + 浏览器冒烟全链路；分支 `rebase-ploykit` 共 17 commits
+
+### Phase 6 · 契约收尾与白赚能力接线（原任务清单）
 
 - [ ] P6-1 `router_contract_test.go` + `docs/route-compare/` 全量终录（本计划验收门）
 - [ ] P6-2 billing/quota/admin/audit/analytics 接线（仅 Mount + 种子套餐 + usage 配额项，不做商业化开发）：quota 键建议 `tasks:dispatch`、`storage:bytes`、`agents:count`；`workspace.OnTeardown`/`OnMemberRemoved` 钩子接 orkome 的级联清理（UserRevocation 范本）
