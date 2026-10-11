@@ -14,28 +14,6 @@ function appWsUrl(): string {
     : `${proto}://${host}/ws`
 }
 
-/**
- * ploykit v0.4.0 protocol gap: @ploykit/client's WsClient serializes control
- * frames as `{type, payload:{scope,id}}`, but the framework hub
- * (platform/wsx handleControl) parses top-level `{type, token, scope, id}`.
- * Flatten subscribe/unsubscribe/auth frames so task/chat scope subscriptions
- * actually reach the hub until the framework aligns the two sides.
- */
-class HubCompatibleWsClient extends WsClient {
-  override send(type: string, payload?: unknown): void {
-    if (
-      (type === 'subscribe' || type === 'unsubscribe' || type === 'auth') &&
-      payload !== null &&
-      typeof payload === 'object'
-    ) {
-      const socket = (this as unknown as { socket: WebSocket | null }).socket
-      if (socket?.readyState !== WebSocket.OPEN) return
-      socket.send(JSON.stringify({ type, ...(payload as Record<string, unknown>) }))
-      return
-    }
-    super.send(type, payload)
-  }
-}
-
-export const wsClient = new HubCompatibleWsClient({ url: appWsUrl })
-export { HubCompatibleWsClient }
+// ploykit v0.4.1 fixed the F16 control-frame split (hub accepts both the
+// nested-payload and top-level shapes), so the stock WsClient works directly.
+export const wsClient = new WsClient({ url: appWsUrl })

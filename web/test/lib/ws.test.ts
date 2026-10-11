@@ -17,14 +17,14 @@ describe('WsClient connect and reconnect', () => {
     client.connect()
     lastSocket().serverOpen()
     const release = client.subscribe('task', 't-1')
-    // hub-compatible flat control frame (see src/realtime/client.ts adapter)
-    expect(lastSocket().sent).toContain('{"type":"subscribe","scope":"task","id":"t-1"}')
+    // v0.4.1 client: control frames nest scope/id inside payload (hub accepts both shapes)
+    expect(lastSocket().sent).toContain('{"type":"subscribe","payload":{"scope":"task","id":"t-1"}}')
     lastSocket().close()
     expect(client.status).toBe('reconnecting')
     await vi.advanceTimersByTimeAsync(400)
     lastSocket().serverOpen()
     expect(client.status).toBe('open')
-    expect(lastSocket().sent).toContain('{"type":"subscribe","scope":"task","id":"t-1"}')
+    expect(lastSocket().sent).toContain('{"type":"subscribe","payload":{"scope":"task","id":"t-1"}}')
     release()
     client.close()
     expect(client.status).toBe('stopped')
@@ -136,7 +136,7 @@ describe('WsClient scoped subscriptions', () => {
     r1()
     expect(lastSocket().sent).not.toContainEqual(expect.stringContaining('unsubscribe'))
     r2()
-    expect(lastSocket().sent).toContain('{"type":"unsubscribe","scope":"chat","id":"s-1"}')
+    expect(lastSocket().sent).toContain('{"type":"unsubscribe","payload":{"scope":"chat","id":"s-1"}}')
   })
 })
 describe('WsClient url function and reconnect', () => {
@@ -162,7 +162,7 @@ describe('WsClient url function and reconnect', () => {
     expect(second).not.toBe(first)
     second.serverOpen()
     expect(client.status).toBe('open')
-    expect(second.sent).toContain('{"type":"subscribe","scope":"task","id":"t-1"}')
+    expect(second.sent).toContain('{"type":"subscribe","payload":{"scope":"task","id":"t-1"}}')
     const count = FakeWebSocket.instances.length
     first.onclose?.()
     expect(FakeWebSocket.instances.length).toBe(count)
@@ -176,16 +176,16 @@ describe('WsClient url function and reconnect', () => {
     expect(FakeWebSocket.instances).toHaveLength(0)
   })
 })
-describe('hub-compatible control frames (ploykit wsx parses top-level fields)', () => {
-  it('subscribe/unsubscribe frames are flat: {"type","scope","id"} at top level', () => {
+describe('control frames use the nested payload shape (ploykit v0.4.1 client/hub contract)', () => {
+  it('subscribe/unsubscribe frames carry {scope,id} inside payload', () => {
     const { client, lastSocket } = makeClient()
     client.connect()
     lastSocket().serverOpen()
     const release = client.subscribe('task', 'group:sub:leaf')
-    expect(lastSocket().sent).toContain('{"type":"subscribe","scope":"task","id":"group:sub:leaf"}')
+    expect(lastSocket().sent).toContain('{"type":"subscribe","payload":{"scope":"task","id":"group:sub:leaf"}}')
     release()
     expect(lastSocket().sent).toContain(
-      '{"type":"unsubscribe","scope":"task","id":"group:sub:leaf"}',
+      '{"type":"unsubscribe","payload":{"scope":"task","id":"group:sub:leaf"}}',
     )
     client.close()
   })

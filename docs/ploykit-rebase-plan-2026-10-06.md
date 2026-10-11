@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | 日期 | 2026-10-06 |
-| 状态 | **Completed（2026-10-11，Phase 0–6 全部执行完毕；ADR 0013 为最终裁定记录）** |
+| 状态 | **Completed（2026-10-11，Phase 0–6 全部执行完毕；ADR 0013 为最终裁定记录）**<br>**Follow-up（同日）：框架 v0.4.1 升级**——11 项 issue 修复进包（F6/F8①②/F10/F11/F12/F13/F16/F18/F19/F20/F21），orkome 三处临时绕过（HubCompatibleWsClient / logExceptWS / MaxPerUser:-1）全部撤除；WS 全链路握手实测 OPEN；50 包全绿 |
 | 参与仓库 | `D:\code\miniCrew\orkome`（产品，本仓库）<br>`github.com/haozing/ploykit`（框架，**线上 module 消费**，钉住 **v0.3.0**；验证基线为 master 42386ff） |
 | 关联文档 | `docs/adr/0005`（工作区解析）、`docs/adr/0012`（设计独立性）、`docs/route-compare/`、`cmd/orkome-server/router_contract_test.go` |
 | 分支策略 | 长线分支 `rebase-ploykit`，每阶段完成即合入 `main`；框架侧改动先合入框架仓库并打 tag |

@@ -300,20 +300,9 @@ func main() {
 		return map[string]any{"product": "orkome"}
 	}}))
 
-	// AccessLog's statusRecorder does not implement http.Hijacker, which
-	// breaks the /ws upgrade (ploykit issue F21) — skip logging for /ws.
-	accessLog := webx.AccessLog(log, proxies...)
-	logExceptWS := func(next http.Handler) http.Handler {
-		logged := accessLog(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/ws" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			logged.ServeHTTP(w, r)
-		})
-	}
-	handler := webx.Recover(log)(webx.RequestIDMiddleware(webx.ClientMetadata(logExceptWS(
+	// F21 fixed in ploykit v0.4.1 (statusRecorder passes Hijack through) —
+	// AccessLog is safe for the /ws upgrade again.
+	handler := webx.Recover(log)(webx.RequestIDMiddleware(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
 		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(
 			webx.CSRFConditional(&webx.CSRFConfig{Key: webx.DeriveCSRFKey([]byte(cfg.JWTSecret)), TrustLocalhostAnyPort: true, ExemptPrefixes: []string{"/ws"}}, cfg.IsProd())(authMw(root))))))))
 	srv := &http.Server{

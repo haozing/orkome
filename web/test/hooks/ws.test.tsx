@@ -64,18 +64,18 @@ describe('useWsScope', () => {
       { initialProps: { id: 't-1' } },
     )
     expect(lastSocket().sent).toContain(
-      '{"type":"subscribe","scope":"task","id":"t-1"}',
+      '{"type":"subscribe","payload":{"scope":"task","id":"t-1"}}',
     )
     rerender({ id: 't-2' })
     expect(lastSocket().sent).toContain(
-      '{"type":"subscribe","scope":"task","id":"t-2"}',
+      '{"type":"subscribe","payload":{"scope":"task","id":"t-2"}}',
     )
     expect(lastSocket().sent).toContain(
-      '{"type":"unsubscribe","scope":"task","id":"t-1"}',
+      '{"type":"unsubscribe","payload":{"scope":"task","id":"t-1"}}',
     )
     unmount()
     expect(lastSocket().sent).toContain(
-      '{"type":"unsubscribe","scope":"task","id":"t-2"}',
+      '{"type":"unsubscribe","payload":{"scope":"task","id":"t-2"}}',
     )
     client.close()
   })

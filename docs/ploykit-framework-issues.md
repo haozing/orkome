@@ -9,7 +9,7 @@
 | F3 | API 设计 | ~~`sealx` 缺密钥派生助手~~ ✅ v0.4.0 已提供 `DeriveKey`；orkome 已切换（裁定：不做旧数据兼容，直接用框架版） | — | 已完成 |
 | F4 | 发布流程 | v0.3.0 tag 打在 Next.js 历史上后被 Go 版复用——sumdb 记录不可变，公共生态里该版本永久作废（任何人 `go get` 校验失败） | Go 线打新 tag（v0.4.0+）；发布流程加"tag 不可复用"检查 | GONOSUMDB 绕过记录见 rebase 计划 §0 v3 |
 | F5 | 架构 | contract 词汇包在 `ploykit/internal/contract/`——外部模块按 Go 可见性规则**无法 import**，产品各自持有一套词汇；且框架 wswire 能力常量含母本产品词（CapAutopilot/CapSquad） | 二选一：移出 internal 成为公共 API；或声明"产品自持词汇"为设计意图并清理母本残留 | orkome 六个 contract 包全部本地保留的裁定依据 |
-| F6 | 一致性 | ~~wsx Hub.PATPrefix 双源~~ **升级：PAT 前缀三源一致性**——消费方必须同时配 `webx.AuthConfig.PATPrefix`（Bearer 解析）+ `identitypg.Config.PATPrefix`（repo 格式预检，配错静默返回 nil→401 invalid token）+ `TokenService.WithPATPrefix`（铸币），缺一处即断 | 单一来源：repo cfg 缺省回落 AuthConfig；或 TokenService 构造收 AuthConfig | orkome P3-3 冒烟实测踩中三处 |
+| F6 | 一致性 | ~~PAT 前缀三源一致性~~ ✅ v0.4.1 修复（orkome 仍保持三处显式 `ork_` 配置作为外部契约锚点） | — | 已修复验证 |
 | F7 | 功能缺口 | ~~webx 无"带路由清单的 Mux 包装"~~ ✅ v0.4.0 已提供 `webx.Router` 接口 + `*webx.Mux` 路由录制（RouteInfo 枚举）；orkome 尚未迁移到 webx.Mux（后续批次） | — | 已修复，待采用 |
 | F8 | API 设计 | ~~notify 域路由面窄~~ **扩展（P4 实测）**：①`NotifyInput`/bell Insert 无 workspace/work_item/recipient_agent 字段——产品扩展表（workspace_id NOT NULL）后框架写路径直接不可用；②`notifyhttp.Mount` 全有或全无——产品覆盖单条路由需自带过滤 router 否则 ServeMux panic；③偏好表 PK (user_id, notification_type) 无法承载按工作区偏好（产品被迫 mute 哨兵行+部分索引）；④无通知留存 sweeper（仅 webhook 有） | NotifyInput 增可选 workspace/work-item 载荷；Mount 支持路由选择或拆分 Mount 基础/扩展；偏好模型支持 workspace 维度；补 retention worker | orkome P4：双列直插 + 1034 迁移 + FrameworkRouter 过滤 |
 | F9 | 一致性 | 域间认证模式不一致：identity Mount 不带认证（要求产品在链上包 Authenticate），webhooks/workspace 域内自带 authz guard——两种心智模型并存，产品接线易错（identity 侧漏包即全员 401） | 统一为一种模式（建议全部域内 guard，identity 提供带认证的便捷 Routes()） | P3-3 踩坑 #1 + P4 接线差异 |
