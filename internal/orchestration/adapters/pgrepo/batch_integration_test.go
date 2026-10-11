@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/orchestration/app"
@@ -43,6 +44,9 @@ func batchEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string, string) {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)

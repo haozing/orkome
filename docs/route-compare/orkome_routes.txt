@@ -92,7 +92,6 @@ GET /api/projects/{projectId}/resources
 GET /api/properties
 GET /api/properties/{key}
 GET /api/quick-actions
-GET /api/share-links/{code}
 GET /api/skills
 GET /api/skills/search
 GET /api/skills/{skillId}
@@ -141,7 +140,6 @@ GET /api/work-items/{workItemId}/wakeups/{wakeupId}
 GET /api/work-items/{workItemId}/wakeups/{wakeupId}/tasks
 GET /api/working-agents
 GET /api/workspaces
-GET /api/workspaces/{workspaceId}
 GET /api/workspaces/{workspaceId}/invitations
 GET /api/workspaces/{workspaceId}/mcp-servers
 GET /api/workspaces/{workspaceId}/members
@@ -205,7 +203,7 @@ POST /api/projects
 POST /api/projects/{projectId}/resources
 POST /api/properties
 POST /api/quick-actions
-POST /api/share-links/join
+POST /api/share-links/redeem
 POST /api/skills
 POST /api/skills/import
 POST /api/skills/{skillId}/labels

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
@@ -82,6 +83,8 @@ func perfEnv(t *testing.T) *perfStack {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	_, err = pgmigrate.New(pool, pkgmigrations.FS, ".").Up(ctx, 0)
+	require.NoError(t, err)
 	_, err = pgmigrate.New(pool, migrations.FS, ".").Up(ctx, 0)
 	require.NoError(t, err)
 

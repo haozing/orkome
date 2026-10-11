@@ -17,7 +17,7 @@ import (
 func TestB5_ChatDoneInlineFrame(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "b5@example.com")
-	ws := e.createWS(t, user, "b5")
+	ws := e.createWS(t, user, "b5-w")
 	a := e.createAgent(t, ws, "b5-chatter")
 	sess, err := e.conv.CreateSession(ctx0(), ws, a.ID, user, "inline frame")
 	require.NoError(t, err)
@@ -33,8 +33,9 @@ func TestB5_ChatDoneInlineFrame(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "Inline reply.", 1, 1, nil })
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	_, taskID, err := e.conv.SendMessage(ctx0(), ws, sess.ID, user, "ask")
 	require.NoError(t, err)

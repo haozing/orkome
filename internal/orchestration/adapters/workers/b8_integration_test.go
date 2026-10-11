@@ -16,7 +16,7 @@ func TestB8_SessionContinuityChain(t *testing.T) {
 		return e.repo.SessionTranscript(ctx, wi, agentID, 5)
 	}
 	user := e.createUser(t, "b8@example.com")
-	ws := e.createWS(t, user, "b8")
+	ws := e.createWS(t, user, "b8-w")
 	wi := e.createWorkItem(t, ws, user, "session continues")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
@@ -27,8 +27,9 @@ func TestB8_SessionContinuityChain(t *testing.T) {
 	})
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	t1, adm, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	require.NoError(t, err)
@@ -102,8 +103,9 @@ func TestB8_SessionAgentScoped(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "a1 private conclusion", 1, 1, nil })
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	t1, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a1.ID, user)
 	waitFor(t, func() bool {
@@ -138,8 +140,9 @@ func TestB8_ForceFreshSession(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "old session conclusion", 1, 1, nil })
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	t1, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx0(), ws, t1.ID)

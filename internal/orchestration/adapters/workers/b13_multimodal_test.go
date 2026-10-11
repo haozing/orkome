@@ -15,7 +15,7 @@ import (
 func TestB13_MultimodalOutputParts(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "b13@example.com")
-	ws := e.createWS(t, user, "b13")
+	ws := e.createWS(t, user, "b13w")
 	a := e.createAgent(t, ws, "b13-artist")
 	sess, err := e.conv.CreateSession(ctx0(), ws, a.ID, user, "multimodal session")
 	require.NoError(t, err)
@@ -33,8 +33,9 @@ func TestB13_MultimodalOutputParts(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	_, taskID, err := e.conv.SendMessage(ctx0(), ws, sess.ID, user, "draw a picture")
 	require.NoError(t, err)
@@ -74,8 +75,9 @@ func TestB13_InputAttachmentManifest(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	msg, taskID, err := e.conv.SendMessage(ctx0(), ws, sess.ID, user, "take a look at this material")
 	require.NoError(t, err)

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/skills/app"
@@ -36,6 +37,9 @@ func skillsEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string) {
 	pool, err := pgxpool.New(context.Background(), strings.Replace(base, "/orkome", "/orkome_b18", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)

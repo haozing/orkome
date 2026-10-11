@@ -11,13 +11,12 @@ scheduled to move in a later phase:
 |---|---|---|
 | eventbus | in-process bus + `Emitter` post-commit emission (I4) | local (D7; framework moved to River `platform/events`) |
 | outboxx | transactional outbox: SKIP LOCKED relay + partition-ordered redelivery + backlog gauge | local (D7; owns the product `event_outbox` table) |
-| schedx | schedule compensation helper | local (D7; framework moved to the `schedule` domain) |
 | flagsx | feature flags (YAML static rules + FF_* env overrides) | local (D7) |
 | webx | HTTP middleware kit: JWT cookie auth, CSRF double binding, CORS, OTel tracing, access log, rate limit | local until Phase 3 (framework Authenticate needs framework session tables first) |
 | wsx | WS hub: rooms, eviction, connections gauge | local until Phase 5 (swapped with the frontend WsClient, atomically) |
 | relayx | realtime relay three-state (memory/sharded/mirrored; fail-fast without Redis) | local until Phase 5 |
 
-Rules: same-layer imports allowed (outboxx→pg, schedx→cronx, relayx→logx now point at the
+Rules: same-layer imports allowed (outboxx→pg now points at the
 framework packages); no business imports — enforced by internal/arch platform-purity tests
 (extended to allow `github.com/haozing/ploykit/platform/*` imports) + .golangci.yml depguard.
 

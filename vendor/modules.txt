@@ -253,8 +253,6 @@ github.com/eino-contrib/jsonschema
 # github.com/evanphx/json-patch v0.5.2
 ## explicit; go 1.14
 github.com/evanphx/json-patch
-# github.com/go-chi/chi/v5 v5.3.2
-## explicit; go 1.23
 # github.com/go-logr/logr v1.4.4
 ## explicit; go 1.18
 github.com/go-logr/logr
@@ -289,8 +287,6 @@ github.com/haozing/ploykit/admin
 github.com/haozing/ploykit/admin/adapters/http
 github.com/haozing/ploykit/admin/adapters/pgrepo
 github.com/haozing/ploykit/admin/app
-github.com/haozing/ploykit/analytics/adapters/pgrepo
-github.com/haozing/ploykit/analytics/app
 github.com/haozing/ploykit/audit
 github.com/haozing/ploykit/audit/adapters/http
 github.com/haozing/ploykit/authz

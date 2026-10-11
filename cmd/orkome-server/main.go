@@ -224,7 +224,9 @@ func main() {
 		OnTeardown:      func(ctx context.Context, tx pgx.Tx, workspaceID string) error { return _oldTeardown(ctx, workspaceID) },
 	})
 	authMw := webx.Authenticate(&idDeps.Auth, idDeps.Repo, idDeps.PAT)
-	authGuardMw := func(next http.Handler) http.Handler { return authMw(runtimeAgentWriteGuard(next)) }
+	// The chain-level authMw authenticates once for every request; domain
+	// mounts only add the runtime-agent write fence on top of it.
+	authGuardMw := runtimeAgentWriteGuard
 
 	workspacehttp.Mount(api, idDeps.WorkspaceMountDeps())
 
@@ -243,7 +245,6 @@ func main() {
 			return nil
 		},
 	})
-	_ = comm.Tracks
 	orchhttp.Mount(api, orchHTTPDeps, authGuardMw)
 	convhttp.Mount(api, convDeps, authGuardMw)
 	autoDeps := wiringAutomation(ctx, log, db, bus, workersReg, cfg, redisCli)
@@ -295,7 +296,7 @@ func main() {
 	contenthttp.MountUploads(root, contentDeps)
 	mountWS(root, wsHub, authMw)
 	identityhttp.Mount(root, idDeps.IdentityMountDeps(proxies))
-	idhttp.MountExtensions(root, authMw, idDeps.Ext)
+	idhttp.MountExtensions(root, authGuardMw, idDeps.Ext)
 	root.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{Extra: func() map[string]any {
 		return map[string]any{"product": "orkome"}
 	}}))

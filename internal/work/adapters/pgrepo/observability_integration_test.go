@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/work/app"
@@ -41,6 +42,9 @@ func newObsFixture(t *testing.T) *obsFixture {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -52,7 +56,7 @@ func newObsFixture(t *testing.T) *obsFixture {
 
 	f := &obsFixture{pool: pool, repo: &Repo{DB: pg.WrapPool(pool)}, ctx: context.Background()}
 	require.NoError(t, pool.QueryRow(f.ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('w','work-obs') RETURNING id::text`).Scan(&f.wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-work-obs@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'w','work-obs', id FROM u RETURNING id::text`).Scan(&f.wsID))
 	return f
 }
 
@@ -234,7 +238,7 @@ func TestResourceLabelMount_AgentAndSkill(t *testing.T) {
 
 	var otherWs string
 	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('w2','work-obs-2') RETURNING id::text`).Scan(&otherWs))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-work-obs-2@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'w2','work-obs-2', id FROM u RETURNING id::text`).Scan(&otherWs))
 	require.NoError(t, f.pool.QueryRow(f.ctx,
 		`INSERT INTO agent (workspace_id, name) VALUES ($1,'a2') RETURNING id::text`, otherWs).Scan(&agentOtherWs))
 

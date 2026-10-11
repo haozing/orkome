@@ -55,7 +55,7 @@ func (w *world) memberRole(email, wsID string) string {
 	var role string
 	err := w.st.pool.QueryRow(context.Background(), `
 SELECT m.role FROM member m JOIN "user" u ON u.id = m.user_id
-WHERE m.workspace_id = $1 AND u.email = $2`, wsID, email).Scan(&role)
+WHERE m.workspace_id = $1 AND u.email = $2 AND m.removed_at IS NULL`, wsID, email).Scan(&role)
 	require.NoErrorf(w.t, err, "user %s should have a member record in workspace %s", email, wsID)
 	return role
 }
@@ -64,8 +64,8 @@ func (w *world) memberIDOf(email, wsID string) string {
 	w.t.Helper()
 	var id string
 	err := w.st.pool.QueryRow(context.Background(), `
-SELECT m.id::text FROM member m JOIN "user" u ON u.id = m.user_id
-WHERE m.workspace_id = $1 AND u.email = $2`, wsID, email).Scan(&id)
+SELECT u.id::text FROM member m JOIN "user" u ON u.id = m.user_id
+WHERE m.workspace_id = $1 AND u.email = $2 AND m.removed_at IS NULL`, wsID, email).Scan(&id)
 	require.NoError(w.t, err)
 	return id
 }

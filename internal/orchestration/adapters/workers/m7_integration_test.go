@@ -197,7 +197,7 @@ func TestM7_Webhook_VerifyDedupeDeliver(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 202, code)
 	var cnt int
-	_ = e.pool.QueryRow(ctx0(), `SELECT count(*) FROM webhook_delivery WHERE trigger_id=$1`, trig.ID).Scan(&cnt)
+	_ = e.pool.QueryRow(ctx0(), `SELECT count(*) FROM automation_webhook_delivery WHERE trigger_id=$1`, trig.ID).Scan(&cnt)
 	assert.Equal(t, 1, cnt, "dedup key should be idempotent")
 
 	code, _ = m.wh.Ingest(ctx0(), "tok_m7", sig, itoa(time.Now().Add(-time.Hour).Unix()), body)
@@ -207,9 +207,11 @@ func TestM7_Webhook_VerifyDedupeDeliver(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ok)
 	var dstatus string
-	_ = e.pool.QueryRow(ctx0(),
-		`SELECT status FROM webhook_delivery WHERE trigger_id=$1`, trig.ID).Scan(&dstatus)
-	assert.Equal(t, "delivered", dstatus)
+	waitFor(t, func() bool {
+		_ = e.pool.QueryRow(ctx0(),
+			`SELECT status FROM automation_webhook_delivery WHERE trigger_id=$1`, trig.ID).Scan(&dstatus)
+		return dstatus == "delivered"
+	}, "webhook delivery should reach delivered")
 	var runs int
 	_ = e.pool.QueryRow(ctx0(),
 		`SELECT count(*) FROM autopilot_run WHERE autopilot_id=$1 AND source='webhook'`, ap.ID).Scan(&runs)

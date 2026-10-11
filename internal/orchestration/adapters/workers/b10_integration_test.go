@@ -22,7 +22,7 @@ func newEval(t *testing.T, e *env, rate float64, quota int) *orchapp.EvalService
 func TestB10_EvalSamplingDeterministic(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "b10a@example.com")
-	ws := e.createWS(t, user, "b10-a")
+	ws := e.createWS(t, user, "b10-a-ws")
 	wi := e.createWorkItem(t, ws, user, "sampling")
 	a := e.createAgent(t, ws, "sampler")
 
@@ -31,8 +31,9 @@ func TestB10_EvalSamplingDeterministic(t *testing.T) {
 	})
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	task, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx0(), ws, task.ID)
@@ -69,8 +70,9 @@ func TestB10_EvalReportEndToEnd(t *testing.T) {
 	})
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	task, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx0(), ws, task.ID)
@@ -118,8 +120,9 @@ func TestB10_EvalQuotaSkip(t *testing.T) {
 	})
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	task, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx0(), ws, task.ID)

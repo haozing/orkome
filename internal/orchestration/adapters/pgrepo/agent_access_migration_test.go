@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/orchestration/app"
@@ -49,6 +50,9 @@ func newAgentAccessEnv(t *testing.T) *agentAccessEnv {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
@@ -57,8 +61,9 @@ func newAgentAccessEnv(t *testing.T) *agentAccessEnv {
 	u, err := idr.UpsertUserByEmail(ctx, "oaccess@example.com", time.Now())
 	require.NoError(t, err)
 	mkws := func(name string) string {
+		slug := "ws-" + u.ID[:13] + "-" + name
 		var id string
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace (name, created_by) VALUES ($1,$2) RETURNING id`, name, u.ID).Scan(&id))
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace (name, slug, created_by) VALUES ($1, $2, $3) RETURNING id`, name, slug, u.ID).Scan(&id))
 		_, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, id, u.ID)
 		require.NoError(t, err)
 		return id
@@ -116,13 +121,16 @@ func TestAgentAccess_MigrationShapeAndReplay(t *testing.T) {
 		`SELECT count(*) FROM agent_invocation_target WHERE agent_id=$1`, agentID).Scan(&n))
 	assert.Zero(t, n, "agent deletion cascades the allowlist clean")
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
-	steps := migrationsFrom(t, "028")
+	steps := migrationsFrom(t, "1024") // was 028 before the renumber
 	rolled, err := m.Down(ctx, steps)
 	require.NoError(t, err)
 	require.Len(t, rolled, steps)
-	require.Equal(t, "028", rolled[len(rolled)-1], "the last rolled back should be 028")
-	require.True(t, columnExists(t, pool, "agent_invocation_target", "target_id"), "down restores the 007 placeholder shape")
+	require.Equal(t, "1024", rolled[len(rolled)-1], "the last rolled back should be 1024 (was 028)")
+	require.True(t, columnExists(t, pool, "agent_invocation_target", "target_id"), "down restores the 1003 (was 007) placeholder shape")
 	require.True(t, columnExists(t, pool, "agent_invocation_target", "agent_id"))
 	require.True(t, columnExists(t, pool, "agent", "conversation_starters"),
 		"conversation_starters column declared by 007, not rolled back by 028 down")
@@ -130,7 +138,7 @@ func TestAgentAccess_MigrationShapeAndReplay(t *testing.T) {
 	applied, err := m.Up(ctx, 0)
 	require.NoError(t, err)
 	require.Len(t, applied, steps)
-	require.Equal(t, "028", applied[0])
+	require.Equal(t, "1024", applied[0])
 	require.True(t, columnExists(t, pool, "agent_invocation_target", "target_user_id"))
 	require.False(t, columnExists(t, pool, "agent_invocation_target", "target_id"))
 }

@@ -27,7 +27,7 @@ import (
 // MountExtensions mounts the product account-extension routes. auth is the
 // composition root's Authenticate middleware (the shared root mux carries no
 // global auth chain, so it must be applied here).
-func MountExtensions(mux *http.ServeMux, auth func(http.Handler) http.Handler, d Deps) {
+func MountExtensions(mux webx.Router, auth func(http.Handler) http.Handler, d Deps) {
 	// pins: RequireAuth + X-Workspace-Id header context
 	pins := func(h http.HandlerFunc) http.Handler {
 		return auth(webx.RequireAuth(d.wsHeaderCtx(h)))

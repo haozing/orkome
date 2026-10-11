@@ -18,13 +18,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/authz"
 	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	fwapp "github.com/haozing/ploykit/identity/app"
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/webx"
+	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
+	workspacepg "github.com/haozing/ploykit/workspace/adapters/pgrepo"
+	wsapp "github.com/haozing/ploykit/workspace/app"
 	"orkome/internal/contract/events"
 	idhttp "orkome/internal/identity/adapters/http"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
@@ -55,6 +60,9 @@ func newM2(t *testing.T) *m2h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
@@ -64,7 +72,7 @@ func newM2(t *testing.T) *m2h {
 		work_item_view_preference, work_item_view, work_item_to_label, label, work_item_property_def,
 		work_item, project_resource, project, work_item_status,
 		pinned_item, personal_access_token, workspace_share_link, workspace_invitation,
-		verification_code, member, workspace, "user" RESTART IDENTITY CASCADE`)
+		member, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)
@@ -115,6 +123,12 @@ func newM2(t *testing.T) *m2h {
 	})
 
 	full := http.NewServeMux()
+	full.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{}))
+	workspacehttp.Mount(full, workspacehttp.Deps{
+		Svc: wsapp.NewWorkspaceService(workspacepg.New(pool),
+			authz.New(authz.DefaultCatalog(), authz.DefaultRoles()), mail, nil, wsapp.WorkspaceConfig{}, time.Now),
+		Members: workspacepg.New(pool), Authz: authz.New(authz.DefaultCatalog(), authz.DefaultRoles()),
+	})
 	identityhttp.Mount(full, identityhttp.Deps{
 		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
 	})
@@ -122,7 +136,8 @@ func newM2(t *testing.T) *m2h {
 	idhttp.MountExtensions(full, authMw, idDeps)
 	Mount(full, workDeps, authMw)
 
-	return &m2h{t: t, handler: full, pool: pool, jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
+	return &m2h{t: t, handler: webx.Authenticate(auth, fwRepo, fwRepo)(
+		webx.CSRFConditional(&webx.CSRFConfig{Key: webx.DeriveCSRFKey(secret), TrustLocalhostAnyPort: true}, false)(full)), pool: pool, jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
 }
 
 type captureMail struct {
@@ -167,7 +182,7 @@ func (h *m2h) do(client, method, path string, body any) *httptest.ResponseRecord
 	rec := httptest.NewRecorder()
 	h.handler.ServeHTTP(rec, req)
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "orkome_auth" || c.Name == "orkome_csrf" {
+		if c.Name == "orkome_auth" || c.Name == "ploykit_csrf" {
 			h.jar[client] = append(h.jar[client], c)
 		}
 	}
@@ -210,7 +225,9 @@ func TestM2_GoldenPath(t *testing.T) {
 		CSRFToken string `json:"csrf_token"`
 	}
 	jsonOf(t, rec, &vout)
-	h.csrf["u"] = vout.CSRFToken
+	if vout.CSRFToken != "" {
+		h.csrf["u"] = vout.CSRFToken
+	}
 
 	rec = h.do("b", http.MethodGet, "/config", nil)
 	require.Equal(t, 200, rec.Code)
@@ -224,12 +241,10 @@ func TestM2_GoldenPath(t *testing.T) {
 	rec = h.do("b", http.MethodGet, "/auth/me", nil)
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	var bme struct {
-		User struct {
-			ID string `json:"id"`
-		} `json:"user"`
+		ID string `json:"id"`
 	}
 	jsonOf(t, rec, &bme)
-	bobID := bme.User.ID
+	bobID := bme.ID
 	require.NotEmpty(t, bobID)
 
 	rec = h.do("u", http.MethodPost, "/api/workspaces", map[string]string{"name": "M2", "slug": "m2-golden"})

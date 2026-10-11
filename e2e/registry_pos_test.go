@@ -4,13 +4,11 @@ import "net/http"
 
 var registryPos = []iface{
 
-	{Method: http.MethodGet, Path: "/api/me", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
-	{Method: http.MethodPatch, Path: "/api/me", Domain: "identity", Auth: authSelf,
+	{Method: http.MethodGet, Path: "/auth/me", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
+	{Method: http.MethodPatch, Path: "/auth/me", Domain: "identity", Auth: authSelf,
 		Body: func() any { return map[string]string{"display_name": "recipe user"} },
 
 		SkipBadBody: true, WantStatus: http.StatusOK},
-	{Method: http.MethodPost, Path: "/auth/logout", Domain: "identity", Auth: authSelf,
-		AnonExpect: http.StatusNoContent, WantStatus: http.StatusNoContent},
 	{Method: http.MethodGet, Path: "/api/tokens", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
 	{Method: http.MethodPost, Path: "/api/tokens", Domain: "identity", Auth: authSelf,
 		Body: func() any { return map[string]string{"name": "recipe token"} },
@@ -21,10 +19,9 @@ var registryPos = []iface{
 	{Method: http.MethodDelete, Path: "/api/tokens/{tokenId}", Domain: "identity", Auth: authSelf,
 		Setup: func(w *world) string { return "/api/tokens/" + w.ensureToken() }},
 
-	{Method: http.MethodGet, Path: "/api/workspaces/{workspaceId}", Domain: "identity", Auth: authSelf,
-		Setup:       func(w *world) string { return "/api/workspaces/" + w.str("wsID") },
-		SkipBadBody: true,
-		WantStatus:  http.StatusOK},
+	{Method: http.MethodPost, Path: "/auth/logout", Domain: "identity", Auth: authSelf,
+		AnonExpect: http.StatusUnauthorized, WantStatus: http.StatusOK, // framework logout REVOKES the session — run last
+		Client: "logout", Setup: func(w *world) string { w.loginAs("logout", "bye@e2e.test"); return "/auth/logout" }},
 	{Method: http.MethodPatch, Path: "/api/workspaces/{workspaceId}", Domain: "identity", Auth: authSelf,
 		Body:        func() any { return map[string]string{"name": "rename workspace"} },
 		Setup:       func(w *world) string { return "/api/workspaces/" + w.str("wsID") },
@@ -37,10 +34,10 @@ var registryPos = []iface{
 		Setup:      func(w *world) string { return "/api/workspaces/" + w.str("wsID") + "/share-links" },
 		WantStatus: http.StatusOK},
 	{Method: http.MethodPost, Path: "/api/workspaces/{workspaceId}/share-links", Domain: "identity", Auth: authSelf,
-		Body:       func() any { return map[string]string{"role": "member"} },
+		Body:       func() any { return map[string]any{"role": "member", "max_uses": 10, "ttl_hours": 24} }, // framework validates max_uses 1-1000
 		Setup:      func(w *world) string { return "/api/workspaces/" + w.str("wsID") + "/share-links" },
 		WantStatus: http.StatusCreated},
-	{Method: http.MethodGet, Path: "/api/invitations", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
+	{Method: http.MethodGet, Path: "/api/invitations/mine", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
 
 	{Method: http.MethodGet, Path: "/api/pins", Domain: "identity", Auth: authSelf, WantStatus: http.StatusOK},
 	{Method: http.MethodPut, Path: "/api/pins", Domain: "identity", Auth: authSelf,

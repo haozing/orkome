@@ -4,8 +4,8 @@ import "net/http"
 
 var RouteContract = map[string][]string{
 	"identity_root": {
-		"POST /auth/send-code", "POST /auth/verify-code", "POST /auth/google",
-		"POST /auth/logout", "GET /config", "POST /cli-token", "POST /api/auth/refresh",
+		"POST /auth/send-code", "POST /auth/verify-code",
+		"POST /auth/logout", "GET /config", "POST /cli-token",
 	},
 	"identity_api": {
 		"GET/PATCH /me", "GET/POST /workspaces", "GET/PATCH/DELETE /workspaces/{id}",

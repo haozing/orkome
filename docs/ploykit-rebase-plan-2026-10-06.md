@@ -28,7 +28,7 @@
 
 附录 E 引用的框架侧实施文档（`D:\code\ploykit\docs\framework-impl-2026-10-06.md`）现已不在磁盘上——其勘误内容已被本文档吸收，引用悬空无害；其遗留工作项（B6/B8 等）需按 master 现状复核：**B6 已完成**；**B8（events 词汇收窄）在 master 上已是终态**——框架 `internal/contract` 已无 events 词汇包，orkome 的 `contract/events` 全量本地自持即可（P2-8 的"仅框架域事件 import 框架"前提消失，简化为纯本地保留）。
 
-**新裁定 D7（v2 核心变更）——事件底座分叉**：框架 platform 已删除 `eventbus` / `outboxx` / `schedx` / `flagsx` 四包，由 `platform/events`（River 事务事件：`events.Migrate` 引导 river_job schema、`EmitAt` 定时投递、指数退避 handler、MaxWorkers=10）与顶层 `schedule` 域取代。orkome 业务域深度依赖自家 eventbus 三相位 + outboxx + schedx。裁定：**这四包保留为 orkome 本地平台包**（本就是 orkome 原创平移出去的），本次 rebase 不迁移 River / schedule 域——与"业务域零改动"非目标一致；迁移 River events + schedule 域（自动化 wakeups/autopilots 天然适配 schedule）列为**后续独立项目**。
+**新裁定 D7（v2 核心变更，终审修订为三包）——事件底座分叉**：框架 platform 已删除 `eventbus` / `outboxx` / `schedx` / `flagsx` 四包，由 `platform/events`（River 事务事件：`events.Migrate` 引导 river_job schema、`EmitAt` 定时投递、指数退避 handler、MaxWorkers=10）与顶层 `schedule` 域取代。orkome 业务域深度依赖自家 eventbus 三相位 + outboxx + schedx。裁定：**前三包+flagsx 保留为 orkome 本地平台包**（schedx 后经分支终审确认零使用者，已删除），本次 rebase 不迁移 River / schedule 域——与"业务域零改动"非目标一致；迁移 River events + schedule 域（自动化 wakeups/autopilots 天然适配 schedule）列为**后续独立项目**。
 
 **连带修订**：Phase 2 替换清单由 15 包缩为 **11 包**（pg/pgmigrate/redisx/storagex/cronx/egressx/sealx/redactx/ids/logx/workers + metrics）；框架迁移已至 **043**（schedule/quota 幂等等新表），产品 1001 段起点更无冲突；D4 仓库与 tag（v0.2.1 / v0.3.0）**已存在**，orkome 直接线上消费（`go get github.com/haozing/ploykit`，无 replace）。**新可选消费面（仅备查，本次不接）**：`authorization`（规则/事实引擎，与 authz 并存）、`schedule`、`settings`、`contractx`（路由/OpenAPI 契约比对——未来可替代 router_contract_test + route-compare 手法）、`renderx`、`pgpart`。
 

@@ -31,6 +31,10 @@ type iface struct {
 
 	Hdr map[string]string
 
+	// Client overrides the positive-path actor (default "owner"); used by
+	// routes that destroy their own session (logout).
+	Client string
+
 	SkipBadBody bool
 }
 
@@ -54,10 +58,9 @@ var registry = []iface{
 		Setup:      func(w *world) string { return "/api/workspaces/" + w.str("wsID") + "/members" },
 		WantStatus: http.StatusOK},
 	{Method: http.MethodDelete, Path: "/api/workspaces/{workspaceId}/members/{memberId}", Domain: "identity", Auth: authSelf},
-	{Method: http.MethodPost, Path: "/api/invitations/{invitationId}/accept", Domain: "identity", Auth: authSelf},
-	{Method: http.MethodGet, Path: "/api/share-links/{code}", Domain: "identity", Auth: authSelf,
-		AnonExpect: http.StatusNotFound},
-	{Method: http.MethodPost, Path: "/api/share-links/join", Domain: "identity", Auth: authSelf},
+	{Method: http.MethodPost, Path: "/api/invitations/{invitationId}/accept", Domain: "identity", Auth: authSelf,
+		AnonExpect: http.StatusUnauthorized}, // framework semantics: plain 401 (old local face answered 404)
+	{Method: http.MethodPost, Path: "/api/share-links/redeem", Domain: "identity", Auth: authSelf},
 
 	{Method: http.MethodPost, Path: "/api/work-items", Domain: "work", Auth: authMember,
 		Body:       func() any { return map[string]string{"title": "L1 template case", "status": "todo"} },
@@ -115,7 +118,6 @@ var registryP2 = []iface{
 	{Method: http.MethodPatch, Path: "/api/quick-actions/{quickActionId}", Domain: "work", Auth: authMember},
 	{Method: http.MethodPatch, Path: "/api/work-item-statuses/{statusKey}", Domain: "work", Auth: authMember},
 	{Method: http.MethodPatch, Path: "/api/workspaces/{workspaceId}/members/{memberId}", Domain: "identity", Auth: authSelf},
-	{Method: http.MethodPost, Path: "/api/auth/refresh", Domain: "identity", Auth: authSelf},
 	{Method: http.MethodPost, Path: "/api/batches/{batchId}/cancel", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/batches/{batchId}/pause", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/batches/{batchId}/resume", Domain: "work", Auth: authMember},
@@ -123,7 +125,6 @@ var registryP2 = []iface{
 	{Method: http.MethodPost, Path: "/api/comments/{commentId}/reactions", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/comments/{commentId}/sub-work-items", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/projects/{projectId}/resources", Domain: "work", Auth: authMember},
-	{Method: http.MethodPost, Path: "/api/tokens/current/renew", Domain: "identity", Auth: authSelf},
 	{Method: http.MethodPost, Path: "/api/work-item-statuses/reorder", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/work-items/batch-delete", Domain: "work", Auth: authMember},
 	{Method: http.MethodPost, Path: "/api/work-items/preview-trigger", Domain: "work", Auth: authMember},

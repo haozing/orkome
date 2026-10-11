@@ -12,3 +12,4 @@ DROP TABLE work_item;
 DROP TABLE project_resource;
 DROP TABLE project;
 DROP TABLE work_item_status;
+ALTER TABLE workspace DROP COLUMN IF EXISTS work_item_counter;

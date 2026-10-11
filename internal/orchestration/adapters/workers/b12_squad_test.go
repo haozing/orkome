@@ -18,7 +18,7 @@ func TestB12_SquadModeBChoreography(t *testing.T) {
 		return e.repo.GetSquad(ctx, wsID, squadID)
 	}
 	user := e.createUser(t, "b12@example.com")
-	ws := e.createWS(t, user, "b12")
+	ws := e.createWS(t, user, "b12w")
 	wi := e.createWorkItem(t, ws, user, "proposal review")
 
 	leader := e.createAgent(t, ws, "b12-leader")
@@ -66,8 +66,9 @@ INSERT INTO squad_member (squad_id, agent_id, role) VALUES ($1,$2,'member'),($1,
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	task, err := e.enq.EnqueueSquadTask(ctx0(), ws, wi, squadID, user)
 	require.NoError(t, err)

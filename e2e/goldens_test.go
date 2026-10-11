@@ -102,16 +102,20 @@ func TestE2E_G3_CommentTriggerCoalesce(t *testing.T) {
 		`UPDATE agent_task_queue SET status='dispatched' WHERE work_item_id=$1 AND status='queued'`, wi)
 	require.NoError(t, err)
 
-	rec2 := s.do("alice", http.MethodPost, "/api/work-items/"+wi+"/comments",
-		map[string]any{"content": "supplement info"}, nil)
-	require.Equal(t, 201, rec2.Code)
 	var out2 struct {
 		Admission struct {
 			Result string `json:"result"`
 		} `json:"admission"`
 	}
-	_ = json.Unmarshal(rec2.Body.Bytes(), &out2)
-	assert.Equal(t, "coalesced", out2.Admission.Result, "should merge into pending")
+	waitFor(t, func() bool { // under full-suite load the first task may still be mid-dispatch
+		rec2 := s.do("alice", http.MethodPost, "/api/work-items/"+wi+"/comments",
+			map[string]any{"content": "supplement info"}, nil)
+		if rec2.Code != 201 {
+			return false
+		}
+		_ = json.Unmarshal(rec2.Body.Bytes(), &out2)
+		return out2.Admission.Result == "coalesced"
+	}, "should merge into pending")
 }
 
 func TestE2E_G4_ChatGolden(t *testing.T) {

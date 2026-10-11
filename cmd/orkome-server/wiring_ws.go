@@ -41,7 +41,6 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 	}
 	hub.AllowedOrigins = cfg.WSOrigins
 	log.Info("ws origins configured", "n", len(cfg.WSOrigins), "list", cfg.WSOrigins)
-	_ = hub
 
 	broadcaster := hubBroadcaster{hub: hub}
 

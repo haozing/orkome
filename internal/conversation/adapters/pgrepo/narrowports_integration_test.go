@@ -21,7 +21,7 @@ func fixtureNarrow(t *testing.T) (repo *Repo, wsID, u1, other, sess1, sess2, msg
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('np2@x.io','NP2') RETURNING id::text`).Scan(&other))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('cseq','c-seq') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-c-seq@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'cseq','c-seq', id FROM u RETURNING id::text`).Scan(&wsID))
 	for _, u := range []string{u1, other} {
 		_, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, wsID, u)
 		require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/channels/adapters/pgrepo"
@@ -37,13 +38,16 @@ func newWorkerDB(t *testing.T) (*pgxpool.Pool, string, string) {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cwkr", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 
 	var wsID, instID string
 	require.NoError(t, pool.QueryRow(context.Background(),
-		`INSERT INTO workspace (name, slug) VALUES ('cwkr','c-wkr') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-c-wkr@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'cwkr','c-wkr', id FROM u RETURNING id::text`).Scan(&wsID))
 	require.NoError(t, pool.QueryRow(context.Background(), `
 INSERT INTO channel_installation (workspace_id, kind, name, config)
 VALUES ($1, 'fake', 'w', '{}'::jsonb) RETURNING id::text`, wsID).Scan(&instID))

@@ -39,8 +39,6 @@ type Config struct {
 
 	MetricsToken string `env:"REALTIME_METRICS_TOKEN"`
 
-	RealtimeRelayMode string `env:"REALTIME_RELAY_MODE"`
-
 	GitHubToken                string `env:"GITHUB_TOKEN"`
 	SkillsShIntegrationEnabled bool   `env:"ORKOME_RUN_SKILLS_SH_INTEGRATION"`
 

@@ -20,15 +20,20 @@ import (
 
 	"orkome/internal/contract/apierr"
 
+	"github.com/haozing/ploykit/authz"
 	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	fwapp "github.com/haozing/ploykit/identity/app"
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/egressx"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/storagex"
 	"github.com/haozing/ploykit/platform/webx"
+	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
+	workspacepg "github.com/haozing/ploykit/workspace/adapters/pgrepo"
+	wsapp "github.com/haozing/ploykit/workspace/app"
 	autohttp "orkome/internal/automation/adapters/http"
 	autoppgrepo "orkome/internal/automation/adapters/pgrepo"
 	autopworkers "orkome/internal/automation/adapters/workers"
@@ -100,6 +105,8 @@ type stack struct {
 	pool     *pgxpool.Pool
 	handler  http.Handler
 	rootMux  *http.ServeMux
+	rootRec  *webx.Mux
+	wsMux    *webx.Mux
 	authMw   func(http.Handler) http.Handler
 	orepo    *orchpgrepo.Repo
 	settle   *orchapp.SettlementService
@@ -128,6 +135,9 @@ func newStack(t *testing.T) *stack {
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
@@ -147,7 +157,7 @@ autopilot_subscriber, autopilot_rule_version, autopilot_quota_period, autopilot_
 autopilot_quota_reservation, search_index_change, search_index_prune_mark, skill_to_label, agent_to_label,
 chat_draft_restore, chat_pinned_agent, chat_message, chat_cancel_pending, chat_session,
 source_context_object_intent, system_wakeup_setting, agent_builder_draft, quick_action,
-verification_code, member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_token, pack_ui_entry, "user" RESTART IDENTITY CASCADE`)
+member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_token, pack_ui_entry, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)
@@ -236,11 +246,9 @@ verification_code, member, workspace, agent_credential, webhook_subscription, we
 	auto := autopapp.NewAutopilotService(arepo, creatorAdapter{wRepo: wRepo}, enqAdapter{repo: orepo})
 
 	api := http.NewServeMux()
-	identityhttp.Mount(api, identityhttp.Deps{
-		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
-	})
 	authMw := webx.Authenticate(auth, fwRepo, fwRepo)
-	idhttp.MountExtensions(api, authMw, idDeps)
+	wsSvc := wsapp.NewWorkspaceService(workspacepg.New(pool), authz.New(authz.DefaultCatalog(), authz.DefaultRoles()),
+		mail, nil, wsapp.WorkspaceConfig{}, time.Now)
 	workhttpMount(api, workDeps, authMw)
 	memberCheck := func(ctx context.Context, ws, uid string) (bool, error) {
 		_, ok, err := idRepo.GetMember(ctx, ws, uid)
@@ -459,11 +467,26 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 		_, _ = w.Write([]byte("ready"))
 	})
 	root.Handle("/api/", api)
+	wsDeps := workspacehttp.Deps{Svc: wsSvc, Members: workspacepg.New(pool),
+		Authz: authz.New(authz.DefaultCatalog(), authz.DefaultRoles())}
+	workspacehttp.Mount(api, wsDeps)
+	wsMux := webx.NewMux()
+	workspacehttp.Mount(wsMux, wsDeps) // recording twin for route enumeration (e2e walk)
+	rootRec := webx.NewMux()
+	identityhttp.Mount(root, identityhttp.Deps{
+		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
+	})
+	identityhttp.Mount(rootRec, identityhttp.Deps{ // recording twin for the walk
+		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
+	})
+	root.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{}))
+	rootRec.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {})
+	idhttp.MountExtensions(rootRec, func(next http.Handler) http.Handler { return next }, idDeps)
 	contenthttp.MountUploads(root, contentDeps)
 	idhttp.MountExtensions(root, authMw, idDeps)
 	autohttp.MountPublic(root, autohttp.Deps{Webhooks: autopapp.NewWebhookService(arepo, auto)})
 
-	s := &stack{t: t, pool: pool, handler: webx.ClientMetadata(root), rootMux: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,
+	s := &stack{t: t, pool: pool, rootRec: rootRec, wsMux: wsMux, handler: webx.ClientMetadata(webx.CSRFConditional(&webx.CSRFConfig{Key: webx.DeriveCSRFKey(secret), TrustLocalhostAnyPort: true}, false)(authMw(root))), rootMux: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,
 		wRepo: wRepo, comments: workapp.NewCommentService(wRepo, bus, time.Now),
 		jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
 
@@ -503,7 +526,7 @@ func (s *stack) do(client, method, path string, body any, hdr map[string]string)
 	s.handler.ServeHTTP(rec, req)
 	for _, c := range rec.Result().Cookies() {
 
-		if c.Name == "orkome_auth" || c.Name == "orkome_csrf" {
+		if c.Name == "orkome_auth" || c.Name == "ploykit_csrf" {
 			s.jar[client] = append(s.jar[client], c)
 		}
 	}
@@ -525,7 +548,9 @@ func (s *stack) login(client, email string) {
 		CSRFToken string `json:"csrf_token"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	s.csrf[client] = out.CSRFToken
+	if out.CSRFToken != "" { // v0.4.1: verify-code no longer rotates the token
+		s.csrf[client] = out.CSRFToken
+	}
 }
 
 func (s *stack) createWS(t *testing.T, client, slug string) string {

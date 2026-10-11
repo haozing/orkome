@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
@@ -57,6 +58,9 @@ func newB2H(t *testing.T) *b2h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -79,7 +83,7 @@ func newB2H(t *testing.T) *b2h {
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('b2@x.io','B2') RETURNING id::text`).Scan(&userID))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('b2','b2-h') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-b2-h@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'b2','b2-h', id FROM u RETURNING id::text`).Scan(&wsID))
 	_, err = pool.Exec(ctx,
 		`INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, wsID, userID)
 	require.NoError(t, err)

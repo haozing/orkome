@@ -178,3 +178,7 @@ CREATE TABLE work_item_source_context (
   created_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, source_digest)
 );
+
+-- product column on the framework workspace table (was old 002;
+-- per-workspace work-item numbering is a product concern)
+ALTER TABLE workspace ADD COLUMN work_item_counter int NOT NULL DEFAULT 0;

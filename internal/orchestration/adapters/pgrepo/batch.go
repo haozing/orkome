@@ -10,6 +10,7 @@ import (
 
 	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/orchestration/app"
+	"orkome/internal/platform/pgxerr"
 )
 
 type BatchRepo struct{ DB *pg.DB }
@@ -70,7 +71,7 @@ INSERT INTO work_item_batch_item (batch_id, workspace_id, seq, payload_ref, stat
 		}
 		return nil
 	})
-	return b, pg.AsNotFound(err, "work item not found")
+	return b, pgxerr.AsNotFound(err, "work item not found")
 }
 
 func (r *BatchRepo) GetBatch(ctx context.Context, ws, id string) (app.Batch, bool, error) {

@@ -26,7 +26,7 @@ func TestB11_SearchWorkspaceTool(t *testing.T) {
 	}
 
 	user := e.createUser(t, "b11@example.com")
-	ws := e.createWS(t, user, "b11")
+	ws := e.createWS(t, user, "b11w")
 	wi := e.createWorkItem(t, ws, user, "retrieval task")
 	a := e.createAgent(t, ws, "searcher")
 
@@ -42,8 +42,9 @@ func TestB11_SearchWorkspaceTool(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	task, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	waitFor(t, func() bool {

@@ -11,8 +11,6 @@ import (
 	adminhttp "github.com/haozing/ploykit/admin/adapters/http"
 	adminpg "github.com/haozing/ploykit/admin/adapters/pgrepo"
 	adminapp "github.com/haozing/ploykit/admin/app"
-	analyticspg "github.com/haozing/ploykit/analytics/adapters/pgrepo"
-	analyticsapp "github.com/haozing/ploykit/analytics/app"
 	"github.com/haozing/ploykit/audit"
 	audithttp "github.com/haozing/ploykit/audit/adapters/http"
 	"github.com/haozing/ploykit/authz"
@@ -31,7 +29,6 @@ import (
 type commercial struct {
 	pool     *pgxpool.Pool
 	Audit    *audit.Recorder
-	Tracks   *analyticsapp.TrackService
 	AdminSvc *adminapp.AdminService
 }
 
@@ -39,7 +36,6 @@ func wiringCommercial(log *slog.Logger, db *pg.DB, pool *pgxpool.Pool, az *authz
 	return &commercial{
 		pool:     pool,
 		Audit:    audit.NewRecorder(pool, log),
-		Tracks:   analyticsapp.NewTrackService(analyticspg.New(pool, log), log),
 		AdminSvc: adminapp.NewAdminService(adminpg.New(pool), time.Now),
 	}
 }

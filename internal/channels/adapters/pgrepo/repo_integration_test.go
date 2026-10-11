@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/channels/app"
@@ -44,6 +45,9 @@ func newChanDB(t *testing.T) *pgxpool.Pool {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cchan", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -64,7 +68,7 @@ func newChanFixture(t *testing.T) *chanFixture {
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('chan@x.io','CHAN') RETURNING id::text`).Scan(&f.userID))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('cchan','c-chan') RETURNING id::text`).Scan(&f.wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-c-chan@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'cchan','c-chan', id FROM u RETURNING id::text`).Scan(&f.wsID))
 	_, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, f.wsID, f.userID)
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `
@@ -452,7 +456,7 @@ func migrationsAfter023(t *testing.T) int {
 			continue
 		}
 		ver := strings.TrimSuffix(name, filepath.Ext(name))
-		if ver > "023_channels.up" {
+		if ver > "1019_channels.up" { // renumbered from 023 in the P3 baseline rebuild
 			seen[ver] = true
 		}
 	}
@@ -475,6 +479,9 @@ func TestPGMigration023UpDownUp(t *testing.T) {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cchan_mig", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)

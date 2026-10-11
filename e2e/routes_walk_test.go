@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"regexp"
@@ -27,13 +28,19 @@ func TestRoutesWalkGuards(t *testing.T) {
 		t.Fatalf("stack has no root mux")
 	}
 
-	fill := func(p string) string {
-		return regexp.MustCompile(`\{[a-zA-Z]+(\.\.\.)?\}`).ReplaceAllString(p, "00000000-0000-0000-0000-000000000000")
-	}
 	resolves := func(method, pattern string) bool {
-		req := httptest.NewRequest(method, fill(pattern), nil)
-		_, got := st.rootMux.Handler(req)
-		return strings.TrimSuffix(got, "/") == strings.TrimSuffix(pattern, "/")
+		req := httptest.NewRequest("TRACE", regexp.MustCompile(`\{[a-zA-Z]+(\.\.\.)?\}`).ReplaceAllString(pattern, "00000000-0000-0000-0000-000000000000"), nil)
+		rec := httptest.NewRecorder()
+		st.handler.ServeHTTP(rec, req)
+		allow := rec.Header().Get("Allow")
+		for _, m := range strings.Split(allow, ",") {
+			if strings.TrimSpace(m) == method {
+				return true
+			}
+		}
+		// auth-guarded subtree routes answer TRACE with 401/403 before the
+		// inner mux can 405 — an auth verdict still proves the pattern matched
+		return rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden
 	}
 
 	for _, r := range registry {
@@ -83,8 +90,16 @@ func loadStaticRoutes(t *testing.T) map[string]bool {
 		if ln == "" {
 			continue
 		}
+		if ln == "" || ln[0] == '#' || strings.HasPrefix(ln, "framework") {
+			continue
+		}
 		parts := strings.SplitN(ln, " ", 2)
 		if len(parts) != 2 {
+			continue
+		}
+		switch parts[0] {
+		case "ANY", "GET", "POST", "PUT", "PATCH", "DELETE":
+		default:
 			continue
 		}
 		m, p := parts[0], parts[1]

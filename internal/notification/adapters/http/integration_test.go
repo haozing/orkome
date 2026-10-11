@@ -73,7 +73,7 @@ func newNenv(t *testing.T) *nenv {
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('notif@x.io','Notif') RETURNING id::text`).Scan(&userID))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('notif','notif-ws') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-notif-ws@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'notif','notif-ws', id FROM u RETURNING id::text`).Scan(&wsID))
 	_, err = pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, wsID, userID)
 	require.NoError(t, err)
 

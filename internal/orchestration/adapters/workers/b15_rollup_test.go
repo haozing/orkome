@@ -13,7 +13,7 @@ import (
 func TestB15_UsageHourlyRollup(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "b15@example.com")
-	ws := e.createWS(t, user, "b15")
+	ws := e.createWS(t, user, "b15w")
 
 	_, err := e.pool.Exec(ctx0(), `
 INSERT INTO task_usage (workspace_id, agent_id, provider, model, prompt_tokens, completion_tokens, cost_usd_ticks, agent_label, created_at)

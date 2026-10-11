@@ -30,8 +30,9 @@ func TestM5_ChatGolden_SendMessageToAssistantRow(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	msg, taskID, err := e.conv.SendMessage(ctx0(), ws, sess.ID, user, "hello, please take a look")
 	require.NoError(t, err)

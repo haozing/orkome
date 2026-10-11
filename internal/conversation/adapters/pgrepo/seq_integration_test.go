@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/migrations"
@@ -36,6 +37,9 @@ func newSeqDB(t *testing.T) *pgxpool.Pool {
 		strings.Replace(base, "/"+cfg.Database, "/orkome_cseq", 1))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -51,7 +55,7 @@ func TestNextSeqAtomicity(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('seq@x.io','SEQ') RETURNING id::text`).Scan(&userID))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('cseq','c-seq') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-c-seq@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'cseq','c-seq', id FROM u RETURNING id::text`).Scan(&wsID))
 	_, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, wsID, userID)
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `

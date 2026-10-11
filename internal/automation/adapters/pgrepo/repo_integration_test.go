@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	autopapp "orkome/internal/automation/app"
@@ -47,6 +48,9 @@ func newQuotaFixture(t *testing.T) *quotaFixture {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -57,7 +61,7 @@ func newQuotaFixture(t *testing.T) *quotaFixture {
 
 	f := &quotaFixture{pool: pool, repo: New(pg.WrapPool(pool)), db: pg.WrapPool(pool), ctx: context.Background()}
 	require.NoError(t, pool.QueryRow(f.ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('w','auto-quota') RETURNING id::text`).Scan(&f.wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-auto-quota@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'w','auto-quota', id FROM u RETURNING id::text`).Scan(&f.wsID))
 	ap, err := f.repo.CreateAutopilot(f.ctx, autopapp.Autopilot{
 		WorkspaceID: f.wsID, Name: "ap", ExecMode: "task_only", DailyLimit: 3, Enabled: true,
 		Template: map[string]any{}})

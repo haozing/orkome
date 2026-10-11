@@ -33,3 +33,9 @@ F1–F3、F7 是 API/功能改进（框架仓库 issue + PR）；F4 是流程修
 | F20 | 配套断裂 | `webx.ConfigHandler` 输出 `csrf_token`（依赖请求上下文经 gorilla/csrf），但框架没有强制/文档化"主链必须挂 CSRFConditional"——产品漏挂时 /config 静默缺 token，前端报 "CSRF bootstrap: response missing csrf_token"，写请求全 403 | ConfigHandler 无 CSRF 上下文时显式报错/文档化接线清单 | orkome P5 浏览器冒烟实测（P3 遗留 CSRF 缺口被逼出） |
 
 | F21 | **P1 bug** | `webx.AccessLog` 的 statusRecorder 包装 ResponseWriter 但**不透传 http.Hijacker**——挂在链内的 WebSocket 升级全部失败（gorilla Upgrade 拿不到 Hijacker）；直连表现为 403/升级错且 AccessLog 无记录，经代理表现为代理侧 socket write 错误，极难定位 | statusRecorder 嵌入 Hijacker/Flusher/CloseNotifier 透传（或 AccessLog 对 Upgrade 请求旁路） | orkome P5 浏览器冒烟：产品侧 logExceptWS 豁免 /ws 临时绕过 |
+
+| F22 | 表面缺口 | share-link 按码预览（GET /api/share-links/{code}）无框架等价物——框架只存 code 哈希（RedeemShareLink 直接触发加入），产品"先预览再决定加入"的 UX 无法实现 | workspace 域补 peek 端点（按 prefix+hash 查元数据返回脱敏预览）或接受 UX 降级 | e2e registry 对账时发现 |
+
+| F23 | 类型裂缝（F5 实害） | `platform/pg.AsNotFound` 返回**框架 internal 的 apierr.Error**（ploykit/internal/contract）——产品侧 `errors.As(err, &productApierr)` 永不匹配，FK 缺失被映射成 500 E_INTERNAL 而非 404。e2e DB 套件首跑即踩中两处 | pg 辅助函数返回公开错误类型（webx.Error 或公开 apierr），或提供错误码常量/谓词（IsNotFound(err)）供产品映射 | orkome P6 审计清尾：产品侧 pgxerr.AsNotFound 绕过，两处调用点已换 |
+
+| F24 | 表面缺口 | **无 GET /api/workspaces/{id}**——框架 workspace 域只有 PATCH/DELETE 按 id + 子树子资源；"查看单个工作区"（设置页回显等）无框架等价物 | workspace 域补 GET /{id}（成员可见性即可） | e2e registry 对账发现；前端按需经 list 检索绕过 |

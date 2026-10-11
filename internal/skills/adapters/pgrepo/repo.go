@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/haozing/ploykit/platform/pg"
+	"orkome/internal/platform/pgxerr"
 	"orkome/internal/skills/app"
 )
 
@@ -197,7 +198,7 @@ func (r *Repo) AddAgentSkill(ctx context.Context, agentID, skillID string) error
 	_, err := r.q(ctx).Exec(ctx, `
 INSERT INTO agent_skill (agent_id, skill_id, enabled) VALUES ($1,$2,true)
 ON CONFLICT (agent_id, skill_id) DO NOTHING`, agentID, skillID)
-	return pg.AsNotFound(err, "agent or skill not found")
+	return pgxerr.AsNotFound(err, "agent or skill not found")
 }
 
 func (r *Repo) SetAgentSkillEnabled(ctx context.Context, agentID, skillID string, en bool) error {

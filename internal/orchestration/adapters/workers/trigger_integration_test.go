@@ -54,8 +54,9 @@ func TestM4_CommentTrigger_GoldenFallback(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	waitFor(t, func() bool {
 		all, _ := e.repo.ListTasksByWorkItem(ctx0(), wi, false)
 		for _, tk := range all {
@@ -160,8 +161,9 @@ func TestM4_Steering_InjectAndConsume(t *testing.T) {
 		Log:    logNoop(), Emit: e.bus, PollEvery: 20 * time.Millisecond, Semaphore: 1, Timeout: 10 * time.Second,
 	}
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	<-started
 	_, adm := e.postComment(t, ws, wi, user, "also add a conclusion section")

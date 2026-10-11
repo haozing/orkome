@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/storagex"
@@ -53,6 +54,9 @@ func newB7H(t *testing.T) *b7h {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(context.Background(), 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
@@ -64,7 +68,7 @@ func newB7H(t *testing.T) *b7h {
 	require.NoError(t, pool.QueryRow(ctx,
 		`INSERT INTO "user" (email, display_name) VALUES ('b7@x.io','B7') RETURNING id::text`).Scan(&userID))
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO workspace (name, slug) VALUES ('b7','b7-h') RETURNING id::text`).Scan(&wsID))
+		`WITH u AS (INSERT INTO "user" (email, display_name) VALUES ('seed-b7-h@test.dev','SEED') RETURNING id) INSERT INTO workspace (name, slug, created_by) SELECT 'b7','b7-h', id FROM u RETURNING id::text`).Scan(&wsID))
 	_, err = pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, wsID, userID)
 	require.NoError(t, err)
 
@@ -187,8 +191,9 @@ func TestB7_AttachmentLifecycle(t *testing.T) {
 	assert.Equal(t, 404, w.Code)
 	w = h.req("GET", "/uploads/../secret", nil, nil)
 	// stdlib ServeMux canonicalizes dot-dot segments with a redirect before
-	// matching (chi answered 404 here); either outcome keeps storage unreachable.
-	assert.Contains(t, []int{http.StatusMovedPermanently, http.StatusNotFound}, w.Code)
+	// matching (Go 1.26 answers 307 -> /secret, which then 404s; chi answered
+	// 404 directly). Any redirect-or-404 keeps storage unreachable.
+	assert.Contains(t, []int{http.StatusMovedPermanently, http.StatusTemporaryRedirect, http.StatusNotFound}, w.Code)
 
 	w = h.req("DELETE", "/api/attachments/"+id, nil, nil)
 	require.Equal(t, 200, w.Code)
@@ -360,6 +365,6 @@ func TestB7_UploadHostCheckMissingHost(t *testing.T) {
 	_ = mw.WriteField("host_kind", "work_item")
 	_ = mw.WriteField("host_id", wiID)
 	_ = mw.Close()
-	w = h.req("POST", "/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
+	w = h.req("POST", "/api/upload-file", buf.Bytes(), map[string]string{"Content-Type": mw.FormDataContentType()})
 	require.Equal(t, 201, w.Code, "host present, allowed")
 }

@@ -38,8 +38,9 @@ func TestB2_TaskMessageSummaryRows(t *testing.T) {
 
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	waitFor(t, func() bool {
 		var since *time.Time
@@ -170,8 +171,9 @@ func TestB2_DispatcherRegistersAndAttributes(t *testing.T) {
 	d.InstanceID = inst
 	d.HeartbeatEvery = 50 * time.Millisecond
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	waitFor(t, func() bool {
 		var n int

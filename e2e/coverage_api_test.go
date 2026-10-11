@@ -120,7 +120,11 @@ func TestL1Positive(t *testing.T) {
 				if r.Setup != nil {
 					path = r.Setup(w)
 				}
-				rec := w.st.do("owner", r.Method, path, body, r.Hdr)
+				client := r.Client
+				if client == "" {
+					client = "owner"
+				}
+				rec := w.st.do(client, r.Method, path, body, r.Hdr)
 				require.Equal(t, r.WantStatus, rec.Code,
 					"[%s %s] normal path want %d, got %d: %s", r.Method, r.Path, r.WantStatus, rec.Code, rec.Body.String())
 			}

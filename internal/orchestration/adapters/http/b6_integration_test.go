@@ -65,7 +65,7 @@ func TestB6_MCPLibraryCRUD(t *testing.T) {
 	h := newB6H(t)
 
 	code, out := h.do("POST", "/api/workspaces/"+h.wsID+"/mcp-servers", map[string]any{
-		"name": "search", "transport": "http", "url": "https://mcp.example/sse",
+		"name": "search", "transport": "http", "url": "https://example.com/sse",
 		"credentials": map[string]any{"api_key": "sk-secret"},
 	})
 	require.Equal(t, 201, code, "create: %v", out)
@@ -81,7 +81,7 @@ func TestB6_MCPLibraryCRUD(t *testing.T) {
 	require.Len(t, servers, 1)
 
 	code, out = h.do("PUT", "/api/workspaces/"+h.wsID+"/mcp-servers/"+id, map[string]any{
-		"name": "search2", "transport": "http", "url": "https://mcp.example/v2",
+		"name": "search2", "transport": "http", "url": "https://example.com/v2",
 	})
 	require.Equal(t, 200, code, "update: %v", out)
 	assert.Equal(t, "search2", out["name"])
@@ -104,9 +104,9 @@ func TestB6_MCPMergeResolution(t *testing.T) {
 	ctx := context.Background()
 
 	svc := orchapp.NewMCPServerService(h.repo)
-	_, err := svc.Create(ctx, orchapp.WorkspaceMCP{WorkspaceID: h.wsID, Name: "a", Transport: "http", URL: "https://x/a"})
+	_, err := svc.Create(ctx, orchapp.WorkspaceMCP{WorkspaceID: h.wsID, Name: "a", Transport: "http", URL: "https://example.com/a"})
 	require.NoError(t, err)
-	_, err = svc.Create(ctx, orchapp.WorkspaceMCP{WorkspaceID: h.wsID, Name: "b", Transport: "http", URL: "https://x/b"})
+	_, err = svc.Create(ctx, orchapp.WorkspaceMCP{WorkspaceID: h.wsID, Name: "b", Transport: "http", URL: "https://example.com/b"})
 	require.NoError(t, err)
 
 	a, err := h.agents.Create(ctx, orchapp.Agent{WorkspaceID: h.wsID, Name: "merge-agent",
@@ -114,7 +114,7 @@ func TestB6_MCPMergeResolution(t *testing.T) {
 	require.NoError(t, err)
 	_, err = h.pool.Exec(ctx, `
 INSERT INTO agent_mcp_server (agent_id, name, transport, url, enabled) VALUES
-($1,'a','http','https://x/a2',false), ($1,'c','http','https://x/c',true)`, a.ID)
+($1,'a','http','https://example.com/a2',false), ($1,'c','http','https://example.com/c',true)`, a.ID)
 	require.NoError(t, err)
 
 	code, out := h.do("GET", "/api/agents/"+a.ID+"/mcp-servers?resolved=1", nil)
@@ -146,7 +146,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	base := "/api/agents/" + agent.ID + "/mcp-servers"
 
 	code, out := h.do("POST", base, map[string]any{
-		"name": "jira", "transport": "http", "url": "https://mcp.example/jira",
+		"name": "jira", "transport": "http", "url": "https://example.com/jira",
 		"credentials": map[string]any{"api_key": "sk-agent-secret"},
 	})
 	require.Equal(t, 201, code, "create: %v", out)
@@ -157,7 +157,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	assert.Equal(t, true, out["enabled"], "enabled defaults to true")
 
 	code, out = h.do("POST", base, map[string]any{
-		"name": "jira", "url": "https://mcp.example/jira-v2", "enabled": false,
+		"name": "jira", "url": "https://example.com/jira-v2", "enabled": false,
 	})
 	require.Equal(t, 201, code, "same-name POST = overwrite not 409: %v", out)
 	code, out = h.do("GET", base, nil)
@@ -165,7 +165,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	servers, _ := out["servers"].([]any)
 	require.Len(t, servers, 1, "same-name overwrite does not produce two parallel rows")
 	row, _ := servers[0].(map[string]any)
-	assert.Equal(t, "https://mcp.example/jira-v2", row["url"])
+	assert.Equal(t, "https://example.com/jira-v2", row["url"])
 	assert.Equal(t, false, row["enabled"])
 	assert.Equal(t, true, row["has_credentials"], "overwrite without credentials = keep the original (mask position stays true)")
 
@@ -179,7 +179,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	}
 
 	code, out = h.do("PUT", base+"/"+id, map[string]any{
-		"name": "jira", "url": "https://mcp.example/jira-v3",
+		"name": "jira", "url": "https://example.com/jira-v3",
 	})
 	require.Equal(t, 200, code, "update: %v", out)
 	assert.Equal(t, true, out["enabled"], "PUT without enabled replaces with the default true")
@@ -194,10 +194,10 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	assert.Empty(t, servers)
 
 	code, _ = h.do("POST", "/api/agents/00000000-0000-0000-0000-0000000000c0/mcp-servers",
-		map[string]any{"name": "x", "url": "https://mcp.example/x"})
+		map[string]any{"name": "x", "url": "https://example.com/x"})
 	assert.Equal(t, 404, code)
 	code, _ = h.do("PUT", base+"/00000000-0000-0000-0000-0000000000dd",
-		map[string]any{"name": "x", "url": "https://mcp.example/x"})
+		map[string]any{"name": "x", "url": "https://example.com/x"})
 	assert.Equal(t, 404, code)
 
 	code, _ = h.do("POST", base, map[string]any{"name": "ssrf", "url": "https://127.0.0.1/mcp"})

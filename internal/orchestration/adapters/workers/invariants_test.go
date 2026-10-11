@@ -18,7 +18,7 @@ import (
 func TestI3_AttributionDualTrack(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i3@example.com")
-	ws := e.createWS(t, user, "i3")
+	ws := e.createWS(t, user, "i3-w")
 	wi := e.createWorkItem(t, ws, user, "attribution")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
@@ -45,7 +45,7 @@ WHERE trigger_evidence_kind='rule' AND workspace_id=$1`, ws).Scan(&orig, &acct))
 func TestI4_EventsAfterCommit(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i4@example.com")
-	ws := e.createWS(t, user, "i4")
+	ws := e.createWS(t, user, "i4-w")
 	wi := e.createWorkItem(t, ws, user, "after commit")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
@@ -65,8 +65,9 @@ func TestI4_EventsAfterCommit(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "done", 1, 1, nil })
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	_, _, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
 	require.NoError(t, err)
 	require.Equal(t, "completed", <-seen, "terminal rows must already be visible when the subscriber fires (I4)")
@@ -75,7 +76,7 @@ func TestI4_EventsAfterCommit(t *testing.T) {
 func TestI5_AssistantRowAfterTerminal(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i5@example.com")
-	ws := e.createWS(t, user, "i5")
+	ws := e.createWS(t, user, "i5-w")
 	a := e.createAgent(t, ws, "i5-agent")
 	sess, err := e.conv.CreateSession(ctx0(), ws, a.ID, user, "I5")
 	require.NoError(t, err)
@@ -96,8 +97,9 @@ func TestI5_AssistantRowAfterTerminal(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "reply", 1, 1, nil })
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	_, _, err = e.conv.SendMessage(ctx0(), ws, sess.ID, user, "ask")
 	require.NoError(t, err)
 	require.Equal(t, "completed", <-seen, "at chat:done the task must already be terminal (I5)")
@@ -106,7 +108,7 @@ func TestI5_AssistantRowAfterTerminal(t *testing.T) {
 func TestI8_FailClosedAuthorization(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i8@example.com")
-	ws := e.createWS(t, user, "i8")
+	ws := e.createWS(t, user, "i8-w")
 	var ok bool
 	require.NoError(t, e.pool.QueryRow(ctx0(),
 		`SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=$1 AND user_id=$2)`,
@@ -121,7 +123,7 @@ func TestI8_FailClosedAuthorization(t *testing.T) {
 func TestI10_UniqueIndexAnswers(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i10@example.com")
-	ws := e.createWS(t, user, "i10")
+	ws := e.createWS(t, user, "i10w")
 	wi := e.createWorkItem(t, ws, user, "concurrency")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
@@ -157,7 +159,7 @@ func TestI10_UniqueIndexAnswers(t *testing.T) {
 func TestI11_ClaimFIFO(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "i11@example.com")
-	ws := e.createWS(t, user, "i11")
+	ws := e.createWS(t, user, "i11w")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
 	var ids []string
@@ -199,7 +201,7 @@ func TestI12_TenantPredicate(t *testing.T) {
 func TestIE1_EngineNeverWritesTaskStatus(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e1@example.com")
-	ws := e.createWS(t, user, "e1")
+	ws := e.createWS(t, user, "e1-w")
 	wi := e.createWorkItem(t, ws, user, "engine read-only")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 	tp, _, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
@@ -219,7 +221,7 @@ func TestIE1_EngineNeverWritesTaskStatus(t *testing.T) {
 func TestIE2_CancelDBAuthority(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e2@example.com")
-	ws := e.createWS(t, user, "e2")
+	ws := e.createWS(t, user, "e2-w")
 	wi := e.createWorkItem(t, ws, user, "cancel authority")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 	task, _, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
@@ -243,7 +245,7 @@ func TestIE2_CancelDBAuthority(t *testing.T) {
 func TestIE4_LeaderOnlyByFlags(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e4@example.com")
-	ws := e.createWS(t, user, "e4")
+	ws := e.createWS(t, user, "e4-w")
 	wi := e.createWorkItem(t, ws, user, "text impersonating the leader")
 	a := e.createAgent(t, ws, "e4-agent")
 	leader := e.createAgent(t, ws, "e4-leader")
@@ -271,8 +273,9 @@ VALUES ($1,'fake squad','x',$2,true)`, ws, leader.ID)
 	require.NoError(t, err)
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx0(), ws, task.ID)
 		return ok && tt.Status == "completed"
@@ -285,7 +288,7 @@ VALUES ($1,'fake squad','x',$2,true)`, ws, leader.ID)
 func TestIE6_FailureTaxonomy(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e6@example.com")
-	ws := e.createWS(t, user, "e6")
+	ws := e.createWS(t, user, "e6-w")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 
 	cases := map[string]string{
@@ -312,7 +315,7 @@ func (s *invErr) Error() string { return s.msg }
 func TestIE7_AuthoritativeRowOnly(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e7@example.com")
-	ws := e.createWS(t, user, "e7")
+	ws := e.createWS(t, user, "e7-w")
 	a := e.createAgent(t, ws, "e7-slow")
 	sess, err := e.conv.CreateSession(ctx0(), ws, a.ID, user, "authoritative row")
 	require.NoError(t, err)
@@ -324,8 +327,9 @@ func TestIE7_AuthoritativeRowOnly(t *testing.T) {
 	})
 	d := e.newDispatcher()
 	dctx, cancel := context.WithCancel(ctx0())
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 	_, taskID, err := e.conv.SendMessage(ctx0(), ws, sess.ID, user, "ask")
 	require.NoError(t, err)
 
@@ -351,7 +355,7 @@ func TestIE7_AuthoritativeRowOnly(t *testing.T) {
 func TestIE8_ApproveOnlyAwaiting(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e8@example.com")
-	ws := e.createWS(t, user, "e8")
+	ws := e.createWS(t, user, "e8-w")
 	wi := e.createWorkItem(t, ws, user, "not parked")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 	task, _, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
@@ -371,7 +375,7 @@ func TestIE8_ApproveOnlyAwaiting(t *testing.T) {
 func TestIE10_NoSecretLeak(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e10@example.com")
-	ws := e.createWS(t, user, "e10")
+	ws := e.createWS(t, user, "e10w")
 	a := e.agentWithRuntime(t, ws, map[string]any{
 		"provider": "fake", "model": "m", "credential_id": "cred-x", "api_key": "sk-LEAK",
 	})
@@ -390,7 +394,7 @@ func TestIE10_NoSecretLeak(t *testing.T) {
 func TestIE3_SupplementTurnEnded(t *testing.T) {
 	e := newEnv(t)
 	user := e.createUser(t, "e3@example.com")
-	ws := e.createWS(t, user, "e3")
+	ws := e.createWS(t, user, "e3-w")
 	wi := e.createWorkItem(t, ws, user, "supplementary settlement")
 	a := e.agentWithRuntime(t, ws, map[string]any{"provider": "fake", "model": "m"})
 	task, _, err := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)

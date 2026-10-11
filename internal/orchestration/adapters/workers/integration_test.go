@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
@@ -134,15 +136,35 @@ func newEnv(t *testing.T) *env {
 	}
 	admin, err := pgx.Connect(context.Background(), base)
 	require.NoError(t, err)
-	_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS orkome_m3")
-	_, _ = admin.Exec(context.Background(), "CREATE DATABASE orkome_m3")
+	// A lingering pool from the previous test (dispatcher goroutines keep
+	// conns alive past its own cleanup) makes DROP fail silently; force
+	// terminate backends first so every test truly starts on a fresh DB.
+	// Per-test database: a shared name made the DROP race against lingering
+	// dispatcher connections from the previous env, producing intermittent
+	// cross-test failures. A unique name removes the race entirely.
+	dbName := "orkome_m3_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err = admin.Exec(context.Background(), "CREATE DATABASE "+dbName)
+	require.NoError(t, err)
 	admin.Close(context.Background())
-	dsn := strings.Replace(base, "/orkome", "/orkome_m3", 1)
+	t.Cleanup(func() {
+		a, err := pgx.Connect(context.Background(), base)
+		if err != nil {
+			return
+		}
+		defer a.Close(context.Background())
+		_, _ = a.Exec(context.Background(),
+			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='`+dbName+`' AND pid<>pg_backend_pid()`)
+		_, _ = a.Exec(context.Background(), "DROP DATABASE IF EXISTS "+dbName)
+	})
+	dsn := strings.Replace(base, "/orkome", "/"+dbName, 1)
 
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
+	_, err = fw.Up(ctx, 0)
+	require.NoError(t, err)
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
@@ -153,7 +175,7 @@ func newEnv(t *testing.T) *env {
 		work_item_child_event, work_item_dependency, work_item_subscriber, work_item_view_preference,
 		work_item_view, work_item_to_label, label, work_item_property_def, work_item, project_resource,
 		project, work_item_status, pinned_item, personal_access_token, workspace_share_link,
-		workspace_invitation, verification_code, member, workspace, "user" RESTART IDENTITY CASCADE`)
+		workspace_invitation, member, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)
@@ -242,6 +264,9 @@ func (e *env) createWS(t *testing.T, ownerUserID, slug string) string {
 	err := e.db.Pool().QueryRow(ctx, `INSERT INTO workspace (slug, name, created_by) VALUES ($1,$2,$3) RETURNING id`,
 		slug, "WS-"+slug, ownerUserID).Scan(&wsID)
 	require.NoError(t, err)
+	_, err = e.db.Pool().Exec(ctx,
+		`INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner') ON CONFLICT DO NOTHING`, wsID, ownerUserID)
+	require.NoError(t, err)
 	return wsID
 }
 
@@ -267,7 +292,9 @@ func rand4() string { return time.Now().Format("050000.000000000")[7:] }
 
 func waitFor(t *testing.T, cond func() bool, what string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	// 20s: 5s proved too tight when the whole ./... DB suite runs in parallel
+	// and this package gets starved — timeouts were rotating across tests.
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -300,8 +327,9 @@ func TestM3_GoldenPath_AssignToAgentRunsToCompletion(t *testing.T) {
 		CredFn: func(ctx context.Context, wsID, credID string) (string, error) { return "", nil },
 	}
 	dctx, cancel := context.WithCancel(ctx)
-	go d.Run(dctx)
-	defer cancel()
+	ddone := make(chan struct{})
+	go func() { defer close(ddone); d.Run(dctx) }()
+	defer func() { cancel(); <-ddone }()
 
 	waitFor(t, func() bool {
 		tt, ok, _ := e.repo.GetTask(ctx, ws, task.ID)

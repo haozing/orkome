@@ -19,11 +19,11 @@ orkome 自带的 18 包平台层与身份/工作区/webhooks/通知实现，与�
 | D4 | 纯线上 module 消费（`go get` + vendor，无 replace）；v0.3.0 tag 因复用作废，基线为 v0.4.0 |
 | D5 | contract 词汇包全本地（框架的 contract 在 internal/ 不可 import；wswire 例外：v0.4.0 已公开为 platform/wswire，已采用） |
 | D6 | 会话语义升级：无状态 JWT → 框架 DB 可吊销会话（cookie 滑动 7d/绝对 30d） |
-| D7 | 事件底座四包（eventbus/outboxx/schedx/flagsx）保留本地；框架已转 River（platform/events + schedule 域），orkome 不迁——迁移列为后续独立项目 |
+| D7 | 事件底座三包（eventbus/outboxx/flagsx）保留本地（schedx 经分支终审发现零使用者，已删除）；框架已转 River（platform/events + schedule 域），orkome 不迁——迁移列为后续独立项目 |
 
 ## 结果
 
-- platform 18 包 → 保留 3（eventbus/outboxx/eventbus 附属 + webx 已删；实际保留 eventbus/outboxx/schedx/flagsx 四包，其余全删）；身份/工作区/webhooks/通知/实时层全部换框架；
+- platform 18 包 → 保留三包（eventbus/outboxx/flagsx；schedx 零使用者已删；其余全删）；身份/工作区/webhooks/通知/实时层全部换框架；
 - 保留产品域：七业务域零改动 + identity 瘦身为产品扩展域（pins/ui-tokens/cli-token）+ notification 投影层（mention/静音组）；
 - 白赚：authz（27 产品权限点已注册）、audit、quota usage、admin、analytics；
 - billing 挂起：框架 billing 域硬依赖 River 事件底座，与 D7 冲突，商业化启动时一并采用；
