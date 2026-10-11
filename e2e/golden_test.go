@@ -137,7 +137,7 @@ activity_log, comment_reaction, comment, work_item_source_context, work_item_rea
 work_item_dependency, work_item_subscriber, work_item_view_preference, work_item_view, work_item_to_label,
 label, work_item_property_def, work_item, project_resource, project, work_item_status, work_item_batch_item,
 work_item_batch, autopilot_run, autopilot_trigger, autopilot, work_item_wakeup_receipt, work_item_wakeup,
-webhook_delivery, pinned_item, personal_access_token, workspace_share_link, workspace_invitation,
+automation_webhook_delivery, pinned_item, personal_access_token, workspace_share_link, workspace_invitation,
 channel_task_delivery, channel_chat_context_generation, channel_outbound_card_message, channel_reply_delivery,
 channel_inbound_audit, channel_binding_token, channel_media_pending_object, channel_user_binding,
 channel_outbound_message, task_usage_hourly_state, task_message, task_usage_hourly, client_usage_daily,

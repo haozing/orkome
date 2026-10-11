@@ -595,7 +595,7 @@ WITH target AS (
 ), del_runs AS (
   DELETE FROM autopilot_run r USING guard g WHERE r.autopilot_id = g.id
 ), del_deliveries AS (
-  DELETE FROM webhook_delivery d USING guard g, autopilot_trigger t
+  DELETE FROM automation_webhook_delivery d USING guard g, autopilot_trigger t
   WHERE d.trigger_id = t.id AND t.autopilot_id = g.id
 ), del_quota AS (
   DELETE FROM autopilot_quota_reservation q USING guard g WHERE q.autopilot_id = g.id
@@ -836,7 +836,7 @@ func (r *Repo) SetDispatchLockTimeout(ctx context.Context) error {
 func (r *Repo) InsertDelivery(ctx context.Context, ws, triggerID, key string, payload []byte) (string, bool, error) {
 	var id string
 	err := r.q(ctx).QueryRow(ctx, `
-INSERT INTO webhook_delivery (workspace_id, trigger_id, dedupe_key, payload)
+INSERT INTO automation_webhook_delivery (workspace_id, trigger_id, dedupe_key, payload)
 VALUES ($1,$2,$3,$4::jsonb) RETURNING id`, ws, triggerID, key, payload).Scan(&id)
 	if err != nil {
 		if isDup(err) {
@@ -857,10 +857,10 @@ func (r *Repo) ClaimDelivery(ctx context.Context) (string, string, string, []byt
 	var payload []byte
 	var attempts int
 	err := r.q(ctx).QueryRow(ctx, `
-UPDATE webhook_delivery d SET status='processing', attempts=attempts+1,
+UPDATE automation_webhook_delivery d SET status='processing', attempts=attempts+1,
   lease_token=gen_random_uuid()::text, lease_expires_at=now()+interval '2 minutes'
 WHERE d.id = (
-  SELECT id FROM webhook_delivery
+  SELECT id FROM automation_webhook_delivery
   WHERE status='queued' AND (next_attempt_at IS NULL OR next_attempt_at <= now())
   ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ) RETURNING d.id, d.trigger_id, d.workspace_id::text, d.payload, d.attempts`).
@@ -876,7 +876,7 @@ WHERE d.id = (
 
 func (r *Repo) FinishDelivery(ctx context.Context, id, status, errMsg string) error {
 	_, err := r.q(ctx).Exec(ctx, `
-UPDATE webhook_delivery SET status=$2, error=nullif($3,''), next_attempt_at=NULL,
+UPDATE automation_webhook_delivery SET status=$2, error=nullif($3,''), next_attempt_at=NULL,
 delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END,
 lease_token=NULL, lease_expires_at=NULL WHERE id=$1`, id, status, errMsg)
 	return err
@@ -884,7 +884,7 @@ lease_token=NULL, lease_expires_at=NULL WHERE id=$1`, id, status, errMsg)
 
 func (r *Repo) FailDelivery(ctx context.Context, id string, deadLetter bool, nextAttemptAt *time.Time, errMsg string) error {
 	_, err := r.q(ctx).Exec(ctx, `
-UPDATE webhook_delivery SET
+UPDATE automation_webhook_delivery SET
   status=CASE WHEN $2 THEN 'failed' ELSE 'queued' END,
   error=nullif($3,''), next_attempt_at=$4, lease_token=NULL, lease_expires_at=NULL
 WHERE id=$1`, id, deadLetter, errMsg, nextAttemptAt)
@@ -895,7 +895,7 @@ func (r *Repo) GetDelivery(ctx context.Context, ws, id string) (app.Delivery, bo
 	var d app.Delivery
 	err := r.q(ctx).QueryRow(ctx, `
 SELECT id, workspace_id::text, trigger_id::text, status, attempts, coalesce(error,''), created_at, next_attempt_at
-FROM webhook_delivery WHERE workspace_id=$1 AND id=$2`, ws, id).
+FROM automation_webhook_delivery WHERE workspace_id=$1 AND id=$2`, ws, id).
 		Scan(&d.ID, &d.WorkspaceID, &d.TriggerID, &d.Status, &d.Attempts, &d.Error, &d.CreatedAt, &d.NextAttemptAt)
 	if noRow(err) {
 		return d, false, nil
@@ -906,7 +906,7 @@ FROM webhook_delivery WHERE workspace_id=$1 AND id=$2`, ws, id).
 func (r *Repo) ListDeliveries(ctx context.Context, ws string, limit int) ([]app.Delivery, error) {
 	rows, err := r.q(ctx).Query(ctx, `
 SELECT id, workspace_id::text, trigger_id::text, status, attempts, coalesce(error,''), created_at, next_attempt_at
-FROM webhook_delivery WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`, ws, limit)
+FROM automation_webhook_delivery WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`, ws, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -924,7 +924,7 @@ FROM webhook_delivery WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`, 
 
 func (r *Repo) ReplayDelivery(ctx context.Context, ws, id string) (bool, error) {
 	tag, err := r.q(ctx).Exec(ctx, `
-UPDATE webhook_delivery SET status='queued', attempts=0, next_attempt_at=NULL,
+UPDATE automation_webhook_delivery SET status='queued', attempts=0, next_attempt_at=NULL,
   error=NULL, lease_token=NULL, lease_expires_at=NULL
 WHERE workspace_id=$1 AND id=$2`, ws, id)
 	if err != nil {

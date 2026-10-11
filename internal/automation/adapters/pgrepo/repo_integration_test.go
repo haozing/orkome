@@ -51,7 +51,7 @@ func newQuotaFixture(t *testing.T) *quotaFixture {
 	_, err = m.Up(context.Background(), 0)
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `TRUNCATE autopilot_run, autopilot_quota_reservation,
-		autopilot_trigger, autopilot, webhook_delivery, work_item_wakeup,
+		autopilot_trigger, autopilot, automation_webhook_delivery, work_item_wakeup,
 		autopilot_rule_version, autopilot_collaborator, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 

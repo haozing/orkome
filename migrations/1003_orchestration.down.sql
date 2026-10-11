@@ -1,0 +1,12 @@
+DROP TABLE agent_task_checkpoint;
+DROP TABLE agent_model_credential;
+DROP TABLE task_usage;
+DROP TABLE task_supplement;
+DROP TABLE agent_task_queue;
+DROP TABLE agent_runtime;
+DROP TABLE squad_member;
+DROP TABLE squad;
+DROP TABLE agent_mcp_server;
+DROP TABLE workspace_mcp_server;
+DROP TABLE agent_invocation_target;
+DROP TABLE agent;

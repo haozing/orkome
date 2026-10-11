@@ -67,7 +67,7 @@ table_owners:
     - autopilot_quota_period
     - autopilot_quota_reservation
     - autopilot_rule_version
-    - webhook_delivery
+    - automation_webhook_delivery
     - system_wakeup_setting
   channels:
     - channel_installation

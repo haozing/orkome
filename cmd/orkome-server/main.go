@@ -10,7 +10,12 @@ import (
 	"syscall"
 	"time"
 
-
+	pkgmigrations "github.com/haozing/ploykit/migrations"
+	"github.com/haozing/ploykit/platform/logx"
+	"github.com/haozing/ploykit/platform/metrics"
+	"github.com/haozing/ploykit/platform/pg"
+	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/redisx"
 	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
 	chpgrepo "orkome/internal/channels/adapters/pgrepo"
@@ -29,12 +34,7 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/flagsx"
-	"github.com/haozing/ploykit/platform/logx"
-	"github.com/haozing/ploykit/platform/metrics"
 	"orkome/internal/platform/outboxx"
-	"github.com/haozing/ploykit/platform/pg"
-	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
-	"github.com/haozing/ploykit/platform/redisx"
 	"orkome/internal/platform/webx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	webhookhttp "orkome/internal/webhooks/adapters/http"
@@ -348,15 +348,19 @@ func decodeOutboxPayload(event string, raw []byte) any {
 }
 
 func missingMigrations(ctx context.Context, db *pg.DB) []string {
-	m := pgmigrate.New(db.Pool(), migrations.FS, ".")
-	rows, err := m.Status(ctx)
-	if err != nil {
-		return []string{"status-error"}
-	}
 	var missing []string
-	for _, row := range rows {
-		if !row.Applied {
-			missing = append(missing, row.Version)
+	for _, m := range []*pgmigrate.Migrator{
+		pgmigrate.New(db.Pool(), pkgmigrations.FS, "."),
+		pgmigrate.New(db.Pool(), migrations.FS, "."),
+	} {
+		rows, err := m.Status(ctx)
+		if err != nil {
+			return []string{"status-error"}
+		}
+		for _, row := range rows {
+			if !row.Applied {
+				missing = append(missing, row.Version)
+			}
 		}
 	}
 	return missing

@@ -44,7 +44,7 @@ func AutopilotCron(svc *app.AutopilotService, log *slog.Logger, every time.Durat
 }
 
 func WebhookDelivery(svc *app.WebhookService, log *slog.Logger, every time.Duration) *TickWorker {
-	return &TickWorker{Name: "webhook_delivery", Log: log, Every: every,
+	return &TickWorker{Name: "automation_webhook_delivery", Log: log, Every: every,
 		Tick: func(ctx context.Context) (int, error) {
 			n := 0
 			for i := 0; i < 20; i++ {

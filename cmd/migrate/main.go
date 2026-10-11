@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	pkgmigrations "github.com/haozing/ploykit/migrations"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 
 	"orkome/migrations"
@@ -41,9 +42,13 @@ func main() {
 	}
 	defer pool.Close()
 
+	fw := pgmigrate.New(pool, pkgmigrations.FS, ".")
 	m := pgmigrate.New(pool, migrations.FS, ".")
 	switch cmd {
 	case "up":
+		if _, err := fw.Up(ctx, limit); err != nil {
+			fatal("up (framework): " + err.Error())
+		}
 		applied, err := m.Up(ctx, limit)
 		if err != nil {
 			fatal("up: " + err.Error())
@@ -60,6 +65,11 @@ func main() {
 		if err != nil {
 			fatal("down: " + err.Error())
 		}
+		if len(rolled) == 0 && limit > 0 {
+			if _, err := fw.Down(ctx, limit); err != nil {
+				fatal("down (framework): " + err.Error())
+			}
+		}
 		if len(rolled) == 0 {
 			fmt.Println("down: no migrations to roll back")
 			return
@@ -68,7 +78,18 @@ func main() {
 			fmt.Println("rolled back", v)
 		}
 	case "status":
-		rows, err := m.Status(ctx)
+		rows, err := fw.Status(ctx)
+		if err != nil {
+			fatal("status (framework): " + err.Error())
+		}
+		for _, r := range rows {
+			state := "pending"
+			if r.Applied {
+				state = "applied at " + *r.AppliedAt
+			}
+			fmt.Printf("fw %-36s %s\n", r.Version, state)
+		}
+		rows, err = m.Status(ctx)
 		if err != nil {
 			fatal("status: " + err.Error())
 		}
