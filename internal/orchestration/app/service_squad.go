@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/haozing/ploykit/platform/redactx"
 	"orkome/internal/contract/apierr"
 	"orkome/internal/orchestration/domain"
-	"github.com/haozing/ploykit/platform/redactx"
 )
 
 type SquadMemberRow struct {

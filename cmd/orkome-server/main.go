@@ -286,7 +286,7 @@ func main() {
 	}}))
 
 	handler := webx.Recover(log)(webx.RequestIDMiddleware(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
-		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(root))))))
+		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(authMw(root)))))))
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           handler,

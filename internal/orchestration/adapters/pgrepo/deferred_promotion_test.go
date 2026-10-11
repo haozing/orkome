@@ -5,15 +5,16 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
 	"orkome/internal/orchestration/domain"
 	"orkome/migrations"
@@ -65,10 +66,12 @@ func newDeferredEnv(t *testing.T) *deferredEnv {
 		agent_task_queue, agent_runtime, agent, squad, squad_member, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
-	idr := idpgrepo.New(pg.WrapPool(pool))
-	u, err := idr.UpsertUserByEmail(ctx, "odefer@example.com")
+	idr := identitypg.New(pool, identitypg.Config{})
+	u, err := idr.UpsertUserByEmail(ctx, "odefer@example.com", time.Now())
 	require.NoError(t, err)
-	wsFull, _, err := idr.CreateWorkspace(ctx, "D", "odefer-ws", u.ID)
+	wsFull := struct{ ID string }{}
+	err = pool.QueryRow(ctx, `INSERT INTO workspace (slug, name, created_by) VALUES ($1,$2,$3) RETURNING id`,
+		"odefer-ws", "D", u.ID).Scan(&wsFull.ID)
 	require.NoError(t, err)
 
 	e := &deferredEnv{ctx: ctx, repo: New(pg.WrapPool(pool)), pool: pool, user: u.ID}

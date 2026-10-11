@@ -3,13 +3,14 @@ package pgrepo
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
-	"orkome/internal/orchestration/app"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"github.com/haozing/ploykit/platform/pg"
+	"orkome/internal/orchestration/app"
 )
 
 func externalEnv(t *testing.T) (*pg.DB, string, string, string) {
@@ -99,10 +100,10 @@ func TestGetAgentIDByPATID(t *testing.T) {
 	db, ws, _, extAg := externalEnv(t)
 	r := New(db)
 	ctx := context.Background()
-	idr := idpgrepo.New(db)
-	u, err := idr.UpsertUserByEmail(ctx, "binding-test@runtime.internal")
+	idr := identitypg.New(db.Pool(), identitypg.Config{})
+	u, err := idr.UpsertUserByEmail(ctx, "binding-test@runtime.internal", time.Now())
 	require.NoError(t, err)
-	pat, err := idr.InsertPAT(ctx, u.ID, "bind", "hash-x", "ork_xxxx", nil)
+	pat, err := idr.CreatePAT(ctx, u.ID, "bind", "hash-x", "ork_xxxx", nil, nil)
 	require.NoError(t, err)
 
 	_, err = db.Tx(ctx).Exec(ctx,

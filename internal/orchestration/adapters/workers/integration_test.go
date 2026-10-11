@@ -15,13 +15,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/contract/dispatchreason"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	"orkome/internal/orchestration/adapters/engine"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
@@ -231,16 +231,18 @@ func (r workReader) GetWorkItem(ctx context.Context, ws, id string) (orchapp.Wor
 
 func (e *env) createUser(t *testing.T, email string) string {
 	ctx := context.Background()
-	u, err := idpgrepo.New(e.db).UpsertUserByEmail(ctx, email)
+	u, err := identitypg.New(e.db.Pool(), identitypg.Config{}).UpsertUserByEmail(ctx, email, time.Now())
 	require.NoError(t, err)
 	return u.ID
 }
 
 func (e *env) createWS(t *testing.T, ownerUserID, slug string) string {
 	ctx := context.Background()
-	ws, _, err := idpgrepo.New(e.db).CreateWorkspace(ctx, "WS-"+slug, slug, ownerUserID)
+	var wsID string
+	err := e.db.Pool().QueryRow(ctx, `INSERT INTO workspace (slug, name, created_by) VALUES ($1,$2,$3) RETURNING id`,
+		slug, "WS-"+slug, ownerUserID).Scan(&wsID)
 	require.NoError(t, err)
-	return ws.ID
+	return wsID
 }
 
 func (e *env) createWorkItem(t *testing.T, wsID, creatorID, title string) string {

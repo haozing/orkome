@@ -266,7 +266,7 @@ VALUES ($1,$2,'member') ON CONFLICT DO NOTHING`, ws, u.ID); err != nil {
 		if name == "" {
 			name = "runtime " + a.Name
 		}
-		pat, plaintext, err := fwapp.NewTokenService(fwRepo, nil, time.Now).CreatePAT(ctx,
+		pat, plaintext, err := fwapp.NewTokenService(fwRepo, nil, time.Now).WithPATPrefix("ork_").CreatePAT(ctx,
 			&webx.Principal{UserID: u.ID, Source: webx.SourceSession}, name, 0, nil)
 		if err != nil {
 			return "", err

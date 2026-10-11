@@ -208,7 +208,7 @@ orkome（本仓库，产品）
 **执行记录（2026-10-11）**：
 - 框架升级 v0.3.0→**v0.4.0**（F1/F2/F3/F4/F7 修复；F5 维持 internal 设计视为关闭；F6 留 P5）。redisx.StringCache 被上游移除→本地 RedisStringCache；deriveSealKey 换框架 sealx.DeriveKey（裁定：不做旧数据兼容）
 - **P3-1/P3-2 ✅**：产品迁移重编号 1001–1033；丢弃 001–004/035/038；1005 拆分（event_outbox 留产品）+ 框架 notification 表补产品投影列（workspace/recipient_user/recipient_agent/work_item 级联）；1006 webhook_delivery 改名 **automation_webhook_delivery**（repo/workers/allowlist/TRUNCATE 守卫同步）；1001 补 pg_trgm；1029 剥 inbox 段。cmd/migrate 与 readyz 双队列（框架 FS 先、产品 FS 后）。全新库验证：**152 条全应用 0 pending**；55 包全绿
-- **P3-3 进行中**：①webx 全仓统一到框架版（agent 执行中，框架 webx 为本地超集，仅 Trace→RequestIDMiddleware 替换、wsx/relayx 的 Principal 同步换框架）②internal/identity 瘦身为产品账户扩展域（agent 执行中：保留 pins/ui-tokens/cli-token/email 适配，删 session/token/workspace 实现；框架 identity 提供 /auth/* 全家桶 + /api/tokens；orkome /api/me 裁定跟框架 /auth/me，前端 P5 改）③**webx 统一已交付**（52 文件）：wsx.PATResolve 镜像框架 3 参签名；**错误信封 wire 变更**（本地 `{error:{code,message}}` → 框架 `{error:"E_X",message,details}`，全部 handler 已新形状，**前端 P5 必须同步改错误解析**）；待接线项：main.go:123 idDeps.PAT() 类型、work/e2e identity 类型瞬态、webhooks/skills/orch pgrepo 测试的 UpsertUserByEmail/CreateWorkspace 改造、wsx hub.go:250 `ork_` 前缀与 PAT 铸币前缀对齐（MCP 外部契约=ork_，框架默认 tk_）。④cmd 接线（我）：新 wiring_identity = 框架 identitypg.New(pool, Config{SessionTTL, AbsoluteTTL}) + NewSessionService(repo, mail, SessionConfig{门槛字段+SecretPepper}, ttl, _, now) + 框架 identityhttp.Mount(root mux) + workspace 域（Deps{Svc, Members, Authz, StepUp=nil}，hooks：UserRevocation/WorkspaceTeardown 沿用 main 现有级联）+ 产品 idhttp.MountExtensions + webx.ConfigHandler；PAT→agent 绑定 = 产品 PATLookup 包装器（解析后追加 GetAgentIDByPATID 填 Principal.AgentID，替代已删的 SetAgentBinding）；authMw = webx.Authenticate(AuthCfg, repo, repo)；/api/me 双表面不保留（干净迁移）
+- **P3-3 ✅（2026-10-11 完成）**：④cmd 接线落地——①webx 全仓统一到框架版（agent 执行中，框架 webx 为本地超集，仅 Trace→RequestIDMiddleware 替换、wsx/relayx 的 Principal 同步换框架）②internal/identity 瘦身为产品账户扩展域（agent 执行中：保留 pins/ui-tokens/cli-token/email 适配，删 session/token/workspace 实现；框架 identity 提供 /auth/* 全家桶 + /api/tokens；orkome /api/me 裁定跟框架 /auth/me，前端 P5 改）③**webx 统一已交付**（52 文件）：wsx.PATResolve 镜像框架 3 参签名；**错误信封 wire 变更**（本地 `{error:{code,message}}` → 框架 `{error:"E_X",message,details}`，全部 handler 已新形状，**前端 P5 必须同步改错误解析**）；待接线项：main.go:123 idDeps.PAT() 类型、work/e2e identity 类型瞬态、webhooks/skills/orch pgrepo 测试的 UpsertUserByEmail/CreateWorkspace 改造、wsx hub.go:250 `ork_` 前缀与 PAT 铸币前缀对齐（MCP 外部契约=ork_，框架默认 tk_）。新 wiring_identity = 框架 identitypg.New(pool, Config{SessionTTL, AbsoluteTTL}) + NewSessionService(repo, mail, SessionConfig{门槛字段+SecretPepper}, ttl, _, now) + 框架 identityhttp.Mount(root mux) + workspace 域（Deps{Svc, Members, Authz, StepUp=nil}，hooks：UserRevocation/WorkspaceTeardown 沿用 main 现有级联）+ 产品 idhttp.MountExtensions + webx.ConfigHandler；PAT→agent 绑定 = 产品 PATLookup 包装器（解析后追加 GetAgentIDByPATID 填 Principal.AgentID，替代已删的 SetAgentBinding）；authMw = webx.Authenticate(AuthCfg, repo, repo)；/api/me 双表面不保留（干净迁移）
 
 **目标**：身份底座换为框架，工作区模型对齐，声明式权限上线。
 
@@ -383,3 +383,14 @@ ploykit 框架侧实施文档（`D:\code\ploykit\docs\framework-impl-2026-10-06.
 | E7 | §7 重编号 | "产品迁移重编号为 021 起" | 与框架 021 冲突；按 N3 改为 **1001 起**（example 已确立 1000+ 段） |
 | E8 | §4 替换对照表 events 行 / P2-8 / P4-1 | "框架 events 已含 orkome 事件词表，核对无缺后删本地" | 按 N2 反转：框架 events 收窄为框架域词汇，orkome **保留**本地产品词汇，仅框架域事件 import 框架 |
 | E9 | §3.3 | "框架从 auth 控制帧取工作区" | 框架 wsx 亦支持 `?workspace_id=` 直入（`platform/wsx/hub.go:206-207`），差异比原文更小 |
+
+### P3-3 完成记录（2026-10-11，提交于分支 rebase-ploykit）
+
+全量测试 54 包绿；fresh 库（框架 119 + 产品 33 = 152 迁移）起服冒烟全链路：发码→验证码登录→DB 会话 cookie→/auth/me 200→建工作区 201→pins 201/200→cli-token 铸 **ork_** PAT→PAT Bearer 过 runtime 面 200（/api/tokens 对 PAT 403 = RequireHuman 正确语义）。测试债清零（9 个种子测试改框架 repo/SQL 直插、e2e golden + work/http 身份栈重造、capMail 适配框架 EmailSender 4 方法、/api/me→/auth/me）。
+
+**三个坑（入档防复发）**：
+1. `identityhttp.Mount` 挂载的路由**不自带 Authenticate**（框架契约：产品在链上包，Authenticate 对匿名放行、与公共路由兼容）——已包在主链 `...CORS(authMw(root))`；
+2. `wsapp.WorkspaceConfig{}` 零值 `MaxPerUser=0` 意为 **0 上限**（-1 才不限）——wiring 已改 -1，P6 接 billing 时换 plan 驱动；
+3. PAT 前缀 **三处必须一致**：`webx.AuthConfig.PATPrefix`（Bearer 解析）+ `identitypg.Config.PATPrefix`（repo 格式预检）+ `TokenService.WithPATPrefix`（铸币）——全部配 ork_。F6 升级为"前缀三源一致性"问题记入框架 issue 清单。
+
+**遗留到 P3-8（route-compare 重录）**：表面变化清单——/auth/* 框架全家桶（send-code/verify-code/register/login/logout/me/sessions/forgot-password/change-password/confirm-password + OAuth/fed 占位）；/api/me→/auth/me；/api/tokens 三条（RequireHuman）；workspace 路由换框架版（含 transfer/step-up 面孔）；pins/ui-tokens/cli-token 产品扩展。1026 迁移表名遗留已修（automation_webhook_delivery）。前端破坏面两项（错误信封扁平化、/auth/me）待 Phase 5。

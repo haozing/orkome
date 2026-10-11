@@ -18,6 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	fwapp "github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
@@ -25,7 +28,6 @@ import (
 	"orkome/internal/contract/events"
 	idhttp "orkome/internal/identity/adapters/http"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
-	idapp "orkome/internal/identity/app"
 	"orkome/internal/platform/eventbus"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	"orkome/internal/work/app"
@@ -71,15 +73,14 @@ func newM2(t *testing.T) *m2h {
 
 	idRepo := idpgrepo.New(db)
 	secret := []byte("m2-integration-secret-32-bytes!!")
-	auth := &webx.AuthConfig{SessionTTL: 720 * time.Hour}
+	auth := &webx.AuthConfig{CookieName: "orkome_auth", SessionTTL: 720 * time.Hour}
 	mail := &captureMail{codes: map[string]string{}}
-	sessions := idapp.NewSessionService(idRepo, mail, auth, idapp.SessionConfig{AllowSignup: true, DevCode: "123456"}, time.Now)
-	tokens := idapp.NewTokenService(idRepo, idapp.NoopCache{}, time.Now)
-	workspaces := idapp.NewWorkspaceService(idRepo, mail, tokens, time.Now)
-	idDeps := idhttp.Deps{
-		Sessions: sessions, Tokens: tokens, Workspaces: workspaces, Repo: idRepo, Auth: auth,
-		CSRFKey: webx.DeriveCSRFKey(secret), Limiter: failOpen{}, Version: "test",
-	}
+	fwRepo := identitypg.New(pool, identitypg.Config{SessionTTL: 720 * time.Hour})
+	sessions := fwapp.NewSessionService(fwRepo, mail, fwapp.SessionConfig{
+		AllowSignup: true, DevCode: "123456", SecretPepper: string(secret),
+	}, 720*time.Hour, 0, time.Now)
+	tokens := fwapp.NewTokenService(fwRepo, nil, time.Now)
+	idDeps := idhttp.Deps{Repo: idRepo, Tokens: tokens}
 
 	wRepo := &workpgrepo.Repo{DB: db}
 	workDeps := Deps{
@@ -114,10 +115,12 @@ func newM2(t *testing.T) *m2h {
 	})
 
 	full := http.NewServeMux()
-	idhttp.MountAPI(full, idDeps, false)
-	authMw := webx.Authenticate(idDeps.Auth, idDeps.Sessions, idDeps.Tokens)
+	identityhttp.Mount(full, identityhttp.Deps{
+		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
+	})
+	authMw := webx.Authenticate(auth, fwRepo, fwRepo)
+	idhttp.MountExtensions(full, authMw, idDeps)
 	Mount(full, workDeps, authMw)
-	full.Handle("/", idhttp.RootRouter(idDeps, false))
 
 	return &m2h{t: t, handler: full, pool: pool, jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
 }
@@ -127,13 +130,15 @@ type captureMail struct {
 	codes map[string]string
 }
 
-func (c *captureMail) SendVerificationCode(_ context.Context, to, code string) error {
+func (c *captureMail) SendLoginCode(_ context.Context, to, code string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.codes[to] = code
 	return nil
 }
-func (c *captureMail) SendInvitation(_ context.Context, to, _, _ string) error { return nil }
+func (c *captureMail) SendInvite(_ context.Context, to, _, _ string) error        { return nil }
+func (c *captureMail) SendPasswordReset(_ context.Context, _, _ string) error     { return nil }
+func (c *captureMail) SendEmailVerification(_ context.Context, _, _ string) error { return nil }
 
 type failOpen struct{}
 
@@ -216,7 +221,7 @@ func TestM2_GoldenPath(t *testing.T) {
 	h.csrf["b"] = bcfg.CSRFToken
 	rec = h.do("b", http.MethodPost, "/auth/verify-code", map[string]string{"email": "bob@m2.dev", "code": "123456"})
 	require.Equal(t, 200, rec.Code, rec.Body.String())
-	rec = h.do("b", http.MethodGet, "/api/me", nil)
+	rec = h.do("b", http.MethodGet, "/auth/me", nil)
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	var bme struct {
 		User struct {

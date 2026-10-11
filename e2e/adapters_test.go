@@ -81,11 +81,13 @@ func (openLimiter) Allow(context.Context, string, int) (bool, time.Duration) { r
 
 type capMail struct{ codes map[string]string }
 
-func (c *capMail) SendVerificationCode(_ context.Context, to, code string) error {
+func (c *capMail) SendLoginCode(_ context.Context, to, code string) error {
 	c.codes[to] = code
 	return nil
 }
-func (c *capMail) SendInvitation(context.Context, string, string, string) error { return nil }
+func (c *capMail) SendInvite(context.Context, string, string, string) error    { return nil }
+func (c *capMail) SendPasswordReset(context.Context, string, string) error     { return nil }
+func (c *capMail) SendEmailVerification(context.Context, string, string) error { return nil }
 
 type wbAdapter struct{ wRepo *workpgrepo.Repo }
 

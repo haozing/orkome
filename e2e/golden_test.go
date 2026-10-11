@@ -20,6 +20,9 @@ import (
 
 	"orkome/internal/contract/apierr"
 
+	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	fwapp "github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/egressx"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
@@ -43,7 +46,6 @@ import (
 	convapp "orkome/internal/conversation/app"
 	idhttp "orkome/internal/identity/adapters/http"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
-	idapp "orkome/internal/identity/app"
 	notifhttp "orkome/internal/notification/adapters/http"
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	notifapp "orkome/internal/notification/app"
@@ -158,13 +160,14 @@ verification_code, member, workspace, agent_credential, webhook_subscription, ev
 
 	idRepo := idpgrepo.New(db)
 	secret := []byte("e2e-secret-32-bytes-aaaaaaaaaaaa")
-	auth := &webx.AuthConfig{SessionTTL: 720 * time.Hour}
+	auth := &webx.AuthConfig{CookieName: "orkome_auth", SessionTTL: 720 * time.Hour}
 	mail := &capMail{codes: map[string]string{}}
-	sessions := idapp.NewSessionService(idRepo, mail, auth, idapp.SessionConfig{AllowSignup: true, DevCode: "654321"}, time.Now)
-	tokens := idapp.NewTokenService(idRepo, idapp.NoopCache{}, time.Now)
-	workspaces := idapp.NewWorkspaceService(idRepo, mail, tokens, time.Now)
-	idDeps := idhttp.Deps{Sessions: sessions, Tokens: tokens, Workspaces: workspaces, Repo: idRepo,
-		Auth: auth, CSRFKey: webx.DeriveCSRFKey(secret), Limiter: openLimiter{}, Version: "e2e"}
+	fwRepo := identitypg.New(pool, identitypg.Config{SessionTTL: 720 * time.Hour})
+	sessions := fwapp.NewSessionService(fwRepo, mail, fwapp.SessionConfig{
+		AllowSignup: true, DevCode: "654321", SecretPepper: string(secret),
+	}, 720*time.Hour, 0, time.Now)
+	tokens := fwapp.NewTokenService(fwRepo, nil, time.Now)
+	idDeps := idhttp.Deps{Repo: idRepo, Tokens: tokens}
 
 	wRepo := &workpgrepo.Repo{DB: db}
 	workDeps := workhttpDeps(db, bus, wRepo, idRepo)
@@ -233,8 +236,11 @@ verification_code, member, workspace, agent_credential, webhook_subscription, ev
 	auto := autopapp.NewAutopilotService(arepo, creatorAdapter{wRepo: wRepo}, enqAdapter{repo: orepo})
 
 	api := http.NewServeMux()
-	idhttp.MountAPI(api, idDeps, false)
-	authMw := webx.Authenticate(idDeps.Auth, idDeps.Sessions, idDeps.Tokens)
+	identityhttp.Mount(api, identityhttp.Deps{
+		AuthCfg: *auth, Sessions: fwRepo, PATs: fwRepo, SessionsSvc: sessions, Tokens: tokens,
+	})
+	authMw := webx.Authenticate(auth, fwRepo, fwRepo)
+	idhttp.MountExtensions(api, authMw, idDeps)
 	workhttpMount(api, workDeps, authMw)
 	memberCheck := func(ctx context.Context, ws, uid string) (bool, error) {
 		_, ok, err := idRepo.GetMember(ctx, ws, uid)
@@ -400,7 +406,7 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 			t.Fatalf("e2e local store: %v", err)
 		}
 		cRepo := contentpgrepo.New(db)
-		att := contentapp.NewAttachmentService(cRepo, local, auth.Secret, nil)
+		att := contentapp.NewAttachmentService(cRepo, local, secret, nil)
 		att.SetMemberGate(memberCheck)
 		att.SetHostChecker(func(ctx context.Context, ws, kind, hid string) (bool, error) {
 			switch kind {
@@ -426,7 +432,7 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 		})
 		contentDeps = contenthttp.Deps{
 			Attachments: att,
-			Avatars:     contentapp.NewAvatarService(local, auth.Secret, nil),
+			Avatars:     contentapp.NewAvatarService(local, secret, nil),
 			Local:       local,
 			MemberCheck: memberCheck,
 			RoleOf: func(ctx context.Context, ws, uid string) (string, error) {
@@ -454,7 +460,7 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 	})
 	root.Handle("/api/", api)
 	contenthttp.MountUploads(root, contentDeps)
-	root.Handle("/", idhttp.RootRouter(idDeps, false))
+	idhttp.MountExtensions(root, authMw, idDeps)
 	autohttp.MountPublic(root, autohttp.Deps{Webhooks: autopapp.NewWebhookService(arepo, auto)})
 
 	s := &stack{t: t, pool: pool, handler: webx.ClientMetadata(root), rootMux: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,

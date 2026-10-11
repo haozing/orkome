@@ -8,8 +8,8 @@ import (
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 
-	"orkome/internal/contract/modelmeta"
 	"github.com/haozing/ploykit/platform/egressx"
+	"orkome/internal/contract/modelmeta"
 )
 
 var (

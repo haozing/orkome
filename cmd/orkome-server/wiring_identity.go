@@ -45,6 +45,7 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	repo := identitypg.New(db.Pool(), identitypg.Config{
 		SessionTTL:  7 * 24 * time.Hour,
 		AbsoluteTTL: 30 * 24 * time.Hour,
+		PATPrefix:   "ork_", // external MCP/client-kit contract
 	})
 
 	var sender fwapp.EmailSender
@@ -74,12 +75,12 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 		AllowedDomains: cfg.AllowedDomains, DevCode: cfg.DevCode,
 		Production: cfg.IsProd(),
 	}, auth.SessionTTL, 0, time.Now)
-	tokens := fwapp.NewTokenService(repo, nil, time.Now)
+	tokens := fwapp.NewTokenService(repo, nil, time.Now).WithPATPrefix("ork_")
 
 	catalog := authz.NewCatalog(authz.DefaultPerms()...)
 	az := authz.New(catalog, authz.DefaultRoles())
 	wsRepo := workspacepg.New(db.Pool())
-	ws := wsapp.NewWorkspaceService(wsRepo, az, sender, nil, wsapp.WorkspaceConfig{}, time.Now)
+	ws := wsapp.NewWorkspaceService(wsRepo, az, sender, nil, wsapp.WorkspaceConfig{MaxPerUser: -1}, time.Now)
 
 	repoX := idpgrepo.New(db)
 	id := &fwIdentity{

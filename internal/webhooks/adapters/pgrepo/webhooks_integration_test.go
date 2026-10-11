@@ -31,7 +31,7 @@ import (
 	"orkome/internal/webhooks/app"
 	"orkome/migrations"
 
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 )
 
 func webhooksEnv(t *testing.T) (*app.Service, *pgxpool.Pool, string, string) {
@@ -56,10 +56,12 @@ func webhooksEnv(t *testing.T) (*app.Service, *pgxpool.Pool, string, string) {
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 
-	idr := idpgrepo.New(pg.WrapPool(pool))
-	u, err := idr.UpsertUserByEmail(ctx, "wh@example.com")
+	idr := identitypg.New(pool, identitypg.Config{})
+	u, err := idr.UpsertUserByEmail(ctx, "wh@example.com", time.Now())
 	require.NoError(t, err)
-	wsFull, _, err := idr.CreateWorkspace(ctx, "W", "wh-ws", u.ID)
+	wsFull := struct{ ID string }{}
+	err = pool.QueryRow(ctx, `INSERT INTO workspace (slug, name, created_by) VALUES ($1,$2,$3) RETURNING id`,
+		"wh-ws", "W", u.ID).Scan(&wsFull.ID)
 	require.NoError(t, err)
 
 	guard, err := egressx.NewGuard([]string{"127.0.0.1/8"})

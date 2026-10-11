@@ -2,11 +2,13 @@ package pgrepo
 
 import (
 	"context"
-	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,7 +17,6 @@ import (
 
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
 	"orkome/migrations"
 )
@@ -64,7 +65,7 @@ func newAgentAccessEnv(t *testing.T) *agentAccessEnv {
 	}
 	wsFull, otherFull := mkws("oaccess-ws"), mkws("oaccess-ws2")
 	return &agentAccessEnv{ctx: ctx, repo: New(pg.WrapPool(pool)), pool: pool,
-		ws: wsFull.ID, otherWs: otherFull.ID, user: u.ID}
+		ws: wsFull, otherWs: otherFull, user: u.ID}
 }
 
 func (e *agentAccessEnv) mkAgent(t *testing.T, name, visibility string) app.Agent {

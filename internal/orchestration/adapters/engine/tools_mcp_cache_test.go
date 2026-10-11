@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	orchapp "orkome/internal/orchestration/app"
 	"github.com/haozing/ploykit/platform/egressx"
+	orchapp "orkome/internal/orchestration/app"
 )
 
 func TestMCPCatalogCacheHit(t *testing.T) {

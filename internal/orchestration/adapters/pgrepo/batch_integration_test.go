@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/orchestration/app"
 	"orkome/migrations"
 )
@@ -50,10 +50,12 @@ func batchEnv(t *testing.T) (*pg.DB, *pgxpool.Pool, string, string, string) {
 		activity_log, comment, work_item, work_item_status, project, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
-	idr := idpgrepo.New(pg.WrapPool(pool))
-	u, err := idr.UpsertUserByEmail(ctx, "obatch@example.com")
+	idr := identitypg.New(pool, identitypg.Config{})
+	u, err := idr.UpsertUserByEmail(ctx, "obatch@example.com", time.Now())
 	require.NoError(t, err)
-	wsFull, _, err := idr.CreateWorkspace(ctx, "B", "obatch-ws", u.ID)
+	wsFull := struct{ ID string }{}
+	err = pool.QueryRow(ctx, `INSERT INTO workspace (slug, name, created_by) VALUES ($1,$2,$3) RETURNING id`,
+		"obatch-ws", "B", u.ID).Scan(&wsFull.ID)
 	require.NoError(t, err)
 	ws := wsFull.ID
 	var wi string
