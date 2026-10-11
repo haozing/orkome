@@ -13,6 +13,10 @@
 | F7 | 功能缺口 | ~~webx 无"带路由清单的 Mux 包装"~~ ✅ v0.4.0 已提供 `webx.Router` 接口 + `*webx.Mux` 路由录制（RouteInfo 枚举）；orkome 尚未迁移到 webx.Mux（后续批次） | — | 已修复，待采用 |
 | F8 | API 设计 | notify 域路由面窄（无 unread-count/summary/facets/preferences/archived 端点，inbox 无 workspace 作用域）——产品被迫叠层：框架端点查 user_id 列、产品端点查 recipient_user_id+workspace_id 列，**同表双列写入**维持两套表面 | notify 支持 workspace 作用域收件箱（或注入扩展路由位）；偏好表面进框架 | orkome P4 notification 替换的设计约束 |
 | F9 | 一致性 | 域间认证模式不一致：identity Mount 不带认证（要求产品在链上包 Authenticate），webhooks/workspace 域内自带 authz guard——两种心智模型并存，产品接线易错（identity 侧漏包即全员 401） | 统一为一种模式（建议全部域内 guard，identity 提供带认证的便捷 Routes()） | P3-3 踩坑 #1 + P4 接线差异 |
+| F10 | API 设计 | `wsapp.WorkspaceConfig{}` 零值 `MaxPerUser=0` 语义为 **0 上限（拒绝一切创建）**，-1 才是不限——违背 Go 零值无害惯例；配错时报 `E_QUOTA_EXCEEDED "workspace limit reached"` 极具迷惑性（产品以为接错了 quota） | 零值=不限；或以显式 `Unlimited` 哨兵/Option 替代魔法数 -1 | P3-3 冒烟踩坑：零值配置下第一个工作区即被拒 |
+| F11 | 命名/演进 | 框架域表占用最通用名（`notification`、`webhook_delivery`、`workspace`、`member`、`session`），产品域内同名表被迫改名（orkome `automation_webhook_delivery`）；且产品对框架表加扩展列（notification 的 workspace/recipient/work_item 列）后，框架后续迁移与之无演进契约，升级有冲突风险 | 方案一：框架表加命名空间（pk_ 前缀）；方案二：官方约定扩展列命名（如 `x_` 前缀）+ 框架迁移承诺不触碰扩展列 | P3-1 迁移重建：表名冲突改名 + 1005 对框架表 ALTER |
+| F12 | API 设计 | `identity/app.EmailSender` 四方法端口——只要验证码登录的产品也必须实现 SendPasswordReset/SendEmailVerification（no-op 填充） | 提供 `identity/app.NoopMail{}` 或 embed 结构（SendLoginCode 之外默认 no-op） | orkome email 适配器与两处 e2e 捕获器各补两个 no-op 方法 |
+| F13 | 可观测性 | PAT 解析失败返回 `(nil, nil)` 静默——401 "invalid token" 无任何日志/错误码区分（前缀不匹配/已吊销/过期/用户禁用同表象），排障只能靠人肉对照三处前缀配置（F6） | ResolvePAT 失败原因落 debug 日志或返回可区分 sentinel；Authenticate 侧带原因的 401（内部 header/log，不外泄细节） | P3-3 冒烟：repo cfg 前缀漏配排查三步才定位 |
 
 ## 提交策略
 
