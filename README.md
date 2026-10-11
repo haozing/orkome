@@ -48,92 +48,97 @@ your own tooling — joins as a first-class teammate in three steps.
 
 ---
 
+## The task engine is the product
+
+Most "agent platforms" fire a prompt and hope. Orkome runs agents through a **PostgreSQL-backed
+task state machine with named, tested invariants** — the same discipline you'd demand from a
+payments queue:
+
+| Invariant | What it guarantees |
+| --- | --- |
+| **I1 dispatch fence** | a task is dispatched at most once — crashes and retries cannot double-run it |
+| **I4 events after commit** | events are written to a transactional outbox **in the same transaction** as the state change; crash-replay is safe |
+| **I10 unique-index answers** | concurrency questions are settled by unique indexes, not read-modify-write races |
+| **I11 claim FIFO** | claims are served first-in-first-out under a concurrency gate |
+| **I12 tenant predicate** | every query carries the workspace predicate — no cross-tenant leaks, ever |
+| **IE1 engine never writes status** | the LLM runtime has no write path to task state; the database is the sole authority |
+| **IE6 failure taxonomy** | every failure is classified against a 15-reason vocabulary, with a retry whitelist and a resume-unsafe poison set |
+
+**Admission control, not fire-and-forget.** A new task is admitted as `queued`, `coalesced`
+(merged into a pending run), `deferred`, `steered`, or `blocked` — with the reason recorded.
+
+**Steer a running agent.** Reply while it works and your message lands in the **current** run,
+not the next one — the engine observes steering mid-flight.
+
+**Human-in-the-loop is a tool call.** The agent's own `request_approval` tool parks the task
+(`awaiting_input`), notifies the originator, and only an explicit approve/deny resumes it —
+no replay, no double-run.
+
+**Squad choreography.** A squad leader routes work to member agents **inside the same run** —
+and usage is split per member for billing.
+
+**Death is a verdict, not a guess.** A 150s heartbeat window drives a liveness sweeper that
+issues fail-closed death verdicts and parks orphans for 24h — no zombie tasks.
+
+**Sessions survive restarts.** Multi-turn conversations continue through a session pointer
+chain with conclusion injection, so context isn't lost when a run ends.
+
+---
+
 ## Highlights
 
 ### 🤝 Hire an AI team, not a tool
 
-- **Agents as teammates** → give each one a name, a visibility, and a runtime credential; it
-  shows up on the board and in the assignee picker.
+- **Agents as teammates** → a name, a visibility, a runtime credential — it shows up on the
+  board and in the assignee picker.
 - **Any MCP client** → Claude Code, OpenAI Codex, DeepSeek Harness (`dsh`), or your own
   tooling — the platform hardcodes zero adapters, so nothing is locked in.
-- **Squads** → put agents and people on one team; the leader routes the work.
-- **Skills library** → turn a solved problem into a `SKILL.md` playbook agents reuse, with
-  SHA-256 tree-digest verification on import.
-- **Agent builder & batches** → configure agents conversationally; fan one work item out into
-  parallel agent tasks.
+- **Squads** → agents and people on one team, the leader routes.
+- **Skills library** → solved problems become `SKILL.md` playbooks with per-file SHA-256
+  manifest verification on import.
+- **Agent builder** → configure agents conversationally; **batches** fan a work item out into
+  parallel agent tasks with pause / resume / cancel / retry-failed.
 
-### 📋 Run the board like a team, not a terminal
+### 📋 A work surface that's actually deep
 
-- **Work items done right** → statuses, labels, projects, properties, comments with @mentions,
-  subscriptions, and a full activity timeline.
-- **One item, many tasks** → the task engine claims work with `SKIP LOCKED`, fences retries,
-  and never double-runs.
-- **Autopilots & wakeups** → recurring or one-shot triggers: cron, inbound webhooks, or manual
-  — nobody to remind.
-- **Human-in-the-loop gates** → agents park on `awaiting_input`, ping you, and resume only
-  after an explicit approval.
+40+ endpoints on the work item alone: board and table views, `query` / table rows / groups /
+facets, `pg_trgm` federated search, grouped views, assignee frequency, child progress, duplicate
+detection, comment **trigger preview**, timelines, subscribers, reactions, typed metadata and
+properties, label catalogs, and batch update/delete.
 
 ### 🔭 Watch every move
 
-- **Run logs** → every task message, timestamped, on the work item timeline.
-- **Liveness heartbeats** → a dead agent gets a fail-closed verdict, not a zombie task.
-- **Realtime, scoped** → WebSocket push per workspace / task / chat / user, with event-id
-  dedup and cross-replica relay when you run more than one server.
-- **Usage rollup** → tokens and cost per task, per agent, per work item.
-- **Inbox** → mentions, subscriptions, and mute groups — agents need a call, not your attention
-  every step.
+- **Run logs** → every task message timestamped on the item timeline.
+- **Usage rollup** → tokens and cost per task / agent / work item, with hourly rollups and
+  per-member squad splits.
+- **Realtime, scoped** → WebSocket push per workspace / task / chat / user, event-id dedup on
+  both ends, and cross-replica relay (Redis) when you scale out.
+- **Inbox** → mentions, subscriptions, and three-tier mute groups — agents page you only when
+  a decision is needed.
 
 ### 🏢 An enterprise floor, included
 
 - **Multi-tenant workspaces** → members, invitations, share links, last-owner protection.
-- **Auth that holds up** → DB-revocable sessions, personal access tokens, OAuth, workspace-level RBAC with custom roles.
-- **Audit & webhooks** → an actor-attributed audit trail and outbound webhooks with HMAC signing and exponential backoff.
-- **Quota & admin** → usage metering endpoints and a platform-admin surface.
+- **Auth that holds up** → DB-revocable sessions, personal access tokens, OAuth, workspace RBAC
+  with custom roles, impersonation with audit.
+- **Audit & webhooks** → actor-attributed audit trail; outbound webhooks with HMAC signing,
+  secret rotation, replay and redeliver.
+- **Quota & admin** → reservation-based metering and a platform-admin surface.
 
 ### 🧱 An architecture that fights entropy
 
-- **Ten bounded domains** (work, orchestration, conversation, channels, content, skills,
-  automation, …) — cross-domain imports are banned by `depguard` and enforced by in-repo
+- **Ten bounded domains** — cross-domain imports banned by `depguard` and enforced by
   architecture tests.
-- **Deterministic task semantics** → transactional outbox, three-phase in-process event bus,
-  claim/fence/heartbeat invariants — all covered by DB-backed integration tests.
-- **SQL allowlist** → every query is reviewed; nothing ad-hoc hits your database.
+- **SQL allowlist** → every query reviewed; nothing ad-hoc touches your database.
+- **Contract tests as the gatekeeper** → a router contract test reconciles every declared
+  endpoint, plus e2e golden scenarios and DB-backed integration suites gating every merge.
 - **Built on [ploykit](https://github.com/haozing/ploykit)** → the platform layer (identity,
-  workspaces, authz, webhooks, realtime) was distilled into a reusable Go framework; Orkome is
-  its reference product. Framework fixes flow back to every consumer.
+  workspaces, authz, webhooks, notify, realtime) was distilled into a reusable Go framework;
+  Orkome is its reference product.
 
 ---
 
 ## How it works
-
-```
-        ┌──────────────────────────────┐
-        │   React SPA (Vite + TS)      │  board · agents · chat · skills · settings
-        └──────────────┬───────────────┘
-                       │ HTTPS + WebSocket (scoped realtime, event dedup)
-                       ▼
-┌───────────────────────────────────────────────────────────────┐
-│              Orkome server (Go, stdlib net/http)              │
-│   work · orchestration · conversation · channels · skills     │
-│   eventbus ──► transactional outbox ──► SKIP LOCKED dispatcher│
-└────────┬─────────────────────────────────┬────────────────────┘
-         │ ploykit foundation              │ MCP (Streamable HTTP)
-         ▼                                 ▼
-┌─────────────────┐   ┌──────────────┐  ┌────────────────────────────┐
-│  PostgreSQL 16  │   │ Redis (opt.) │  │ Your machines              │
-│  (pgcrypto,     │   │ cross-replica│  │  Claude Code · Codex ·     │
-│   pg_trgm)      │   │ WS relay     │  │  dsh · any MCP client      │
-└─────────────────┘   └──────────────┘  └────────────────────────────┘
-```
-
-| Layer | Stack |
-| --- | --- |
-| Backend | Go 1.26, stdlib `net/http` ServeMux, pgx v5, gorilla/websocket |
-| Frontend | React 19, Vite, Tailwind CSS 4, Base UI, TanStack Query + Router |
-| Database | PostgreSQL 16 (`pgcrypto` + `pg_trgm`), 150+ migrations in a dual queue |
-| Realtime | WebSocket hub with scope subscriptions + Redis pub/sub relay (optional) |
-| Agents | Any MCP client, driven through 9 purpose-built tools |
-| Foundation | [ploykit](https://github.com/haozing/ploykit) — identity, workspaces, RBAC, webhooks, notify, realtime |
 
 ---
 
