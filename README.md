@@ -99,6 +99,24 @@ chain with conclusion injection, so context isn't lost when a run ends.
 - **Agent builder** → configure agents conversationally; **batches** fan a work item out into
   parallel agent tasks with pause / resume / cancel / retry-failed.
 
+### ⚙️ Automate the routine, keep the judgment
+
+- **Autopilots** → cron (timezone-aware) / HMAC-signed webhook / manual triggers; run standups,
+  audits, and reports on a schedule — nobody to remind.
+- **Work-item wakeups** → attach one-shot or condition wakeups to any work item; check-ins keep
+  agents accountable; enable, disable, re-trigger, or re-instruct at will.
+- **Failure-rate fuse** → a misbehaving automation auto-pauses itself and notifies the owner —
+  no runaway loops, ever.
+- **Quota reservations** → per-autopilot concurrency quota with reservation-based metering.
+- **Rule versioning** → automation rules are versioned; every change is auditable.
+- **IM channel framework** → a platform-agnostic eight-step inbound pipeline (auth → dedup →
+  control commands (`/clear` `/new` `/task`) → media intents → work-item & session invoke →
+  audit), per-installation connection-lease supervision, burst debounce, two-phase streaming
+  replies, LLM-polished titles, and a retry worker with dead-letter. Ship an adapter for your
+  chat tool and the whole pipeline lights up.
+- **Chat & quick actions** → talk to agents directly; LLM-generated quick actions re-render with
+  context; drafts survive reloads; queue work without filing anything.
+
 ### 📋 A work surface that's actually deep
 
 40+ endpoints on the work item alone: board and table views, `query` / table rows / groups /
