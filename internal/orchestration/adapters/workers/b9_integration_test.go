@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"orkome/internal/contract/events"
-	"orkome/internal/contract/wswire"
 	convapp "orkome/internal/conversation/app"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
@@ -91,7 +90,7 @@ WHERE id=$1`, taskID).Scan(&wsID, &agentID, &creator)
 	}
 	e.bus.On(eventbus.PhaseBroadcast, func(_ context.Context, ev events.Envelope) {
 		if ev.Event == events.ChatDone {
-			if p, ok := ev.Payload.(wswire.ChatDonePayload); ok {
+			if p, ok := ev.Payload.(orchapp.ChatDoneFrame); ok {
 				gen.OnChatDone(context.Background(), p.SessionID, p.TaskID, p.Content)
 			}
 		}

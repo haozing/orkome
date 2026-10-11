@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/haozing/ploykit/platform/redactx"
 	"orkome/internal/channels/domain"
 	"orkome/internal/channels/wire"
-	"github.com/haozing/ploykit/platform/redactx"
 )
 
 type OutboundService struct {

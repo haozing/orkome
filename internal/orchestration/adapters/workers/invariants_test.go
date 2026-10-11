@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"orkome/internal/contract/events"
-	"orkome/internal/contract/wswire"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 )
@@ -86,7 +85,7 @@ func TestI5_AssistantRowAfterTerminal(t *testing.T) {
 		if ev.Event != events.ChatDone {
 			return
 		}
-		_ = ev.Payload.(wswire.ChatDonePayload)
+		_ = ev.Payload.(orchapp.ChatDoneFrame)
 		tt, ok, _ := e.repo.GetTaskByChatSession(ctx, ws, sess.ID)
 		status := "missing"
 		if ok {

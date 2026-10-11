@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	fwwswire "github.com/haozing/ploykit/platform/wswire"
 	"orkome/internal/contract/events"
-	"orkome/internal/contract/wswire"
+	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 )
 
@@ -48,11 +49,11 @@ func TestB5_ChatDoneInlineFrame(t *testing.T) {
 		return false
 	}, "assistant rows should be persisted")
 
-	var done *wswire.ChatDonePayload
+	var done *orchapp.ChatDoneFrame
 	mu.Lock()
 	for i := range seen {
 		if seen[i].Event == events.ChatDone {
-			p, ok := seen[i].Payload.(wswire.ChatDonePayload)
+			p, ok := seen[i].Payload.(orchapp.ChatDoneFrame)
 			if ok && done == nil {
 				cp := p
 				done = &cp
@@ -68,6 +69,6 @@ func TestB5_ChatDoneInlineFrame(t *testing.T) {
 	assert.Equal(t, "assistant", done.Role)
 	assert.Equal(t, "message", done.Kind)
 
-	assert.Equal(t, "chat:done", wswire.WSName(events.ChatDone))
+	assert.Equal(t, "chat:done", fwwswire.WSName(events.ChatDone))
 	_ = taskID
 }

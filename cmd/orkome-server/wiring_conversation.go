@@ -11,7 +11,6 @@ import (
 	"github.com/haozing/ploykit/platform/ids"
 	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/contract/events"
-	"orkome/internal/contract/wswire"
 	convhttp "orkome/internal/conversation/adapters/http"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
@@ -65,7 +64,7 @@ WHERE id=$1`, taskID).Scan(&wsID, &agentID, &creator)
 		if e.Event != events.ChatDone {
 			return
 		}
-		p, ok := e.Payload.(wswire.ChatDonePayload)
+		p, ok := e.Payload.(orchapp.ChatDoneFrame)
 		if !ok {
 			return
 		}

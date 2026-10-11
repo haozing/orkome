@@ -305,9 +305,12 @@ github.com/haozing/ploykit/platform/pg
 github.com/haozing/ploykit/platform/pgmigrate
 github.com/haozing/ploykit/platform/redactx
 github.com/haozing/ploykit/platform/redisx
+github.com/haozing/ploykit/platform/relayx
 github.com/haozing/ploykit/platform/sealx
 github.com/haozing/ploykit/platform/storagex
 github.com/haozing/ploykit/platform/webx
+github.com/haozing/ploykit/platform/wswire
+github.com/haozing/ploykit/platform/wsx
 github.com/haozing/ploykit/webhooks
 github.com/haozing/ploykit/webhooks/adapters/http
 github.com/haozing/ploykit/webhooks/adapters/pgrepo

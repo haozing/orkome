@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,8 +14,9 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/haozing/ploykit/platform/ids"
 	"github.com/haozing/ploykit/platform/webx"
-	"orkome/internal/contract/wswire"
+	"github.com/haozing/ploykit/platform/wswire"
 )
 
 const (
@@ -23,8 +26,22 @@ const (
 	writeWait  = 10 * time.Second
 	pongWait   = 60 * time.Second
 	pingPeriod = 25 * time.Second
-	authGrace  = 30 * time.Second
 	maxOrigins = 32
+
+	maxSubscribeIDLen = 128
+
+	// DefaultPATPrefix is the fallback PAT token prefix for Hub.PATPrefix when
+	// empty. It aliases webx.DefaultPATPrefix — the canonical constant of the
+	// PAT chain (identity/domain mints, webx parses, wsx authenticates the
+	// first WS frame); the internal/arch parity test pins them together.
+	DefaultPATPrefix = webx.DefaultPATPrefix
+)
+
+var (
+	authGrace = 30 * time.Second
+
+	subscribeRateWindow = time.Minute
+	subscribeRateLimit  = 30
 )
 
 type Broadcaster interface {
@@ -39,9 +56,9 @@ type Metrics interface {
 
 type Authorize func(ctx context.Context, p *webx.Principal, connWorkspace, scopePrefix, id string) bool
 
-// PATResolve mirrors webx.PATLookup so a PAT resolver (e.g. the identity
-// token service) can be wired in directly as a method value.
-type PATResolve func(ctx context.Context, token string, now time.Time) (*webx.Principal, error)
+type WorkspaceMember func(ctx context.Context, p *webx.Principal, workspaceID string) bool
+
+type PATResolve func(ctx context.Context, token string) (*webx.Principal, error)
 
 type Hub struct {
 	mu    sync.RWMutex
@@ -55,7 +72,11 @@ type Hub struct {
 
 	Authorize Authorize
 
+	WorkspaceMember WorkspaceMember
+
 	PATResolve PATResolve
+
+	PATPrefix string
 
 	OnSubscribe   func(scope string)
 	OnUnsubscribe func(scope string)
@@ -63,6 +84,12 @@ type Hub struct {
 	AllowedOrigins []string
 
 	Capabilities []string
+
+	originCapOnce sync.Once
+
+	Relay interface {
+		PublishOut(ctx context.Context, scope string, frame wswire.Frame)
+	}
 
 	upgrader websocket.Upgrader
 }
@@ -79,7 +106,26 @@ func NewHub(log *slog.Logger) *Hub {
 	}
 }
 
-func (h *Hub) Broadcast(_ context.Context, scope string, frame wswire.Frame) {
+func (h *Hub) Broadcast(ctx context.Context, scope string, frame wswire.Frame) {
+	h.broadcastLocal(scope, frame)
+	if h.Relay != nil {
+		h.Relay.PublishOut(ctx, scope, frame)
+	}
+}
+
+func (h *Hub) BroadcastEvent(ctx context.Context, scope, event string, payload []byte, eventID string) error {
+	if eventID == "" {
+		eventID = ids.NewV7().String()
+	}
+	h.Broadcast(ctx, scope, wswire.Frame{Type: event, Payload: payload, EventID: eventID})
+	return nil
+}
+
+func (h *Hub) DeliverRemote(scope string, frame wswire.Frame) {
+	h.broadcastLocal(scope, frame)
+}
+
+func (h *Hub) broadcastLocal(scope string, frame wswire.Frame) {
 	data, err := json.Marshal(frame)
 	if err != nil {
 		return
@@ -116,32 +162,45 @@ func (h *Hub) RoomSize(scope string) int {
 	return len(h.rooms[scope])
 }
 
+func (h *Hub) subscribed(c *client, scope string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := c.scopes[scope]
+	return ok
+}
+
 func (h *Hub) join(c *client, scope string) {
+	var created bool
 	h.mu.Lock()
 	if h.rooms[scope] == nil {
 		h.rooms[scope] = make(map[*client]struct{})
-		if h.OnSubscribe != nil {
-			h.OnSubscribe(scope)
-		}
+		created = true
 	}
 	c.scopes[scope] = struct{}{}
 	h.rooms[scope][c] = struct{}{}
 	h.mu.Unlock()
+
+	if created && h.OnSubscribe != nil {
+		h.OnSubscribe(scope)
+	}
 }
 
 func (h *Hub) leave(c *client, scope string) {
+	var emptied bool
 	h.mu.Lock()
 	if room := h.rooms[scope]; room != nil {
 		delete(room, c)
 		if len(room) == 0 {
 			delete(h.rooms, scope)
-			if h.OnUnsubscribe != nil {
-				h.OnUnsubscribe(scope)
-			}
+			emptied = true
 		}
 	}
 	delete(c.scopes, scope)
 	h.mu.Unlock()
+
+	if emptied && h.OnUnsubscribe != nil {
+		h.OnUnsubscribe(scope)
+	}
 }
 
 func (h *Hub) drop(c *client) {
@@ -149,19 +208,24 @@ func (h *Hub) drop(c *client) {
 	if !c.dropped.CompareAndSwap(false, true) {
 		return
 	}
+	var emptied []string
 	h.mu.Lock()
 	for scope := range c.scopes {
 		if room := h.rooms[scope]; room != nil {
 			delete(room, c)
 			if len(room) == 0 {
 				delete(h.rooms, scope)
-				if h.OnUnsubscribe != nil {
-					h.OnUnsubscribe(scope)
-				}
+				emptied = append(emptied, scope)
 			}
 		}
 	}
 	h.mu.Unlock()
+
+	if h.OnUnsubscribe != nil {
+		for _, scope := range emptied {
+			h.OnUnsubscribe(scope)
+		}
+	}
 	h.conns.Add(-1)
 	h.observeConns()
 }
@@ -170,6 +234,17 @@ func (h *Hub) observeConns() {
 	if h.Metrics != nil {
 		h.Metrics.Gauge("ws_connections", float64(h.conns.Load()))
 	}
+}
+
+func (h *Hub) joinWorkspace(c *client, workspaceID string) bool {
+	if workspaceID == "" || c.principal == nil || h.WorkspaceMember == nil {
+		return false
+	}
+	if !h.WorkspaceMember(context.Background(), c.principal, workspaceID) {
+		return false
+	}
+	h.join(c, wswire.ScopeKey(wswire.ScopeWorkspace, workspaceID))
+	return true
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +266,8 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		principal: p, authed: p != nil, connWS: connWS,
 	}
 	if p != nil {
-		h.join(c, wswire.ScopeKey(wswire.ScopeWorkspace, connWS))
+
+		h.joinWorkspace(c, connWS)
 		h.join(c, wswire.ScopeKey(wswire.ScopeUser, p.UserID))
 
 		if len(h.Capabilities) > 0 {
@@ -219,18 +295,57 @@ func (h *Hub) originOK(r *http.Request) bool {
 	if orig == "" {
 		return true
 	}
-	if len(h.AllowedOrigins) == 0 {
-
-		u := strings.TrimPrefix(orig, "http://")
-		u = strings.TrimPrefix(u, "https://")
-		return u == r.Host
+	if sameOrigin(orig, r.Host) {
+		return true
 	}
-	for _, a := range h.AllowedOrigins {
+	allowed := h.AllowedOrigins
+	if len(allowed) > maxOrigins {
+		h.originCapOnce.Do(func() {
+			if h.Log != nil {
+				h.Log.Error("wsx: AllowedOrigins exceeds maxOrigins, extra entries ignored",
+					"configured", len(allowed), "effective", maxOrigins)
+			}
+		})
+		allowed = allowed[:maxOrigins]
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, a := range allowed {
 		if a == "*" || a == orig {
 			return true
 		}
 	}
 	return false
+}
+
+func sameOrigin(orig, reqHost string) bool {
+	u, err := url.Parse(orig)
+	if err != nil {
+		return false
+	}
+	defPort := "80"
+	if u.Scheme == "https" {
+		defPort = "443"
+	}
+	oHost := strings.ToLower(u.Hostname())
+	oPort := u.Port()
+	if oPort == "" {
+		oPort = defPort
+	}
+	rHost, rPort, err := net.SplitHostPort(reqHost)
+	if err != nil {
+
+		rHost, rPort = strings.ToLower(strings.Trim(reqHost, "[]")), defPort
+	}
+	return oHost == rHost && oPort == rPort
+}
+
+func (h *Hub) patPrefix() string {
+	if h.PATPrefix == "" {
+		return DefaultPATPrefix
+	}
+	return h.PATPrefix
 }
 
 func (h *Hub) handleControl(c *client, raw []byte) {
@@ -248,47 +363,79 @@ func (h *Hub) handleControl(c *client, raw []byte) {
 		if c.authed {
 			return
 		}
-		if h.PATResolve == nil || !strings.HasPrefix(in.Token, "ork_") {
+		if h.PATResolve == nil || !strings.HasPrefix(in.Token, h.patPrefix()) {
 			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlAuth, nil)
 			return
 		}
-		p, err := h.PATResolve(context.Background(), in.Token, time.Now())
+		p, err := h.PATResolve(context.Background(), in.Token)
 		if err != nil || p == nil {
 			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlAuth, nil)
 			return
 		}
 		c.principal, c.authed = p, true
 		h.join(c, wswire.ScopeKey(wswire.ScopeUser, p.UserID))
-		if ws := c.pendingWS; ws != "" {
-			h.join(c, wswire.ScopeKey(wswire.ScopeWorkspace, ws))
-		}
-
 		c.sendJSON(wswire.ConfirmPrefix+wswire.CtrlAuth, h.capabilitiesPayload())
 	case wswire.CtrlSubscribe:
 		if !c.authed {
 			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlSubscribe, nil)
 			return
 		}
+
+		if !c.allowSubscribe(time.Now()) {
+			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+			return
+		}
 		switch in.Scope {
 		case wswire.ScopeWorkspace:
-			if ws := in.ID; ws != "" {
-				c.pendingWS = ws
-				h.join(c, wswire.ScopeKey(wswire.ScopeWorkspace, ws))
+
+			if h.subscribed(c, wswire.ScopeKey(wswire.ScopeWorkspace, in.ID)) {
 				c.sendJSON(wswire.ConfirmPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+				return
 			}
-		case wswire.ScopeTask, wswire.ScopeChat:
-			if h.Authorize != nil && !h.Authorize(context.Background(), c.principal, c.connWS, in.Scope, in.ID) {
+
+			if ws := in.ID; ws != "" && h.joinWorkspace(c, ws) {
+				c.sendJSON(wswire.ConfirmPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+				return
+			}
+			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+		default:
+
+			if !wswire.IsRegisteredScope(in.Scope) {
+				return
+			}
+
+			if !validSubscribeID(in.ID) {
+				c.sendJSON(wswire.RejectedPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+				return
+			}
+
+			if h.subscribed(c, wswire.ScopeKey(in.Scope, in.ID)) {
+				c.sendJSON(wswire.ConfirmPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
+				return
+			}
+
+			if h.Authorize == nil || !h.Authorize(context.Background(), c.principal, c.connWS, in.Scope, in.ID) {
 				c.sendJSON(wswire.RejectedPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
 				return
 			}
 			h.join(c, wswire.ScopeKey(in.Scope, in.ID))
 			c.sendJSON(wswire.ConfirmPrefix+wswire.CtrlSubscribe, map[string]string{"scope": in.Scope})
-		default:
-
 		}
 	case wswire.CtrlUnsub:
 		if in.Scope != "" && in.ID != "" {
 			h.leave(c, wswire.ScopeKey(in.Scope, in.ID))
 		}
 	}
+}
+
+func validSubscribeID(id string) bool {
+	if len(id) == 0 || len(id) > maxSubscribeIDLen {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if id[i] < 0x20 || id[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }

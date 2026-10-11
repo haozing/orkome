@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/haozing/ploykit/platform/webx"
-	"orkome/internal/contract/wswire"
+	"github.com/haozing/ploykit/platform/wswire"
 )
 
 type client struct {
@@ -25,7 +25,10 @@ type client struct {
 	principal  *webx.Principal
 	authed     bool
 	connWS     string
-	pendingWS  string
+
+	subMu    sync.Mutex
+	subCount int
+	subReset time.Time
 }
 
 func (c *client) deliver(eventID string, data []byte) {
@@ -76,6 +79,20 @@ func (c *client) close() {
 	_ = c.conn.Close()
 }
 
+func (c *client) allowSubscribe(now time.Time) bool {
+	c.subMu.Lock()
+	defer c.subMu.Unlock()
+	if c.subReset.IsZero() || now.Sub(c.subReset) >= subscribeRateWindow {
+		c.subReset = now
+		c.subCount = 0
+	}
+	if c.subCount >= subscribeRateLimit {
+		return false
+	}
+	c.subCount++
+	return true
+}
+
 func (c *client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
@@ -110,6 +127,10 @@ func (c *client) readPump() {
 	c.conn.SetReadLimit(readLimit)
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
+
+		if !c.authed {
+			return nil
+		}
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 	if !c.authed {

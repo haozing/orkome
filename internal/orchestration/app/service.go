@@ -15,7 +15,6 @@ import (
 	"orkome/internal/contract/dispatchreason"
 	"orkome/internal/contract/events"
 	"orkome/internal/contract/modelmeta"
-	"orkome/internal/contract/wswire"
 	"orkome/internal/orchestration/domain"
 )
 
@@ -1057,10 +1056,20 @@ func mustJSON(m map[string]any) []byte {
 	return b
 }
 
-func chatDonePayload(sessionID, taskID, content string) wswire.ChatDonePayload {
+func chatDonePayload(sessionID, taskID, content string) ChatDoneFrame {
 	kind := "message"
 	if strings.TrimSpace(content) == "" {
 		kind, content = "no_response", ""
 	}
-	return wswire.ChatDonePayload{SessionID: sessionID, TaskID: taskID, Role: "assistant", Kind: kind, Content: content}
+	return ChatDoneFrame{SessionID: sessionID, TaskID: taskID, Role: "assistant", Kind: kind, Content: content}
+}
+
+// chatDoneFrame is the chat.done realtime payload (product vocabulary; the
+// framework wswire ships the frame shape, not orkome's payload types).
+type ChatDoneFrame struct {
+	SessionID string `json:"session_id"`
+	TaskID    string `json:"task_id"`
+	Role      string `json:"role"`
+	Kind      string `json:"kind"`
+	Content   string `json:"content"`
 }

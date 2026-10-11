@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"orkome/internal/contract/events"
 	"github.com/haozing/ploykit/platform/pg"
+	"orkome/internal/contract/events"
 )
 
 type Recorder struct{ DB *pg.DB }

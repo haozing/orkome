@@ -6,25 +6,31 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/haozing/ploykit/platform/relayx"
 	"github.com/haozing/ploykit/platform/webx"
+	"github.com/haozing/ploykit/platform/wswire"
+	fwwsx "github.com/haozing/ploykit/platform/wsx"
 	"orkome/internal/contract/events"
-	"orkome/internal/contract/wswire"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/relayx"
-	"orkome/internal/platform/wsx"
 )
 
 func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
 	pat webx.PATLookup, cfg *Config, rdb redis.UniversalClient, reg *Workers,
-) (*wsx.Hub, wsx.Broadcaster) {
-	hub := wsx.NewHub(log)
+) (*fwwsx.Hub, fwwsx.Broadcaster) {
+	registerRealtimeVocab()
+	hub := fwwsx.NewHub(log)
 	hub.Capabilities = wswire.Capabilities()
-	hub.PATResolve = pat.ResolvePAT
+	hub.PATPrefix = "ork_"
+	hub.PATResolve = func(ctx context.Context, token string) (*webx.Principal, error) {
+		return pat.ResolvePAT(ctx, token, time.Now())
+	}
 
 	hub.Authorize = func(ctx context.Context, p *webx.Principal, connWS, _, _ string) bool {
 		if p == nil || connWS == "" {
@@ -38,17 +44,19 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 
 	broadcaster := hubBroadcaster{hub: hub}
 
-	mode, modeErr := relayx.ParseMode(cfg.RealtimeRelayMode, rdb != nil)
-	if modeErr != nil {
-		log.Error("invalid REALTIME_RELAY_MODE, falling back to default", "err", modeErr)
-		mode = relayx.ModeSharded
-	}
+	// Framework relayx: single semantic — a relay exists when Redis does
+	// (multi-replica fanout); without Redis the hub stays single-instance.
 	var rel *relayx.Relay
-	if rdb != nil && mode != relayx.ModeMemory {
-		rel = &relayx.Relay{RDB: rdb, Shards: 8, Hub: broadcaster, Log: log, Mode: mode}
-		reg.AddFunc("ws-relay", rel.Run)
+	if rdb != nil {
+		rel = relayx.NewRelay("", relayx.NewRedisTransport(rdb), log)
+		hub.Relay = rel
+		reg.AddFunc("ws-relay", func(ctx context.Context) error {
+			return rel.Run(ctx, func(env relayx.Envelope) {
+				broadcaster.Broadcast(context.Background(), env.Scope, env.Frame)
+			})
+		})
 	}
-	log.Info("relayx: realtime mode", "mode", string(mode), "redis", rdb != nil)
+	log.Info("relayx: realtime mode", "mode", map[bool]string{true: "redis", false: "memory"}[rdb != nil], "redis", rdb != nil)
 
 	bus.On(eventbus.PhaseBroadcast, func(ctx context.Context, e events.Envelope) {
 		if e.WorkspaceID == "" {
@@ -63,11 +71,7 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 			frame.Payload = b
 		}
 		scope := wswire.ScopeKey(wswire.ScopeWorkspace, e.WorkspaceID)
-		if rel != nil {
-			_ = rel.Fanout(ctx, scope, frame, func() { broadcaster.Broadcast(ctx, scope, frame) })
-		} else {
-			broadcaster.Broadcast(ctx, scope, frame)
-		}
+		broadcaster.Broadcast(ctx, scope, frame)
 
 		if sub := scopedTarget(e); sub != "" {
 			broadcaster.Broadcast(ctx, sub, frame)
@@ -76,7 +80,7 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 	return hub, broadcaster
 }
 
-type hubBroadcaster struct{ hub *wsx.Hub }
+type hubBroadcaster struct{ hub *fwwsx.Hub }
 
 func (h hubBroadcaster) Broadcast(ctx context.Context, scope string, frame wswire.Frame) {
 	h.hub.Broadcast(ctx, scope, frame)
@@ -86,11 +90,11 @@ func (h hubBroadcaster) SendToUser(ctx context.Context, userID string, frame wsw
 	h.hub.SendToUser(ctx, userID, frame)
 }
 
-func mountWS(mux *http.ServeMux, hub *wsx.Hub, auth func(http.Handler) http.Handler) {
+func mountWS(mux *http.ServeMux, hub *fwwsx.Hub, auth func(http.Handler) http.Handler) {
 	mux.Handle("GET /ws", auth(http.HandlerFunc(hub.ServeWS)))
 }
 
-type notifUserFrames struct{ cast wsx.Broadcaster }
+type notifUserFrames struct{ cast fwwsx.Broadcaster }
 
 func (n notifUserFrames) Push(ctx context.Context, userID, frameType string, payload map[string]any) {
 	b, err := json.Marshal(payload)
@@ -104,11 +108,26 @@ func scopedTarget(e events.Envelope) string {
 	p, _ := e.Payload.(orchapp.TaskPayload)
 	switch {
 	case strings.HasPrefix(e.Event, "task.") && p.ID != "":
-		return wswire.ScopeKey(wswire.ScopeTask, p.ID)
+		return wswire.ScopeKey("task", p.ID)
 	case e.Event == events.ChatDone:
-		if cp, ok := e.Payload.(wswire.ChatDonePayload); ok && cp.SessionID != "" {
-			return wswire.ScopeKey(wswire.ScopeChat, cp.SessionID)
+		if cp, ok := e.Payload.(orchapp.ChatDoneFrame); ok && cp.SessionID != "" {
+			return wswire.ScopeKey("chat", cp.SessionID)
 		}
 	}
 	return ""
 }
+
+// registerRealtimeVocab registers orkome's realtime scopes and capabilities on
+// the framework wswire (the framework ships only workspace/user + batch/
+// notification/workspace; orkome adds task/chat scopes and its product caps).
+func registerRealtimeVocab() {
+	registerVocabOnce.Do(func() {
+		_ = wswire.RegisterScope("task")
+		_ = wswire.RegisterScope("chat")
+		for _, cap := range []string{"task", "work_item", "comment", "chat", "agent", "autopilot", "squad"} {
+			_ = wswire.RegisterCapability(cap)
+		}
+	})
+}
+
+var registerVocabOnce sync.Once

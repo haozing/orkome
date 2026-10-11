@@ -11,10 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/haozing/ploykit/platform/pg"
 	"orkome/internal/channels/app"
 	"orkome/internal/channels/domain"
 	"orkome/internal/channels/wire"
-	"github.com/haozing/ploykit/platform/pg"
 )
 
 type Repo struct{ DB *pg.DB }

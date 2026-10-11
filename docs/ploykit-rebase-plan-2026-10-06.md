@@ -258,6 +258,11 @@ orkome（本仓库，产品）
 
 **完成标准**：`pnpm test`（web vitest + MSW）绿；GUI 冒烟清单通过；旧 WS 代码全删。
 
+### Phase 5 · 执行记录（2026-10-11 进行中）
+
+- **P5-1 ✅ 后端实时层**：本地 platform/wsx、relayx、contract/wswire 全删——框架 `platform/wsx`（Hub：PATPrefix=ork_、Authorize=memberCheck、AllowedOrigins）+ `platform/relayx`（NewRelay(self, NewRedisTransport(rdb), log) 语义简化：有 Redis 即多副本、无则单机；旧三态 mode 配置作废）+ **`platform/wswire`（v0.4.0 已 public！N2 裁定更新：wswire 不再本地保留）**。产品实时词汇经框架 Register 机制注册（task/chat scope + task/work_item/comment/chat/agent/autopilot/squad 七能力）；ChatDonePayload 产品类型内聚到 orchestration/app（ChatDoneFrame）。WS 升级冒烟 101 ✓；50 包全绿
+- **P5-2~P5-5 进行中**（agent）：@ploykit/client/@ploykit/ui 收编（alias 指向 module cache v0.4.0 源码）、错误信封扁平化适配、/auth/me、refresh 移除、queryKeys、通知实时推送
+
 ### Phase 6 · 契约收尾与白赚能力接线
 
 - [ ] P6-1 `router_contract_test.go` + `docs/route-compare/` 全量终录（本计划验收门）

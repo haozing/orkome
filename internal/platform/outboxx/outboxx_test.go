@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"orkome/internal/contract/events"
 	"github.com/haozing/ploykit/platform/pg"
+	"orkome/internal/contract/events"
 )
 
 func testDB(t *testing.T) *pg.DB {
