@@ -205,6 +205,11 @@ orkome（本仓库，产品）
 
 ### Phase 3 · 身份 / 工作区 / authz 切换（最大里程碑，独立验收）
 
+**执行记录（2026-10-11）**：
+- 框架升级 v0.3.0→**v0.4.0**（F1/F2/F3/F4/F7 修复；F5 维持 internal 设计视为关闭；F6 留 P5）。redisx.StringCache 被上游移除→本地 RedisStringCache；deriveSealKey 换框架 sealx.DeriveKey（裁定：不做旧数据兼容）
+- **P3-1/P3-2 ✅**：产品迁移重编号 1001–1033；丢弃 001–004/035/038；1005 拆分（event_outbox 留产品）+ 框架 notification 表补产品投影列（workspace/recipient_user/recipient_agent/work_item 级联）；1006 webhook_delivery 改名 **automation_webhook_delivery**（repo/workers/allowlist/TRUNCATE 守卫同步）；1001 补 pg_trgm；1029 剥 inbox 段。cmd/migrate 与 readyz 双队列（框架 FS 先、产品 FS 后）。全新库验证：**152 条全应用 0 pending**；55 包全绿
+- **P3-3 进行中**：①webx 全仓统一到框架版（agent 执行中，框架 webx 为本地超集，仅 Trace→RequestIDMiddleware 替换、wsx/relayx 的 Principal 同步换框架）②internal/identity 瘦身为产品账户扩展域（agent 执行中：保留 pins/ui-tokens/cli-token/email 适配，删 session/token/workspace 实现；框架 identity 提供 /auth/* 全家桶 + /api/tokens；orkome /api/me 裁定跟框架 /auth/me，前端 P5 改）③cmd 接线（我）：新 wiring_identity = 框架 identitypg.New(pool, Config{SessionTTL, AbsoluteTTL}) + NewSessionService(repo, mail, SessionConfig{门槛字段+SecretPepper}, ttl, _, now) + 框架 identityhttp.Mount(root mux) + workspace 域（Deps{Svc, Members, Authz, StepUp=nil}，hooks：UserRevocation/WorkspaceTeardown 沿用 main 现有级联）+ 产品 idhttp.MountExtensions + webx.ConfigHandler；PAT→agent 绑定 = 产品 PATLookup 包装器（解析后追加 GetAgentIDByPATID 填 Principal.AgentID，替代已删的 SetAgentBinding）；authMw = webx.Authenticate(AuthCfg, repo, repo)；/api/me 双表面不保留（干净迁移）
+
 **目标**：身份底座换为框架，工作区模型对齐，声明式权限上线。
 
 - [ ] P3-1 **迁移队列重建**（D1）：产品 `migrations/` 删除 001–004、038 及 009 中身份类表（`notification_preference`），其余按原相对顺序重编号为 **1001 起**（§7；原定 021 起与框架已用的 `021_invitation_pending_unique` 冲突，按裁定 N3 产品仓库一律 1001 段）；`event_outbox` 已由框架迁移覆盖（P0-3），产品侧同表迁移删除
