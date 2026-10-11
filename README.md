@@ -2,7 +2,7 @@
 
 A multi-agent collaboration platform server where humans drive work items and AI agents execute tasks: one work item is composed of multiple tasks.
 
-> **Sources of truth**: API contract = `cmd/orkome-server/router_contract_test.go` + `docs/route-compare/`; domain rules = per-domain `domain/` + `internal/contract/`; table structure = `migrations/` + `arch/sql_allowlist.yml`; architecture constraints = `internal/arch/` + `.golangci.yml`; decision history = `docs/adr/`.
+> **Sources of truth**: API contract = `cmd/orkome-server/router_contract_test.go` + `docs/route-compare/`; domain rules = per-domain `domain/` + `internal/contract/`; table structure = `migrations/`（产品段 1001+，框架段 001+ 双队列） + `arch/sql_allowlist.yml`; architecture constraints = `internal/arch/` + `.golangci.yml`; decision history = `docs/adr/`（底座切换见 0013）。
 
 ## Quick Start
 
@@ -35,6 +35,13 @@ make lint       # golangci-lint (includes depguard architecture rules, see .gola
 
 ## Layout
 
-See `docs/adr/` and each domain's README: `cmd/` (composition roots; `workers.go` is the unified background job registry with bounded drain) → `internal/platform/` (zero-business-knowledge foundation: pg/pgmigrate/redisx/wsx/relayx/eventbus/outboxx/cronx/webx/storagex/ids/logx/metrics + the security trio sealx credential sealing, egressx SSRF gate, redactx secret redaction) → `internal/contract/` (six cross-domain vocabulary packages) → `internal/<domain>/{domain,app,adapters}` (ten domains, each with a README). Dependency rules are doubly enforced by `.golangci.yml` depguard + `internal/arch` architecture tests (including platform purity); architecture decision records live in `docs/adr/`.
+orkome is a **ploykit consumer** (ADR 0013): identity/workspace/authz/webhooks/notify/realtime
+come from the framework (`github.com/haozing/ploykit`, vendored); product code is `cmd/`
+(composition root) + `internal/<domain>/{domain,app,adapters}` (orchestration, work, conversation,
+channels, content, skills, automation) + a slim product account-extension layer
+(`internal/identity`: pins / ui-tokens / cli-token) and the notification projection
+(`internal/notification`). Locally retained platform packages: eventbus / outboxx / schedx /
+flagsx (D7 — the framework moved to River; migration is a separate project). Dependency rules:
+depguard + `internal/arch` (framework allowlist + cross-domain bans).
 
 The frontend (SPA, React + Vite + Tailwind + Base UI) lives in `web/`; the dev server same-origin-proxies to `:8080`—see `web/README.md` and `make web-dev`.

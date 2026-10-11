@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/haozing/ploykit/admin"
 	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
 	pkgmigrations "github.com/haozing/ploykit/migrations"
 	fwnotifyhttp "github.com/haozing/ploykit/notify/adapters/http"
@@ -231,6 +232,18 @@ func main() {
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
+
+	// Commercial surfaces (P6-2): audit / quota usage / billing plans / admin.
+	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az)
+	wsHeaderMW := workspacehttp.WorkspaceHeaderCtx(idDeps.WSRepo)
+	comm.MountAPI(api, wsHeaderMW, idDeps.Az)
+	comm.MountAdmin(root, idDeps.Repo, idDeps.Auth, admin.Hooks{
+		OnImpersonation: func(ctx context.Context, adminUserID, targetUserID string) error {
+			log.Info("admin impersonation", "admin", adminUserID, "target", targetUserID)
+			return nil
+		},
+	})
+	_ = comm.Tracks
 	orchhttp.Mount(api, orchHTTPDeps, authGuardMw)
 	convhttp.Mount(api, convDeps, authGuardMw)
 	autoDeps := wiringAutomation(ctx, log, db, bus, workersReg, cfg, redisCli)

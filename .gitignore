@@ -7,3 +7,5 @@ web/.vite/
 *.exe
 *.test
 nohup.out
+
+orkome-server.exe

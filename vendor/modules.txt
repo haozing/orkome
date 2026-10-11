@@ -285,6 +285,15 @@ github.com/gorilla/securecookie
 github.com/gorilla/websocket
 # github.com/haozing/ploykit v0.4.0
 ## explicit; go 1.26.0
+github.com/haozing/ploykit/admin
+github.com/haozing/ploykit/admin/adapters/http
+github.com/haozing/ploykit/admin/adapters/pgrepo
+github.com/haozing/ploykit/admin/app
+github.com/haozing/ploykit/analytics
+github.com/haozing/ploykit/analytics/adapters/pgrepo
+github.com/haozing/ploykit/analytics/app
+github.com/haozing/ploykit/audit
+github.com/haozing/ploykit/audit/adapters/http
 github.com/haozing/ploykit/authz
 github.com/haozing/ploykit/identity
 github.com/haozing/ploykit/identity/adapters/http
@@ -311,6 +320,8 @@ github.com/haozing/ploykit/platform/storagex
 github.com/haozing/ploykit/platform/webx
 github.com/haozing/ploykit/platform/wswire
 github.com/haozing/ploykit/platform/wsx
+github.com/haozing/ploykit/quota
+github.com/haozing/ploykit/quota/adapters/http
 github.com/haozing/ploykit/webhooks
 github.com/haozing/ploykit/webhooks/adapters/http
 github.com/haozing/ploykit/webhooks/adapters/pgrepo
