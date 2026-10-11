@@ -13,6 +13,7 @@ Orkome 是一个可自托管的协作服务端：你像往常一样建工作项�
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![MCP](https://img.shields.io/badge/智能体-MCP-blueviolet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **[English](README.md) | 简体中文**
 
@@ -208,6 +209,8 @@ Pre-1.0，快速迭代中，每次合并都有测试门禁（单元 + 带数据�
 （Docker Compose / Helm）。
 
 ---
+
+基于 [MIT 许可证](LICENSE)——可自由使用、修改与自托管。
 
 <p align="center">
   <sub>人负责决策。智能体负责交付。</sub>
