@@ -29,3 +29,7 @@ F1–F3、F7 是 API/功能改进（框架仓库 issue + PR）；F4 是流程修
 | F17 | 打包 | `@ploykit/hooks` barrel 不可在框架 monorepo 外使用：re-export `useSEO`→`@ploykit/runtime`（依赖 react-router），`ws.ts` value-import react——裸说明符无法从 Go module cache 目录解析（无上级 node_modules）。仅叶子 `ws-query-bridge`（type-only）可 alias | hooks 包去 react-router 依赖或拆包；官方支持"从 module cache 直接 alias 源码"的消费方式 | orkome vite alias 实测 |
 | F18 | 协议 | WS PAT auth 帧是"死协议半边"：hub 接受 `{type:'auth',token}`（30s 宽限）但 JS WsClient 无任何发送 auth 帧的 API——cookie-on-upgrade 是唯一 JS 路径 | client 提供 auth 帧发送 API（或删除 hub 半边） | P5 接线核对 |
 | F19 | 测试/CSRF | `__resetApiForTests` 未从 client barrel 导出（深挖 alias 绕过）；verify-code 响应不再携带 csrf_token——若 gorilla/csrf 在登录时轮换，登录后写请求会 403 直到重取 /config，需框架测试钉住 | barrel 导出 reset；登录响应恢复 token 或文档化轮换时点 | P5 前端适配 |
+
+| F20 | 配套断裂 | `webx.ConfigHandler` 输出 `csrf_token`（依赖请求上下文经 gorilla/csrf），但框架没有强制/文档化"主链必须挂 CSRFConditional"——产品漏挂时 /config 静默缺 token，前端报 "CSRF bootstrap: response missing csrf_token"，写请求全 403 | ConfigHandler 无 CSRF 上下文时显式报错/文档化接线清单 | orkome P5 浏览器冒烟实测（P3 遗留 CSRF 缺口被逼出） |
+
+| F21 | **P1 bug** | `webx.AccessLog` 的 statusRecorder 包装 ResponseWriter 但**不透传 http.Hijacker**——挂在链内的 WebSocket 升级全部失败（gorilla Upgrade 拿不到 Hijacker）；直连表现为 403/升级错且 AccessLog 无记录，经代理表现为代理侧 socket write 错误，极难定位 | statusRecorder 嵌入 Hijacker/Flusher/CloseNotifier 透传（或 AccessLog 对 Upgrade 请求旁路） | orkome P5 浏览器冒烟：产品侧 logExceptWS 豁免 /ws 临时绕过 |

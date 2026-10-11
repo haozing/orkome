@@ -261,7 +261,9 @@ orkome（本仓库，产品）
 ### Phase 5 · 执行记录（2026-10-11 进行中）
 
 - **P5-1 ✅ 后端实时层**：本地 platform/wsx、relayx、contract/wswire 全删——框架 `platform/wsx`（Hub：PATPrefix=ork_、Authorize=memberCheck、AllowedOrigins）+ `platform/relayx`（NewRelay(self, NewRedisTransport(rdb), log) 语义简化：有 Redis 即多副本、无则单机；旧三态 mode 配置作废）+ **`platform/wswire`（v0.4.0 已 public！N2 裁定更新：wswire 不再本地保留）**。产品实时词汇经框架 Register 机制注册（task/chat scope + task/work_item/comment/chat/agent/autopilot/squad 七能力）；ChatDonePayload 产品类型内聚到 orchestration/app（ChatDoneFrame）。WS 升级冒烟 101 ✓；50 包全绿
-- **P5-2~P5-5 进行中**（agent）：@ploykit/client/@ploykit/ui 收编（alias 指向 module cache v0.4.0 源码）、错误信封扁平化适配、/auth/me、refresh 移除、queryKeys、通知实时推送
+- **P5-2~P5-5 ✅**（agent 交付）：@ploykit/client 收编（43 文件 +266/−496；HubCompatibleWsClient 适配器绕过 F16 协议断裂）；错误信封扁平化（唯 lib/api.ts 解析嵌套，删除即净）；/auth/me 在 meQueryOptions 重组（消费方零改动）；通知实时推送走中央 bridge + 服务端 user-scope 自动加入（组件级监听全删）；LoginPage/Bell 保留定制（router/context/i18n 冲突已记录）；**pnpm test 74/74 + build + tsc 全绿**
+- **P5-6 ✅ 浏览器冒烟（真实浏览器全流程）**：登录（发码→验证→DB 会话）→ onboarding 建区 → 主界面 → **WS"实时已连"**。冒烟揪出并修复四个真问题：①主链缺 CSRFConditional（P3 遗留安全项，/config 无 token）②框架 AccessLog statusRecorder 不透传 Hijacker 破坏 WS 升级（F21，产品 logExceptWS 豁免）③CSRF 层拦 /ws 升级（ExemptPrefixes=["/ws"]）④vite /ws 代理 target ws:// scheme 错误（改 http://）。**遗留小尾巴**：onboarding 判定在前端（API 数据在但页面停留 onboarding，直访 /work-items 正常——前端路由判定 bug，下批修）；开发环境需 WS_ALLOWED_ORIGINS=http://localhost:5173（生产同源免配）
+- 本批框架 issue：F16（P0 client/hub 协议断裂）、F17（hooks 包外不可用）、F18（auth 帧死协议）、F19（CSRF token 配套）、F20（ConfigHandler 静默缺 token）、F21（P1 AccessLog 破坏 WS 升级）@ploykit/client/@ploykit/ui 收编（alias 指向 module cache v0.4.0 源码）、错误信封扁平化适配、/auth/me、refresh 移除、queryKeys、通知实时推送
 
 ### Phase 6 · 契约收尾与白赚能力接线
 
