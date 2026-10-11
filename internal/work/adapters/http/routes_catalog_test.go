@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"orkome/internal/platform/webx"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/work/app"
 )
 
@@ -350,12 +350,10 @@ func doCat(r http.Handler, method, path, body string) *httptest.ResponseRecorder
 func codeOf(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	var e struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
+		Error string `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &e), "body: %s", rec.Body.String())
-	return e.Error.Code
+	return e.Error
 }
 
 func TestLabelsIncrementalMount(t *testing.T) {

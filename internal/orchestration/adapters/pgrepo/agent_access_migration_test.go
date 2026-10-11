@@ -2,6 +2,7 @@ package pgrepo
 
 import (
 	"context"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,13 +52,17 @@ func newAgentAccessEnv(t *testing.T) *agentAccessEnv {
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 
-	idr := idpgrepo.New(pg.WrapPool(pool))
-	u, err := idr.UpsertUserByEmail(ctx, "oaccess@example.com")
+	idr := identitypg.New(pool, identitypg.Config{})
+	u, err := idr.UpsertUserByEmail(ctx, "oaccess@example.com", time.Now())
 	require.NoError(t, err)
-	wsFull, _, err := idr.CreateWorkspace(ctx, "A", "oaccess-ws", u.ID)
-	require.NoError(t, err)
-	otherFull, _, err := idr.CreateWorkspace(ctx, "B", "oaccess-ws2", u.ID)
-	require.NoError(t, err)
+	mkws := func(name string) string {
+		var id string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace (name, created_by) VALUES ($1,$2) RETURNING id`, name, u.ID).Scan(&id))
+		_, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1,$2,'owner')`, id, u.ID)
+		require.NoError(t, err)
+		return id
+	}
+	wsFull, otherFull := mkws("oaccess-ws"), mkws("oaccess-ws2")
 	return &agentAccessEnv{ctx: ctx, repo: New(pg.WrapPool(pool)), pool: pool,
 		ws: wsFull.ID, otherWs: otherFull.ID, user: u.ID}
 }

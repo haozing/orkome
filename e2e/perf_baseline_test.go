@@ -23,13 +23,13 @@ import (
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/modelmeta"
 	"orkome/internal/contract/wswire"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/webx"
 	"orkome/internal/platform/wsx"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
@@ -377,7 +377,7 @@ func TestPerf_WSBroadcastFanout(t *testing.T) {
 	}
 	log := logx.New(logx.Options{Level: "error"})
 	hub := wsx.NewHub(log)
-	hub.PATResolve = func(context.Context, string) (*webx.Principal, error) {
+	hub.PATResolve = func(context.Context, string, time.Time) (*webx.Principal, error) {
 		return &webx.Principal{UserID: "00000000-0000-0000-0000-000000000001", Source: webx.SourceSession}, nil
 	}
 	srv := httptest.NewServer(http.HandlerFunc(hub.ServeWS))

@@ -17,10 +17,10 @@ import (
 
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/apierr"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
-	"orkome/internal/platform/webx"
 	"orkome/migrations"
 )
 
@@ -248,6 +248,5 @@ VALUES ($1, 1, 'evaluation carrier', 'todo', 'user', $2) RETURNING id::text`,
 	code, out = e.do("POST", "/api/work-items/"+wiID+"/squad-evaluated",
 		map[string]any{"task_id": taskID, "outcome": "maybe"})
 	assert.Equal(t, http.StatusBadRequest, code)
-	errBody, _ := out["error"].(map[string]any)
-	assert.Equal(t, apierr.Validation, errBody["code"])
+	assert.Equal(t, apierr.Validation, out["error"])
 }

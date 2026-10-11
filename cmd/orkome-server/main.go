@@ -10,12 +10,17 @@ import (
 	"syscall"
 	"time"
 
+	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
 	pkgmigrations "github.com/haozing/ploykit/migrations"
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/metrics"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/redisx"
+	"github.com/haozing/ploykit/platform/webx"
+	"github.com/haozing/ploykit/workspace"
+	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
+	"github.com/jackc/pgx/v5"
 	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
 	chpgrepo "orkome/internal/channels/adapters/pgrepo"
@@ -35,7 +40,6 @@ import (
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/flagsx"
 	"orkome/internal/platform/outboxx"
-	"orkome/internal/platform/webx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	webhookhttp "orkome/internal/webhooks/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
@@ -78,7 +82,7 @@ func main() {
 	bus := eventbus.New(log)
 	bus.Metrics = metricsReg
 	workersReg := NewWorkers(log)
-	idDeps, _ := wiringIdentity(log, db, redisCli, cfg, workersReg)
+	idDeps := wiringIdentity(log, db, redisCli, cfg)
 	workDeps := wiringWork(log, db, bus, workersReg, idMemberCheck(db), cfg.JWTSecret)
 	dispatcher, sweeper, orchHTTPDeps, orchEnq, orchEng, batchSvc := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
 	sweeper.Metrics = metricsReg
@@ -120,7 +124,7 @@ func main() {
 	orchHTTPDeps.Builder = orchapp.NewAgentBuilderService(orchpgrepo.New(db))
 	convDeps := wiringConversation(log, db, bus, orchEng, orchEnq, orchHTTPDeps.Settle, idMemberCheck(db))
 
-	wsHub, wsCast := wiringWS(ctx, log, bus, idMemberCheck(db), idDeps.PAT(), cfg, redisCli, workersReg)
+	wsHub, wsCast := wiringWS(ctx, log, bus, idMemberCheck(db), idDeps.PAT, cfg, redisCli, workersReg)
 	wsHub.Metrics = metricsReg
 	orchEng.InterimPush = func(wsID, taskID, kind, content string) {
 		b, _ := json.Marshal(map[string]any{"kind": kind, "content": content, "task_id": taskID})
@@ -147,9 +151,8 @@ func main() {
 	root := http.NewServeMux()
 
 	proxies := webx.ParseTrustedProxies(cfg.TrustedProxies)
-	idDeps.TrustedProxies = proxies
 
-	idDeps.Workspaces.UserRevocation = func(ctx context.Context, workspaceID, userID string) error {
+	_oldRevocation := func(ctx context.Context, workspaceID, userID string) error {
 		tasks, err := orchHTTPDeps.Repo.ListWorkspaceActiveTasks(ctx, workspaceID)
 		if err != nil {
 			log.Error("user revocation: list active tasks", "ws", workspaceID, "err", err)
@@ -174,7 +177,7 @@ func main() {
 		return nil
 	}
 
-	idDeps.Workspaces.WorkspaceTeardown = func(ctx context.Context, workspaceID string) error {
+	_oldTeardown := func(ctx context.Context, workspaceID string) error {
 		tasks, err := orchHTTPDeps.Repo.ListWorkspaceActiveTasks(ctx, workspaceID)
 		if err != nil {
 			return err
@@ -214,20 +217,14 @@ func main() {
 
 	api := http.NewServeMux()
 
-	authMw := webx.Authenticate(idDeps.AuthCfg(), idDeps.PAT())
+	idDeps.WS = idDeps.WS.WithHooks(workspace.WorkspaceHooks{
+		OnMemberRemoved: _oldRevocation,
+		OnTeardown:      func(ctx context.Context, tx pgx.Tx, workspaceID string) error { return _oldTeardown(ctx, workspaceID) },
+	})
+	authMw := webx.Authenticate(&idDeps.Auth, idDeps.Repo, idDeps.PAT)
 	authGuardMw := func(next http.Handler) http.Handler { return authMw(runtimeAgentWriteGuard(next)) }
 
-	if idDeps.Tokens != nil {
-		bindRepo := orchpgrepo.New(db)
-		idDeps.Tokens.SetAgentBinding(func(ctx context.Context, patID string) (string, bool) {
-			agentID, ok, err := bindRepo.GetAgentIDByPATID(ctx, patID)
-			if err != nil {
-				return "", false
-			}
-			return agentID, ok
-		})
-	}
-	idhttp.MountAPI(api, idDeps, cfg.IsProd())
+	workspacehttp.Mount(api, idDeps.WorkspaceMountDeps())
 
 	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db))
 	workhttp.Mount(api, workDeps, authGuardMw)
@@ -282,9 +279,13 @@ func main() {
 	autohttp.MountPublic(root, autoDeps)
 	contenthttp.MountUploads(root, contentDeps)
 	mountWS(root, wsHub, authMw)
-	root.Handle("/", idhttp.RootRouter(idDeps, cfg.IsProd()))
+	identityhttp.Mount(root, idDeps.IdentityMountDeps(proxies))
+	idhttp.MountExtensions(root, authMw, idDeps.Ext)
+	root.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{Extra: func() map[string]any {
+		return map[string]any{"product": "orkome"}
+	}}))
 
-	handler := webx.Recover(log)(webx.Trace(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
+	handler := webx.Recover(log)(webx.RequestIDMiddleware(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
 		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(root))))))
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

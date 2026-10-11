@@ -19,9 +19,9 @@ import (
 
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/notification/adapters/pgrepo"
 	"orkome/internal/notification/app"
-	"orkome/internal/platform/webx"
 	"orkome/migrations"
 )
 
@@ -162,9 +162,7 @@ func TestPrefs_PatchMergesKeepUnprovided(t *testing.T) {
 	}
 	code, out = h.do("PATCH", "/notification-preferences", map[string]any{"muted_types": big})
 	assert.Equal(t, 400, code)
-	errObj, _ := out["error"].(map[string]any)
-	require.NotNil(t, errObj)
-	assert.Equal(t, "E_VALIDATION", errObj["code"])
+	assert.Equal(t, "E_VALIDATION", out["error"])
 }
 
 func TestNotification_SummaryFacetsArchived(t *testing.T) {

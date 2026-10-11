@@ -7,9 +7,9 @@ import (
 	"orkome/internal/identity/domain"
 )
 
-type PinService struct{ repo Repo }
+type PinService struct{ repo PinRepo }
 
-func NewPinService(repo Repo) *PinService { return &PinService{repo: repo} }
+func NewPinService(repo PinRepo) *PinService { return &PinService{repo: repo} }
 
 func (s *PinService) List(ctx context.Context, wsID, userID string) ([]Pin, error) {
 	if err := s.requireMember(ctx, wsID, userID); err != nil {
@@ -84,4 +84,8 @@ func (s *PinService) requireMember(ctx context.Context, wsID, userID string) err
 		return apierr.New(apierr.NotFound, "workspace not found")
 	}
 	return nil
+}
+
+func fieldErr(f, problem string) apierr.FieldError {
+	return apierr.FieldError{Field: f, Problem: problem}
 }

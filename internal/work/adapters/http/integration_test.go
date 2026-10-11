@@ -21,12 +21,12 @@ import (
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/events"
 	idhttp "orkome/internal/identity/adapters/http"
 	idpgrepo "orkome/internal/identity/adapters/pgrepo"
 	idapp "orkome/internal/identity/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/webx"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	"orkome/internal/work/app"
 	"orkome/migrations"
@@ -70,14 +70,15 @@ func newM2(t *testing.T) *m2h {
 	bus := eventbus.New(log)
 
 	idRepo := idpgrepo.New(db)
-	auth := &webx.AuthConfig{Secret: []byte("m2-integration-secret-32-bytes!!"), SessionTTL: 720 * time.Hour}
+	secret := []byte("m2-integration-secret-32-bytes!!")
+	auth := &webx.AuthConfig{SessionTTL: 720 * time.Hour}
 	mail := &captureMail{codes: map[string]string{}}
 	sessions := idapp.NewSessionService(idRepo, mail, auth, idapp.SessionConfig{AllowSignup: true, DevCode: "123456"}, time.Now)
 	tokens := idapp.NewTokenService(idRepo, idapp.NoopCache{}, time.Now)
 	workspaces := idapp.NewWorkspaceService(idRepo, mail, tokens, time.Now)
 	idDeps := idhttp.Deps{
 		Sessions: sessions, Tokens: tokens, Workspaces: workspaces, Repo: idRepo, Auth: auth,
-		CSRFKey: webx.DeriveCSRFKey(auth.Secret), Limiter: failOpen{}, Version: "test",
+		CSRFKey: webx.DeriveCSRFKey(secret), Limiter: failOpen{}, Version: "test",
 	}
 
 	wRepo := &workpgrepo.Repo{DB: db}
@@ -114,7 +115,7 @@ func newM2(t *testing.T) *m2h {
 
 	full := http.NewServeMux()
 	idhttp.MountAPI(full, idDeps, false)
-	authMw := webx.Authenticate(idDeps.Auth, idDeps.Tokens)
+	authMw := webx.Authenticate(idDeps.Auth, idDeps.Sessions, idDeps.Tokens)
 	Mount(full, workDeps, authMw)
 	full.Handle("/", idhttp.RootRouter(idDeps, false))
 

@@ -1,70 +1,128 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/haozing/ploykit/authz"
+	identityhttp "github.com/haozing/ploykit/identity/adapters/http"
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	fwapp "github.com/haozing/ploykit/identity/app"
+	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/webx"
+	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
+	workspacepg "github.com/haozing/ploykit/workspace/adapters/pgrepo"
+	wsapp "github.com/haozing/ploykit/workspace/app"
+
 	"github.com/resend/resend-go/v2"
 
-	"github.com/haozing/ploykit/platform/pg"
-	idadapters "orkome/internal/identity/adapters"
 	"orkome/internal/identity/adapters/email"
 	idhttp "orkome/internal/identity/adapters/http"
-	"orkome/internal/identity/adapters/pgrepo"
-	idworkers "orkome/internal/identity/adapters/workers"
-	"orkome/internal/identity/app"
-	"orkome/internal/platform/webx"
+	idpgrepo "orkome/internal/identity/adapters/pgrepo"
+	idapp "orkome/internal/identity/app"
+	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 )
 
-func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient, cfg *Config, reg *Workers) (idhttp.Deps, func()) {
-	repo := &pgrepo.Repo{DB: db}
-	if reg != nil {
-		reg.Add(&idworkers.CodeSweeper{
-			Repo: repo, Log: log, Every: time.Hour, Retention: time.Hour, BatchLimit: 500,
-		})
-	}
+// fwIdentity is the framework-backed identity/workspace wiring plus orkome's
+// product account extensions (pins / ui-tokens / cli-token).
+type fwIdentity struct {
+	Repo     *identitypg.Repo
+	Sessions *fwapp.SessionService
+	Tokens   *fwapp.TokenService
+	WS       *wsapp.WorkspaceService
+	WSRepo   *workspacepg.Repo
+	Az       *authz.Authorizer
+	Auth     webx.AuthConfig
+	PAT      webx.PATLookup // agent-binding wrapped
+	Ext      idhttp.Deps
+}
 
-	auth := &webx.AuthConfig{
-		Secret:     []byte(cfg.JWTSecret),
-		SessionTTL: cfg.TokenTTL,
-		Secure:     cfg.IsProd(),
-	}
-	csrfKey := webx.DeriveCSRFKey(auth.Secret)
+func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient, cfg *Config) *fwIdentity {
+	repo := identitypg.New(db.Pool(), identitypg.Config{
+		SessionTTL:  7 * 24 * time.Hour,
+		AbsoluteTTL: 30 * 24 * time.Hour,
+	})
 
-	var sender app.EmailSender = email.DevLog{Log: log}
-	if cfg.ResendKey != "" {
+	var sender fwapp.EmailSender
+	switch {
+	case cfg.ResendKey != "":
 		sender = email.Resend{Client: resend.NewClient(cfg.ResendKey), From: cfg.ResendFrom}
-		log.Info("email channel: resend")
-	} else if cfg.SMTPHost != "" {
+	case cfg.SMTPHost != "":
 		sender = email.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser,
 			Pass: cfg.SMTPPass, From: cfg.SMTPFrom, TLS: cfg.SMTPTLS}
-		log.Info("email channel: smtp", "host", cfg.SMTPHost)
-	} else {
+	default:
 		log.Info("email channel: dev log (verification code logged)")
+		sender = email.DevLog{Log: log}
 	}
 
-	sessions := app.NewSessionService(repo, sender, auth, app.SessionConfig{
-		AllowSignup: cfg.AllowSignup, AllowedEmails: cfg.AllowedEmails,
+	auth := webx.AuthConfig{
+		CookieName:   "orkome_auth",
+		Secure:       cfg.IsProd(),
+		SessionTTL:   7 * 24 * time.Hour,
+		AbsoluteTTL:  30 * 24 * time.Hour,
+		IPHashSecret: cfg.JWTSecret,
+		PATPrefix:    "ork_", // external MCP/client-kit contract
+	}
+
+	sessions := fwapp.NewSessionService(repo, sender, fwapp.SessionConfig{
+		SecretPepper: cfg.JWTSecret,
+		AllowSignup:  cfg.AllowSignup, AllowedEmails: cfg.AllowedEmails,
 		AllowedDomains: cfg.AllowedDomains, DevCode: cfg.DevCode,
-	}, time.Now)
-	var patCache app.Cache = app.NoopCache{}
-	if redisCli != nil {
-		patCache = idadapters.RedisStringCache{C: redisCli}
-	}
-	tokens := app.NewTokenService(repo, patCache, time.Now)
-	workspaces := app.NewWorkspaceService(repo, sender, tokens, time.Now)
+		Production: cfg.IsProd(),
+	}, auth.SessionTTL, 0, time.Now)
+	tokens := fwapp.NewTokenService(repo, nil, time.Now)
 
-	var limiter webx.Limiter = webx.FailOpenLimiter{}
-	if redisCli != nil {
-		limiter = webx.NewGCRALimiter(redisCli)
+	catalog := authz.NewCatalog(authz.DefaultPerms()...)
+	az := authz.New(catalog, authz.DefaultRoles())
+	wsRepo := workspacepg.New(db.Pool())
+	ws := wsapp.NewWorkspaceService(wsRepo, az, sender, nil, wsapp.WorkspaceConfig{}, time.Now)
+
+	repoX := idpgrepo.New(db)
+	id := &fwIdentity{
+		Repo: repo, Sessions: sessions, Tokens: tokens, WS: ws, WSRepo: wsRepo, Az: az, Auth: auth,
+		Ext: idhttp.Deps{
+			Repo:     repoX,
+			Pins:     idapp.NewPinService(repoX),
+			UITokens: idapp.NewUITokenService(repoX, []byte(cfg.JWTSecret), time.Now),
+			Tokens:   tokens,
+		},
 	}
 
-	deps := idhttp.Deps{
-		Sessions: sessions, Tokens: tokens, Workspaces: workspaces, Repo: repo,
-		Auth: auth, CSRFKey: csrfKey, Limiter: limiter,
-		UITokens:          app.NewUITokenService(repo, auth, time.Now),
-		SendCodePerMinute: 10, Version: "0.1.0-m1",
+	// PAT -> agent binding: wrap the framework resolver, then enrich the
+	// principal with the orchestration agent mapping (runtime fence + MCP).
+	bindRepo := orchpgrepo.New(db)
+	id.PAT = agentBoundPAT{resolve: repo.ResolvePAT, agentOf: bindRepo.GetAgentIDByPATID}
+	return id
+}
+
+type agentBoundPAT struct {
+	resolve func(ctx context.Context, token string, now time.Time) (*webx.Principal, error)
+	agentOf func(ctx context.Context, patID string) (string, bool, error)
+}
+
+func (a agentBoundPAT) ResolvePAT(ctx context.Context, token string, now time.Time) (*webx.Principal, error) {
+	p, err := a.resolve(ctx, token, now)
+	if err != nil || p == nil {
+		return p, err
 	}
-	return deps, func() {}
+	if agentID, ok, err := a.agentOf(ctx, p.PATID); err == nil && ok {
+		p.AgentID = agentID
+	}
+	return p, nil
+}
+
+func (id *fwIdentity) IdentityMountDeps(proxies []*net.IPNet) identityhttp.Deps {
+	return identityhttp.Deps{
+		AuthCfg: id.Auth, Sessions: id.Repo, PATs: id.Repo,
+		SessionsSvc: id.Sessions, Tokens: id.Tokens,
+		TrustedProxies: proxies,
+	}
+}
+
+func (id *fwIdentity) WorkspaceMountDeps() workspacehttp.Deps {
+	return workspacehttp.Deps{Svc: id.WS, Members: id.WSRepo, Authz: id.Az}
 }

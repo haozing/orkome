@@ -1,35 +1,43 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"net"
+	"io"
 	"net/http"
 	"time"
 
+	fwapp "github.com/haozing/ploykit/identity/app"
+	"github.com/haozing/ploykit/platform/webx"
+
 	"orkome/internal/contract/apierr"
 	"orkome/internal/identity/app"
-	"orkome/internal/platform/webx"
 )
 
+// PATMinter issues a personal access token for a principal. The framework
+// identity app.TokenService satisfies this (*fwapp.TokenService).
+type PATMinter interface {
+	CreatePAT(ctx context.Context, p *webx.Principal, name string, ttl time.Duration, scope *webx.CredentialScope) (fwapp.PAT, string, error)
+}
+
+// Deps wires the product account-extension endpoints. Everything the
+// framework already provides (login, sessions, PAT CRUD, account, and the
+// whole workspace face) is intentionally absent.
 type Deps struct {
-	Sessions   *app.SessionService
-	Tokens     *app.TokenService
-	Workspaces *app.WorkspaceService
-	Pins       *app.PinService
-	Repo       app.Repo
-	Auth       *webx.AuthConfig
+	// Repo backs the X-Workspace-Id membership gate, the ui-token mint
+	// membership check and (when Pins is nil) a lazily built PinService.
+	Repo app.PinRepo
 
+	// Pins is the sidebar-pin service; nil defaults to app.NewPinService(Repo).
+	Pins *app.PinService
+
+	// UITokens mints/consumes one-shot plugin-embedding tickets.
 	UITokens *app.UITokenService
-	CSRFKey  []byte
-	Limiter  webx.Limiter
 
-	SendCodePerMinute int
-
-	VerifyCodePerMinute int
-
-	TrustedProxies []*net.IPNet
-	Version        string
+	// Tokens mints the PAT returned by POST /cli-token — pass the framework
+	// TokenService (fwapp.NewTokenService(fwRepo, auditor, clock)).
+	Tokens PATMinter
 }
 
 func writeErr(w http.ResponseWriter, err error) {
@@ -63,11 +71,7 @@ func decode[T any](w http.ResponseWriter, r *http.Request) (*T, bool) {
 	return &in, true
 }
 
-func principal(r *http.Request) *webx.Principal { return webx.PrincipalFrom(r.Context()) }
-
-func (d Deps) AuthCfg() *webx.AuthConfig { return d.Auth }
-
-func (d Deps) PAT() webx.PATLookup { return d.Tokens }
+func principal(r *http.Request) *webx.Principal { return webx.PrincipalFromRequest(r) }
 
 func requirePrincipal(w http.ResponseWriter, r *http.Request) (*webx.Principal, bool) {
 	p := principal(r)
@@ -78,484 +82,42 @@ func requirePrincipal(w http.ResponseWriter, r *http.Request) (*webx.Principal, 
 	return p, true
 }
 
-func (d Deps) handleSendCode(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[struct {
-		Email string `json:"email"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	if err := d.Sessions.SendCode(r.Context(), in.Email); err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"sent": true})
-}
-
-func (d Deps) handleVerifyCode(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[struct {
-		Email string `json:"email"`
-		Code  string `json:"code"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	res, err := d.Sessions.VerifyCode(r.Context(), in.Email, in.Code)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	d.Auth.SetSessionCookie(w, res.Token, res.Expires)
-	webx.WriteJSON(w, http.StatusOK, map[string]any{
-		"user":       res.User,
-		"csrf_token": webx.CSRFMaskedToken(r),
-	})
-}
-
-func (d Deps) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	token, exp, err := d.Sessions.Reissue(r.Context(), p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	d.Auth.SetSessionCookie(w, token, exp)
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"csrf_token": webx.CSRFMaskedToken(r)})
-}
-
-func (d Deps) handleLogout(w http.ResponseWriter, r *http.Request) {
-	d.Auth.ClearSessionCookie(w)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleConfig(w http.ResponseWriter, r *http.Request) {
-	webx.WriteJSON(w, http.StatusOK, map[string]any{
-		"version":    d.Version,
-		"csrf_token": webx.CSRFMaskedToken(r),
-	})
-}
-
+// handleCLIToken exchanges the caller's authenticated session for a PAT the
+// CLI can store: the framework session stays untouched, the returned token
+// is an ordinary framework PAT (Bearer tk_..., resolvable by webx.Authenticate).
 func (d Deps) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 	p, ok := requirePrincipal(w, r)
 	if !ok {
 		return
 	}
-	in, _ := decode[struct {
+	var in struct {
 		Name string `json:"name"`
 		TTLS int    `json:"ttl_seconds"`
-	}](w, r)
-	var ttl *time.Duration
-	if in != nil && in.TTLS > 0 {
-		t := time.Duration(in.TTLS) * time.Second
-		ttl = &t
+	}
+	if r.Body != nil {
+		err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in)
+		if err != nil && !errors.Is(err, io.EOF) {
+			webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid JSON body", nil)
+			return
+		}
+	}
+	var ttl time.Duration
+	if in.TTLS > 0 {
+		ttl = time.Duration(in.TTLS) * time.Second
 	}
 	name := "cli"
-	if in != nil && in.Name != "" {
-		name = in.Name
-	}
-	res, err := d.Tokens.Create(r.Context(), p.UserID, name, ttl)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, map[string]any{
-		"token": res.Plaintext,
-		"id":    res.PAT.ID, "name": res.PAT.Name, "prefix": res.PAT.Prefix,
-	})
-}
-
-func (d Deps) handleMe(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	user, wss, err := d.Sessions.Me(r.Context(), p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"user": user, "workspaces": wss})
-}
-
-func (d Deps) handlePatchMe(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	in, ok := decode[struct {
-		DisplayName string `json:"display_name"`
-		Language    string `json:"language"`
-		Timezone    string `json:"timezone"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	user, err := d.Sessions.UpdateMe(r.Context(), p, in.DisplayName, in.Language, in.Timezone)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, user)
-}
-
-func (d Deps) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	wss, err := d.Repo.ListMyWorkspaces(r.Context(), p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, wss)
-}
-
-func (d Deps) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	in, ok := decode[struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	ws, err := d.Workspaces.Create(r.Context(), p.UserID, in.Name, in.Slug)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, ws)
-}
-
-func (d Deps) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	ws, err := d.Workspaces.Get(r.Context(), r.PathValue("workspaceId"), p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, ws)
-}
-
-func (d Deps) handlePatchWorkspace(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	in, ok := decode[struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	ws, err := d.Workspaces.Update(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Name, in.Slug)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, ws)
-}
-
-func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	if err := d.Workspaces.Delete(r.Context(), r.PathValue("workspaceId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleListMembers(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	wsID := r.PathValue("workspaceId")
-	ms, err := d.Workspaces.ListMembers(r.Context(), wsID, p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, ms)
-}
-
-func (d Deps) handleInviteMember(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	in, ok := decode[struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	inv, err := d.Workspaces.InviteMember(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Email, in.Role)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, inv)
-}
-
-func (d Deps) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	in, ok := decode[struct {
-		Role string `json:"role"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	m, err := d.Workspaces.UpdateMemberRole(r.Context(), r.PathValue("workspaceId"), r.PathValue("memberId"), in.Role, p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, m)
-}
-
-func (d Deps) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	if err := d.Workspaces.RemoveMember(r.Context(), r.PathValue("workspaceId"), r.PathValue("memberId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleLeave(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	if err := d.Workspaces.Leave(r.Context(), r.PathValue("workspaceId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleMyInvitations(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	invs, err := d.Workspaces.ListMyInvitations(r.Context(), p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, invs)
-}
-
-func (d Deps) handleListInvitations(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	invs, err := d.Workspaces.ListWorkspaceInvitations(r.Context(), r.PathValue("workspaceId"), p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, invs)
-}
-
-func (d Deps) handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	if err := d.Workspaces.RevokeInvitation(r.Context(), r.PathValue("workspaceId"), r.PathValue("invitationId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	m, err := d.Workspaces.AcceptInvitation(r.Context(), r.PathValue("invitationId"), p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, m)
-}
-
-func (d Deps) handleDeclineInvitation(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	if err := d.Workspaces.DeclineInvitation(r.Context(), r.PathValue("invitationId"), p); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handleCreateShareLink(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	in, ok := decode[struct {
-		Role    string `json:"role"`
-		MaxUses int    `json:"max_uses"`
-		TTLHrs  int    `json:"ttl_hours"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	ttl := time.Duration(in.TTLHrs) * time.Hour
-	sl, err := d.Workspaces.CreateShareLink(r.Context(), r.PathValue("workspaceId"), p.UserID, in.Role, in.MaxUses, ttl)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, sl)
-}
-
-func (d Deps) handleListShareLinks(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	ls, err := d.Workspaces.ListShareLinks(r.Context(), r.PathValue("workspaceId"), p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, ls)
-}
-
-func (d Deps) handleDeleteShareLink(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
-	if err := d.Workspaces.DeleteShareLink(r.Context(), r.PathValue("workspaceId"), r.PathValue("linkId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (d Deps) handlePeekShareLink(w http.ResponseWriter, r *http.Request) {
-	sl, err := d.Workspaces.PeekShareLink(r.Context(), r.PathValue("code"))
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{
-		"workspace_name": sl.WorkspaceName, "role": sl.Role, "expires_at": sl.ExpiresAt,
-	})
-}
-
-func (d Deps) handleJoinByCode(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	in, ok := decode[struct {
-		Code string `json:"code"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	m, err := d.Workspaces.JoinByCode(r.Context(), in.Code, p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, m)
-}
-
-func (d Deps) handleListTokens(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	toks, err := d.Tokens.List(r.Context(), p.UserID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, toks)
-}
-
-func (d Deps) handleCreateToken(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	if p.AgentID != "" {
-		webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "runtime credential cannot mint tokens", nil)
-		return
-	}
-	in, ok := decode[struct {
-		Name string `json:"name"`
-		TTLS int    `json:"ttl_seconds"`
-	}](w, r)
-	if !ok {
-		return
-	}
-	var ttl *time.Duration
-	if in.TTLS > 0 {
-		t := time.Duration(in.TTLS) * time.Second
-		ttl = &t
-	}
-	name := "token"
 	if in.Name != "" {
 		name = in.Name
 	}
-	res, err := d.Tokens.Create(r.Context(), p.UserID, name, ttl)
+	pat, token, err := d.Tokens.CreatePAT(r.Context(), p, name, ttl, nil)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, map[string]any{
-		"token": res.Plaintext, "id": res.PAT.ID, "name": res.PAT.Name, "prefix": res.PAT.Prefix,
+		"token": token,
+		"id":    pat.ID, "name": pat.Name, "prefix": pat.Prefix,
 	})
-}
-
-func (d Deps) handleRenewToken(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok || p.Source != webx.SourcePAT || p.PATID == "" {
-		return
-	}
-	bearer := bearerToken(r)
-	in, _ := decode[struct {
-		Name string `json:"name"`
-	}](w, r)
-	name := "token"
-	if in != nil && in.Name != "" {
-		name = in.Name
-	}
-	res, err := d.Tokens.Renew(r.Context(), bearer, name)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{
-		"token": res.Plaintext, "id": res.PAT.ID, "name": res.PAT.Name, "prefix": res.PAT.Prefix,
-	})
-}
-
-func (d Deps) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
-	p, ok := requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-	if err := d.Tokens.Revoke(r.Context(), r.PathValue("tokenId"), p.UserID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func bearerToken(r *http.Request) string {
-	const p = "Bearer "
-	h := r.Header.Get("Authorization")
-	if len(h) > len(p) && h[:len(p)] == p {
-		return h[len(p):]
-	}
-	return ""
 }
 
 func (d Deps) pinsService() *app.PinService {

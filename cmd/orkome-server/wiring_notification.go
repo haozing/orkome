@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/haozing/ploykit/platform/pg"
 	notifhttp "orkome/internal/notification/adapters/http"
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	notifworkers "orkome/internal/notification/adapters/workers"
 	notifapp "orkome/internal/notification/app"
-	"github.com/haozing/ploykit/platform/pg"
 )
 
 func wiringNotification(db *pg.DB, log *slog.Logger, frames notifapp.UserFrames, reg *Workers,

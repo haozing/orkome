@@ -12,8 +12,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/wswire"
-	"orkome/internal/platform/webx"
 )
 
 const (
@@ -39,7 +39,9 @@ type Metrics interface {
 
 type Authorize func(ctx context.Context, p *webx.Principal, connWorkspace, scopePrefix, id string) bool
 
-type PATResolve func(ctx context.Context, token string) (*webx.Principal, error)
+// PATResolve mirrors webx.PATLookup so a PAT resolver (e.g. the identity
+// token service) can be wired in directly as a method value.
+type PATResolve func(ctx context.Context, token string, now time.Time) (*webx.Principal, error)
 
 type Hub struct {
 	mu    sync.RWMutex
@@ -250,7 +252,7 @@ func (h *Hub) handleControl(c *client, raw []byte) {
 			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlAuth, nil)
 			return
 		}
-		p, err := h.PATResolve(context.Background(), in.Token)
+		p, err := h.PATResolve(context.Background(), in.Token, time.Now())
 		if err != nil || p == nil {
 			c.sendJSON(wswire.RejectedPrefix+wswire.CtrlAuth, nil)
 			return

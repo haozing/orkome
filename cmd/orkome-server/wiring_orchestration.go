@@ -7,15 +7,16 @@ import (
 	"os"
 	"time"
 
+	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
+	fwapp "github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/egressx"
 	"github.com/haozing/ploykit/platform/pg"
 	"github.com/haozing/ploykit/platform/sealx"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/events"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
-	idpgrepo "orkome/internal/identity/adapters/pgrepo"
-	idapp "orkome/internal/identity/app"
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	notifapp "orkome/internal/notification/app"
 	"orkome/internal/orchestration/adapters/engine"
@@ -251,32 +252,33 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 			return "", apierr.NewValidation("runtime credentials are for external agents")
 		}
 
-		idr := idpgrepo.New(db)
+		fwRepo := identitypg.New(db.Pool(), identitypg.Config{})
 		email := "agent-" + agentID + "@runtime.internal"
-		u, err := idr.UpsertUserByEmail(ctx, email)
+		u, err := fwRepo.UpsertUserByEmail(ctx, email, time.Now())
 		if err != nil {
 			return "", err
 		}
-		if _, ok, _ := idr.GetMember(ctx, ws, u.ID); !ok {
-			if _, err := idr.AddMember(ctx, ws, u.ID, "member"); err != nil {
-				return "", err
-			}
+		if _, err := db.Tx(ctx).Exec(ctx, `
+INSERT INTO member (workspace_id, user_id, role)
+VALUES ($1,$2,'member') ON CONFLICT DO NOTHING`, ws, u.ID); err != nil {
+			return "", err
 		}
 		if name == "" {
 			name = "runtime " + a.Name
 		}
-		res, err := idapp.NewTokenService(idr, nil, time.Now).Create(ctx, u.ID, name, nil)
+		pat, plaintext, err := fwapp.NewTokenService(fwRepo, nil, time.Now).CreatePAT(ctx,
+			&webx.Principal{UserID: u.ID, Source: webx.SourceSession}, name, 0, nil)
 		if err != nil {
 			return "", err
 		}
 
 		_, err = db.Tx(ctx).Exec(ctx, `
 INSERT INTO agent_credential (workspace_id, agent_id, pat_id, name)
-VALUES ($1,$2,$3,$4)`, ws, agentID, res.PAT.ID, name)
+VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 		if err != nil {
 			return "", err
 		}
-		return res.Plaintext, nil
+		return plaintext, nil
 	}
 
 	orchapp.SetEngineTag(eng.Name())

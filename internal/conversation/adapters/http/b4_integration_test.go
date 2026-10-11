@@ -18,13 +18,13 @@ import (
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/apierr"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/webx"
 	"orkome/migrations"
 )
 
@@ -254,9 +254,7 @@ func TestB4_SendMessageValidation(t *testing.T) {
 	sid, _ := out["id"].(string)
 	code, out = h.do("POST", "/chat/sessions/"+sid+"/messages", map[string]any{"content": "  "})
 	assert.Equal(t, 400, code)
-	errObj, _ := out["error"].(map[string]any)
-	require.NotNil(t, errObj)
-	assert.Equal(t, apierr.Validation, errObj["code"])
+	assert.Equal(t, apierr.Validation, out["error"])
 }
 
 func TestB4_ForbiddenNonMember(t *testing.T) {

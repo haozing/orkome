@@ -3,141 +3,54 @@ package http
 import (
 	"net/http"
 
+	"github.com/haozing/ploykit/platform/webx"
+
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/webx"
 )
 
-// Routes builds the combined root + /api surface (root auth/config endpoints
-// plus the full /api identity face) on a single flat mux — middleware that chi
-// applied per-group is wrapped around each handler at registration time.
-func Routes(d Deps, csrfSecure bool) http.Handler {
-	mux := http.NewServeMux()
-	mountRootRoutes(mux, d, csrfSecure)
-	MountAPI(mux, d, csrfSecure)
-	return mux
-}
-
-func authChainOf(d Deps, csrfSecure bool) func(http.Handler) http.Handler {
-	return func(h http.Handler) http.Handler {
-		return webx.Authenticate(d.Auth, d.Tokens)(webx.CSRFConditional(
-			&webx.CSRFConfig{Key: d.CSRFKey}, csrfSecure)(h))
-	}
-}
-
-// RootRouter builds the mux holding the un-prefixed root endpoints
-// (/auth/*, /config, /cli-token).
-func RootRouter(d Deps, csrfSecure bool) *http.ServeMux {
-	mux := http.NewServeMux()
-	mountRootRoutes(mux, d, csrfSecure)
-	return mux
-}
-
-func mountRootRoutes(mux *http.ServeMux, d Deps, csrfSecure bool) {
-	if d.SendCodePerMinute <= 0 {
-		d.SendCodePerMinute = 10
-	}
-	if d.VerifyCodePerMinute <= 0 {
-		d.VerifyCodePerMinute = 20
-	}
-	auth := authChainOf(d, csrfSecure)
-	ipKey := func(r *http.Request) string { return webx.ClientIP(r, d.TrustedProxies...) }
-
-	mux.Handle("POST /auth/send-code", auth(webx.RateLimit(d.Limiter, "sendcode-ip",
-		d.SendCodePerMinute, ipKey)(http.HandlerFunc(d.handleSendCode))))
-	mux.Handle("POST /auth/verify-code", auth(webx.RateLimit(d.Limiter, "verifycode-ip",
-		d.VerifyCodePerMinute, ipKey)(http.HandlerFunc(d.handleVerifyCode))))
-	mux.Handle("POST /auth/logout", auth(http.HandlerFunc(d.handleLogout)))
-	mux.Handle("GET /config", auth(http.HandlerFunc(d.handleConfig)))
-	mux.Handle("POST /cli-token", auth(webx.RequireAuth(http.HandlerFunc(d.handleCLIToken))))
-}
-
-// APIRouter builds a standalone mux holding just the /api identity face.
-func APIRouter(d Deps, csrfSecure bool) *http.ServeMux {
-	mux := http.NewServeMux()
-	MountAPI(mux, d, csrfSecure)
-	return mux
-}
-
-// MountAPI mounts the /api-prefixed identity endpoints.
-func MountAPI(mux *http.ServeMux, d Deps, csrfSecure bool) {
-	auth := authChainOf(d, csrfSecure)
-	authed := func(h http.HandlerFunc) http.Handler { return auth(h) }
-	require := func(h http.HandlerFunc) http.Handler { return auth(webx.RequireAuth(h)) }
-
-	// auth chain only (no RequireAuth)
-	mux.Handle("POST /api/auth/refresh", authed(d.handleRefresh))
-	mux.Handle("GET /api/share-links/{code}", authed(d.handlePeekShareLink))
-
-	// auth + RequireAuth
-	mux.Handle("GET /api/me", require(d.handleMe))
-	mux.Handle("PATCH /api/me", require(d.handlePatchMe))
-
-	if d.UITokens != nil {
-		mux.Handle("POST /api/ui-tokens", require(d.handleUITokenMint))
-		mux.Handle("POST /api/ui-tokens/consume", require(d.handleUITokenConsume))
-	}
-
-	mux.Handle("GET /api/invitations", require(d.handleMyInvitations))
-	mux.Handle("POST /api/invitations/{invitationId}/accept", require(d.handleAcceptInvitation))
-	mux.Handle("POST /api/invitations/{invitationId}/decline", require(d.handleDeclineInvitation))
-
-	mux.Handle("POST /api/share-links/join", require(d.handleJoinByCode))
-
-	mux.Handle("GET /api/tokens", require(d.handleListTokens))
-	mux.Handle("POST /api/tokens", require(d.handleCreateToken))
-	mux.Handle("POST /api/tokens/current/renew", require(d.handleRenewToken))
-	mux.Handle("DELETE /api/tokens/{tokenId}", require(d.handleRevokeToken))
-
+// MountExtensions registers the product account-extension routes — only
+// what the framework lacks: sidebar pins, ui tokens (plugin embedding) and
+// the CLI session→PAT exchange. Everything else (login, sessions, account,
+// PAT CRUD, workspaces/members/invitations/share-links) is served by
+// ploykit's own identity and workspace mounts.
+//
+// The caller is responsible for the ambient auth chain, exactly as for the
+// framework mounts: wrap the shared root mux with
+// webx.Authenticate(&authCfg, sessions, pats) (and the product CSRF policy)
+// before serving, so principals are resolved here. Routes registered:
+//
+//	GET/PUT  /api/pins, PUT /api/pins/reorder, DELETE /api/pins/{itemType}/{itemId}
+//	          (RequireAuth + X-Workspace-Id active-membership gate)
+//	POST     /api/ui-tokens, POST /api/ui-tokens/consume   (RequireAuth)
+//	POST     /cli-token                                        (RequireAuth)
+//
+// MountExtensions mounts the product account-extension routes. auth is the
+// composition root's Authenticate middleware (the shared root mux carries no
+// global auth chain, so it must be applied here).
+func MountExtensions(mux *http.ServeMux, auth func(http.Handler) http.Handler, d Deps) {
 	// pins: RequireAuth + X-Workspace-Id header context
-	pins := func(h http.HandlerFunc) http.Handler { return auth(webx.RequireAuth(d.wsHeaderCtx(h))) }
+	pins := func(h http.HandlerFunc) http.Handler {
+		return auth(webx.RequireAuth(d.wsHeaderCtx(h)))
+	}
 	mux.Handle("GET /api/pins", pins(d.handleListPins))
 	mux.Handle("PUT /api/pins", pins(d.handleAddPin))
 	mux.Handle("PUT /api/pins/reorder", pins(d.handleReorderPins))
 	mux.Handle("DELETE /api/pins/{itemType}/{itemId}", pins(d.handleRemovePin))
 
-	// workspaces: RequireAuth + path workspace context
-	ws := func(h http.HandlerFunc) http.Handler { return auth(webx.RequireAuth(d.workspaceCtx(h))) }
-	mux.Handle("GET /api/workspaces", require(d.handleListWorkspaces))
-	mux.Handle("POST /api/workspaces", require(d.handleCreateWorkspace))
-	mux.Handle("GET /api/workspaces/{workspaceId}", ws(d.handleGetWorkspace))
-	mux.Handle("PATCH /api/workspaces/{workspaceId}", ws(d.handlePatchWorkspace))
-	mux.Handle("DELETE /api/workspaces/{workspaceId}", ws(d.handleDeleteWorkspace))
-	mux.Handle("GET /api/workspaces/{workspaceId}/members", ws(d.handleListMembers))
-	mux.Handle("POST /api/workspaces/{workspaceId}/members", ws(d.handleInviteMember))
-	mux.Handle("PATCH /api/workspaces/{workspaceId}/members/{memberId}", ws(d.handleUpdateMember))
-	mux.Handle("DELETE /api/workspaces/{workspaceId}/members/{memberId}", ws(d.handleRemoveMember))
-	mux.Handle("POST /api/workspaces/{workspaceId}/leave", ws(d.handleLeave))
-	mux.Handle("GET /api/workspaces/{workspaceId}/invitations", ws(d.handleListInvitations))
-	mux.Handle("POST /api/workspaces/{workspaceId}/invitations", ws(d.handleInviteMember))
-	mux.Handle("DELETE /api/workspaces/{workspaceId}/invitations/{invitationId}", ws(d.handleRevokeInvitation))
-	mux.Handle("GET /api/workspaces/{workspaceId}/share-links", ws(d.handleListShareLinks))
-	mux.Handle("POST /api/workspaces/{workspaceId}/share-links", ws(d.handleCreateShareLink))
-	mux.Handle("DELETE /api/workspaces/{workspaceId}/share-links/{linkId}", ws(d.handleDeleteShareLink))
+	// ui tokens: RequireAuth (mint additionally checks body workspace membership)
+	mux.Handle("POST /api/ui-tokens", auth(webx.RequireAuth(http.HandlerFunc(d.handleUITokenMint))))
+	mux.Handle("POST /api/ui-tokens/consume", auth(webx.RequireAuth(http.HandlerFunc(d.handleUITokenConsume))))
+
+	// CLI session→PAT exchange
+	mux.Handle("POST /cli-token", auth(webx.RequireAuth(http.HandlerFunc(d.handleCLIToken))))
 }
 
-func (d Deps) workspaceCtx(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := webx.PrincipalFrom(r.Context())
-		if p == nil {
-			webx.WriteError(w, http.StatusUnauthorized, apierr.Unauthenticated, "authentication required", nil)
-			return
-		}
-		wsID := r.PathValue("workspaceId")
-		m, ok, err := d.Repo.GetMember(r.Context(), wsID, p.UserID)
-		if err != nil || !ok {
-
-			webx.WriteError(w, http.StatusNotFound, apierr.NotFound, "workspace not found", nil)
-			return
-		}
-		p.WorkspaceID = wsID
-		p.Role = m.Role
-		next.ServeHTTP(w, r)
-	})
-}
-
+// wsHeaderCtx loads the X-Workspace-Id workspace into the principal after
+// checking active membership (same contract as the framework workspace
+// adapter's WorkspaceHeaderCtx, which products may reuse instead).
 func (d Deps) wsHeaderCtx(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := webx.PrincipalFrom(r.Context())
+		p := webx.PrincipalFromRequest(r)
 		if p == nil {
 			webx.WriteError(w, http.StatusUnauthorized, apierr.Unauthenticated, "authentication required", nil)
 			return
@@ -145,6 +58,10 @@ func (d Deps) wsHeaderCtx(next http.Handler) http.Handler {
 		wsID := r.Header.Get("X-Workspace-Id")
 		if wsID == "" {
 			webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "X-Workspace-Id header required", nil)
+			return
+		}
+		if !p.Scope.AllowsWorkspace(wsID) {
+			webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace not in credential scope", nil)
 			return
 		}
 		if _, ok, err := d.Repo.GetMember(r.Context(), wsID, p.UserID); err != nil || !ok {

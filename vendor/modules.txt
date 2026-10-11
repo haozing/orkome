@@ -285,6 +285,12 @@ github.com/gorilla/securecookie
 github.com/gorilla/websocket
 # github.com/haozing/ploykit v0.4.0
 ## explicit; go 1.26.0
+github.com/haozing/ploykit/authz
+github.com/haozing/ploykit/identity
+github.com/haozing/ploykit/identity/adapters/http
+github.com/haozing/ploykit/identity/adapters/pgrepo
+github.com/haozing/ploykit/identity/app
+github.com/haozing/ploykit/identity/domain
 github.com/haozing/ploykit/internal/contract/apierr
 github.com/haozing/ploykit/migrations
 github.com/haozing/ploykit/platform/cronx
@@ -299,6 +305,11 @@ github.com/haozing/ploykit/platform/redisx
 github.com/haozing/ploykit/platform/sealx
 github.com/haozing/ploykit/platform/storagex
 github.com/haozing/ploykit/platform/webx
+github.com/haozing/ploykit/workspace
+github.com/haozing/ploykit/workspace/adapters/http
+github.com/haozing/ploykit/workspace/adapters/pgrepo
+github.com/haozing/ploykit/workspace/app
+github.com/haozing/ploykit/workspace/domain
 # github.com/invopop/jsonschema v0.13.0
 ## explicit; go 1.18
 github.com/invopop/jsonschema
@@ -556,6 +567,8 @@ go.yaml.in/yaml/v3
 golang.org/x/arch/x86/x86asm
 # golang.org/x/crypto v0.57.0
 ## explicit; go 1.26.0
+golang.org/x/crypto/argon2
+golang.org/x/crypto/blake2b
 golang.org/x/crypto/md4
 # golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 ## explicit; go 1.20

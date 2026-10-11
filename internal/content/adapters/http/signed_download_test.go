@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	contentapp "orkome/internal/content/app"
 	"github.com/haozing/ploykit/platform/storagex"
-	"orkome/internal/platform/webx"
+	"github.com/haozing/ploykit/platform/webx"
+	contentapp "orkome/internal/content/app"
 )
 
 type sdStore struct{ objs map[string][]byte }

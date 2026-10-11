@@ -90,13 +90,11 @@ func (h *m2h) doRaw(client, method, path, raw string) *httptest.ResponseRecorder
 func errCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	var e struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Error   string `json:"error"`
+		Message string `json:"message"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &e), "body: %s", rec.Body.String())
-	return e.Error.Code
+	return e.Error
 }
 
 func reactionCounts(t *testing.T, rec *httptest.ResponseRecorder) map[string]int64 {

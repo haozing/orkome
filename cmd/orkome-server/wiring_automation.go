@@ -7,6 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/haozing/ploykit/platform/pg"
 	autobhttp "orkome/internal/automation/adapters/http"
 	autoppgrepo "orkome/internal/automation/adapters/pgrepo"
 	autopworkers "orkome/internal/automation/adapters/workers"
@@ -17,7 +18,6 @@ import (
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"github.com/haozing/ploykit/platform/pg"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
 )

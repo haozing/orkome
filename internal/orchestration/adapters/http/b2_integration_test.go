@@ -19,12 +19,12 @@ import (
 	"github.com/haozing/ploykit/platform/logx"
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/apierr"
 	"orkome/internal/orchestration/adapters/engine"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/webx"
 	"orkome/migrations"
 )
 
@@ -129,11 +129,8 @@ func (h *b2h) do(method, path string, body any) (int, map[string]any) {
 }
 
 func errCodeOf(out map[string]any) string {
-	if e, ok := out["error"].(map[string]any); ok {
-		c, _ := e["code"].(string)
-		return c
-	}
-	return ""
+	c, _ := out["error"].(string)
+	return c
 }
 
 var b2wiSeq int

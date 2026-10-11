@@ -21,10 +21,10 @@ import (
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/storagex"
+	"github.com/haozing/ploykit/platform/webx"
 	contentpgrepo "orkome/internal/content/adapters/pgrepo"
 	contentapp "orkome/internal/content/app"
 	"orkome/internal/contract/apierr"
-	"orkome/internal/platform/webx"
 	"orkome/migrations"
 )
 
@@ -242,9 +242,7 @@ func TestB7_UploadValidation(t *testing.T) {
 	assert.Equal(t, 400, w.Code)
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	errObj, _ := out["error"].(map[string]any)
-	require.NotNil(t, errObj)
-	assert.Equal(t, apierr.Validation, errObj["code"])
+	assert.Equal(t, apierr.Validation, out["error"])
 }
 
 func toI64(v any) int64 {
@@ -345,9 +343,7 @@ func TestB7_UploadHostCheckMissingHost(t *testing.T) {
 	require.Equal(t, 404, w.Code, "host does not exist, propagation rejected")
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	errObj, _ := out["error"].(map[string]any)
-	require.NotNil(t, errObj)
-	assert.Equal(t, apierr.NotFound, errObj["code"])
+	assert.Equal(t, apierr.NotFound, out["error"])
 
 	code, out := h.upload(t, "pre.txt", "x")
 	require.Equal(t, 201, code, "pre-upload skips the recheck: %v", out)

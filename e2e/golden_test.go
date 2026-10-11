@@ -25,6 +25,7 @@ import (
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"github.com/haozing/ploykit/platform/storagex"
+	"github.com/haozing/ploykit/platform/webx"
 	autohttp "orkome/internal/automation/adapters/http"
 	autoppgrepo "orkome/internal/automation/adapters/pgrepo"
 	autopworkers "orkome/internal/automation/adapters/workers"
@@ -52,7 +53,6 @@ import (
 	"orkome/internal/orchestration/adapters/workers"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
-	"orkome/internal/platform/webx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillpgrepo "orkome/internal/skills/adapters/pgrepo"
 	skillapp "orkome/internal/skills/app"
@@ -157,13 +157,14 @@ verification_code, member, workspace, agent_credential, webhook_subscription, ev
 	})
 
 	idRepo := idpgrepo.New(db)
-	auth := &webx.AuthConfig{Secret: []byte("e2e-secret-32-bytes-aaaaaaaaaaaa"), SessionTTL: 720 * time.Hour}
+	secret := []byte("e2e-secret-32-bytes-aaaaaaaaaaaa")
+	auth := &webx.AuthConfig{SessionTTL: 720 * time.Hour}
 	mail := &capMail{codes: map[string]string{}}
 	sessions := idapp.NewSessionService(idRepo, mail, auth, idapp.SessionConfig{AllowSignup: true, DevCode: "654321"}, time.Now)
 	tokens := idapp.NewTokenService(idRepo, idapp.NoopCache{}, time.Now)
 	workspaces := idapp.NewWorkspaceService(idRepo, mail, tokens, time.Now)
 	idDeps := idhttp.Deps{Sessions: sessions, Tokens: tokens, Workspaces: workspaces, Repo: idRepo,
-		Auth: auth, CSRFKey: webx.DeriveCSRFKey(auth.Secret), Limiter: openLimiter{}, Version: "e2e"}
+		Auth: auth, CSRFKey: webx.DeriveCSRFKey(secret), Limiter: openLimiter{}, Version: "e2e"}
 
 	wRepo := &workpgrepo.Repo{DB: db}
 	workDeps := workhttpDeps(db, bus, wRepo, idRepo)
@@ -233,7 +234,7 @@ verification_code, member, workspace, agent_credential, webhook_subscription, ev
 
 	api := http.NewServeMux()
 	idhttp.MountAPI(api, idDeps, false)
-	authMw := webx.Authenticate(idDeps.Auth, idDeps.Tokens)
+	authMw := webx.Authenticate(idDeps.Auth, idDeps.Sessions, idDeps.Tokens)
 	workhttpMount(api, workDeps, authMw)
 	memberCheck := func(ctx context.Context, ws, uid string) (bool, error) {
 		_, ok, err := idRepo.GetMember(ctx, ws, uid)

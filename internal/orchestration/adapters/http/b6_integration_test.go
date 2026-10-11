@@ -243,7 +243,5 @@ WHERE id=$1`, task.ID, digest)
 	require.NoError(t, err)
 	code, out = h.do("POST", "/api/tasks/"+task2.ID+"/retry-source-context", nil)
 	assert.Equal(t, 404, code)
-	errObj, _ := out["error"].(map[string]any)
-	require.NotNil(t, errObj)
-	assert.Equal(t, apierr.NotFound, errObj["code"])
+	assert.Equal(t, apierr.NotFound, out["error"])
 }

@@ -17,9 +17,8 @@ import (
 
 func errCodeOf(t *testing.T, out map[string]any) string {
 	t.Helper()
-	e, ok := out["error"].(map[string]any)
-	require.True(t, ok, "response should contain an error object: %v", out)
-	c, _ := e["code"].(string)
+	c, ok := out["error"].(string)
+	require.True(t, ok, "response should contain an error code: %v", out)
 	return c
 }
 

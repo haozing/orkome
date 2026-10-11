@@ -187,9 +187,6 @@ func TestAgentAccessHTTP_UpdateClearsTargets(t *testing.T) {
 func errCodeOfHTTP(rec *httptest.ResponseRecorder) string {
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if e, ok := out["error"].(map[string]any); ok {
-		c, _ := e["code"].(string)
-		return c
-	}
-	return ""
+	c, _ := out["error"].(string)
+	return c
 }

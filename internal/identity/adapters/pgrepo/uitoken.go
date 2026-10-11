@@ -3,7 +3,11 @@ package pgrepo
 import (
 	"context"
 	"time"
+
+	"orkome/internal/identity/app"
 )
+
+var _ app.UITokenRepo = (*Repo)(nil)
 
 func (r *Repo) InsertUIToken(ctx context.Context, jti, ws, user, plugin string, expiresAt time.Time) error {
 	_, err := r.DB.Tx(ctx).Exec(ctx, `

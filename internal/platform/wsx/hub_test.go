@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/haozing/ploykit/platform/webx"
 	"orkome/internal/contract/wswire"
-	"orkome/internal/platform/webx"
 )
 
 const testWS = "11111111-1111-1111-1111-111111111111"
@@ -101,7 +101,7 @@ func TestSendToUser(t *testing.T) {
 
 func TestFirstFrameAuth(t *testing.T) {
 	h := NewHub(nil)
-	h.PATResolve = func(_ context.Context, token string) (*webx.Principal, error) {
+	h.PATResolve = func(_ context.Context, token string, _ time.Time) (*webx.Principal, error) {
 		if token != "ork_good" {
 			return nil, assert.AnError
 		}
@@ -126,7 +126,7 @@ func TestFirstFrameAuth(t *testing.T) {
 
 func TestFirstFrameAuthReject(t *testing.T) {
 	h := NewHub(nil)
-	h.PATResolve = func(_ context.Context, _ string) (*webx.Principal, error) {
+	h.PATResolve = func(_ context.Context, _ string, _ time.Time) (*webx.Principal, error) {
 		return nil, assert.AnError
 	}
 	_, url := newHubSrv(t, h, nil)
@@ -142,7 +142,7 @@ func TestCapabilitiesInHandshake(t *testing.T) {
 	t.Run("PAT first-frame auth ack carries it", func(t *testing.T) {
 		h := NewHub(nil)
 		h.Capabilities = caps
-		h.PATResolve = func(_ context.Context, token string) (*webx.Principal, error) {
+		h.PATResolve = func(_ context.Context, token string, _ time.Time) (*webx.Principal, error) {
 			return &webx.Principal{UserID: "u9", Source: webx.SourcePAT}, nil
 		}
 		_, url := newHubSrv(t, h, nil)
@@ -174,7 +174,7 @@ func TestCapabilitiesInHandshake(t *testing.T) {
 
 	t.Run("undeclared capabilities mean the ack frame has no payload", func(t *testing.T) {
 		h := NewHub(nil)
-		h.PATResolve = func(_ context.Context, _ string) (*webx.Principal, error) {
+		h.PATResolve = func(_ context.Context, _ string, _ time.Time) (*webx.Principal, error) {
 			return &webx.Principal{UserID: "u9", Source: webx.SourcePAT}, nil
 		}
 		_, url := newHubSrv(t, h, nil)

@@ -80,11 +80,11 @@ func TestDependencyIronLaws(t *testing.T) {
 			switch {
 			case isTestkit:
 
-			if internal && !strings.HasPrefix(p, "orkome/internal/contract") &&
-				!strings.HasPrefix(p, "orkome/internal/platform") &&
-				!strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") {
-				violations = append(violations, violation{rel, "testkit purity", p})
-			}
+				if internal && !strings.HasPrefix(p, "orkome/internal/contract") &&
+					!strings.HasPrefix(p, "orkome/internal/platform") &&
+					!strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") {
+					violations = append(violations, violation{rel, "testkit purity", p})
+				}
 			case isDomain:
 
 				if !std && !strings.HasPrefix(p, "orkome/internal/contract") {
@@ -100,7 +100,9 @@ func TestDependencyIronLaws(t *testing.T) {
 
 				if std || strings.HasPrefix(p, "orkome/internal/contract") ||
 					strings.HasPrefix(p, "orkome/internal/platform") ||
-					strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") {
+					strings.HasPrefix(p, "github.com/haozing/ploykit/platform/") ||
+					strings.HasPrefix(p, "github.com/haozing/ploykit/identity/") ||
+					strings.HasPrefix(p, "github.com/golang-jwt/jwt/") {
 					continue
 				}
 				if strings.HasPrefix(p, "orkome/internal/"+dom+"/domain") ||
