@@ -7,7 +7,8 @@ const WS: import('@/api/identity').Workspace = {
   id: 'ws-1',
   name: 'Team A',
   slug: 'team-a',
-  work_item_counter: 3,
+  plan_code: 'free',
+  role: 'owner',
   created_at: '2026-10-02T00:00:00Z',
 }
 describe('identity API (workspace)', () => {
@@ -37,16 +38,21 @@ describe('identity API (workspace)', () => {
     expect(member.workspace_id).toBe('ws-1')
     expect(member.role).toBe('member')
   })
-  it('meQueryOptions.queryFn: GET /api/me returns user+workspaces', async () => {
+  it('meQueryOptions.queryFn: GET /auth/me + GET /api/workspaces (split on the ploykit rebase)', async () => {
+    const calls: string[] = []
     server.use(
-      http.get('/api/me', () =>
-        HttpResponse.json({
-          user: { id: 'u-1', email: 'a@b.c', display_name: 'A' },
-          workspaces: [WS],
-        }),
-      ),
+      http.get('/auth/me', () => {
+        calls.push('GET /auth/me')
+        return HttpResponse.json({ id: 'u-1', email: 'a@b.c', display_name: 'A' })
+      }),
+      http.get('/api/workspaces', () => {
+        calls.push('GET /api/workspaces')
+        return HttpResponse.json([WS])
+      }),
     )
-    const me = await meQueryOptions.queryFn!({
+    const queryFn = meQueryOptions.queryFn
+    if (typeof queryFn !== 'function') throw new Error('meQueryOptions.queryFn missing')
+    const me = await queryFn({
       client: new QueryClient(),
       queryKey: meQueryOptions.queryKey,
       signal: new AbortController().signal,
@@ -54,5 +60,6 @@ describe('identity API (workspace)', () => {
     })
     expect(me.user.email).toBe('a@b.c')
     expect(me.workspaces).toHaveLength(1)
+    expect(calls).toEqual(['GET /auth/me', 'GET /api/workspaces'])
   })
 })

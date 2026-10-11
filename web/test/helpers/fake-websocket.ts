@@ -1,4 +1,5 @@
-import { WsClient, type WsFrame } from '@/lib/ws'
+import type { WsFrame, WsClientOptions } from '@ploykit/client'
+import { HubCompatibleWsClient } from '@/realtime/client'
 export class FakeWebSocket {
   static instances: FakeWebSocket[] = []
   static OPEN = 1
@@ -33,10 +34,13 @@ export class FakeWebSocket {
 export function resetFakeSockets(): void {
   FakeWebSocket.instances = []
 }
-export function makeFakeSocketClient(
-  options: Partial<ConstructorParameters<typeof WsClient>[0]> = {},
-) {
-  const client = new WsClient({
+/**
+ * Builds the app-wide client class (HubCompatibleWsClient, see
+ * src/realtime/client.ts): control frames go out FLAT
+ * ({"type":"subscribe","scope":…,"id":…}) to match the ploykit hub.
+ */
+export function makeFakeSocketClient(options: Partial<WsClientOptions> = {}) {
+  const client = new HubCompatibleWsClient({
     socketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
     minRetryMs: 100,
     ...options,

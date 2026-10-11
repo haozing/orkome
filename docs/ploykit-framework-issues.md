@@ -24,3 +24,8 @@ F1–F3、F7 是 API/功能改进（框架仓库 issue + PR）；F4 是流程修
 
 | F14 | 安全/扩展 | 域 `Mount(mux, Deps)` 无中间件钩子——产品的横切守卫无法挂到框架路由。orkome 的 `runtimeAgentWriteGuard`（runtime PAT 写域围栏）盖不到框架 webhooks 路由：membership+authz 仍在，但**纵深防御层丢失** | Deps 增加可选 `Guard func(http.Handler) http.Handler`（或 Mount 变体），产品可叠加横切守卫 | P4 webhooks 替换实测 |
 | F15 | 功能缺口 | webhooks 事件浏览面缺失：旧产品 `GET /api/events` 提供 keyset 分页的近期事件流（读 event_outbox），框架 `webhooks/events` 只列静态注册目录 | 框架提供事件浏览端点（查产品 outbox 注入的 Repo 端口） | P4：前端事件浏览功能降级，Phase 5 前端批次处理 |
+
+| F16 | **P0 协议断裂** | `@ploykit/client` WsClient 发送 `{type:'subscribe',payload:{scope,id}}`（嵌套 payload），hub `handleControl` 解析顶层 `{type,token,scope,id}`——**task/chat 订阅帧被静默丢弃**（无错误无日志）；框架自家 client 与自家 hub 协议不一致 | 统一协议（建议 hub 兼容两种形状或 client 改顶层）；hub 对未知控制帧回 rejected 帧 | orkome 前端 P5 实测，HubCompatibleWsClient 适配器临时绕过 |
+| F17 | 打包 | `@ploykit/hooks` barrel 不可在框架 monorepo 外使用：re-export `useSEO`→`@ploykit/runtime`（依赖 react-router），`ws.ts` value-import react——裸说明符无法从 Go module cache 目录解析（无上级 node_modules）。仅叶子 `ws-query-bridge`（type-only）可 alias | hooks 包去 react-router 依赖或拆包；官方支持"从 module cache 直接 alias 源码"的消费方式 | orkome vite alias 实测 |
+| F18 | 协议 | WS PAT auth 帧是"死协议半边"：hub 接受 `{type:'auth',token}`（30s 宽限）但 JS WsClient 无任何发送 auth 帧的 API——cookie-on-upgrade 是唯一 JS 路径 | client 提供 auth 帧发送 API（或删除 hub 半边） | P5 接线核对 |
+| F19 | 测试/CSRF | `__resetApiForTests` 未从 client barrel 导出（深挖 alias 绕过）；verify-code 响应不再携带 csrf_token——若 gorilla/csrf 在登录时轮换，登录后写请求会 403 直到重取 /config，需框架测试钉住 | barrel 导出 reset；登录响应恢复 token 或文档化轮换时点 | P5 前端适配 |

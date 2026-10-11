@@ -38,7 +38,7 @@ import { Input } from '@/components/ui/input'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TaskStatusBadge } from '@/components/task-status-badge'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 const searchSchema = z.object({
   tab: z.enum(['base', 'model', 'skills', 'mcp', 'perm', 'tasks']).optional(),

@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageError, PageLoading } from '@/components/ui/states'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { cn } from '@/lib/utils'
 export const Route = createFileRoute('/_app/squads/$squadId')({
   component: SquadDetailPage,

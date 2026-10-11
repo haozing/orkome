@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { createAgent, type Agent } from '@/api/orchestration'
 import { CredentialField } from '@/components/agent/credential-field'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
 const LABEL_CLASS = 'mb-1 block text-xs text-zinc-500'
 export function CreateAgentDialog({

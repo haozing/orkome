@@ -1,7 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Bell, CheckCheck } from 'lucide-react'
-import { useEffect } from 'react'
 import {
   getUnreadCount,
   listNotifications,
@@ -16,17 +15,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { wsClient } from '@/realtime/client'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
-const NOTIFICATION_FRAMES = [
-  'notification:read',
-  'notification:unread',
-  'notification:batch_read',
-  'notification:archived',
-  'notification:unarchived',
-  'notification:batch_archived',
-] as const
 function formatTime(iso: string, locale = 'en-US'): string {
   return new Date(iso).toLocaleString(locale, {
     month: '2-digit',
@@ -81,8 +71,10 @@ function PreviewRow({ item }: { item: NotificationItem }) {
 }
 export function NotificationBell() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
+  // Realtime: the hub pushes user-scoped notification:* frames; the central
+  // bridge in main.tsx invalidates ['notifications', …] on them, so both
+  // queries below refetch without per-component frame listeners.
   const unread = useQuery({
     queryKey: ['notifications', 'unread-count'],
     queryFn: getUnreadCount,
@@ -92,14 +84,6 @@ export function NotificationBell() {
     queryKey: ['notifications', 'recent'],
     queryFn: () => listNotifications(false, 8),
   })
-  useEffect(() => {
-    const unsubs = NOTIFICATION_FRAMES.map((type) =>
-      wsClient.on(type, () => {
-        void queryClient.invalidateQueries({ queryKey: ['notifications'] })
-      }),
-    )
-    return () => unsubs.forEach((un) => un())
-  }, [queryClient])
   const markAll = () => void markAllNotificationsRead()
   return (
     <DropdownMenu>

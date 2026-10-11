@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { meQueryOptions, sendLoginCode, verifyLoginCode } from '@/api/identity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {

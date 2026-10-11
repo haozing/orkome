@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateWorkItem, type WorkItem, type WorkItemPatch } from '@/api/work'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 export function useFieldUpdate(item: WorkItem) {
   const queryClient = useQueryClient()
   return useMutation({

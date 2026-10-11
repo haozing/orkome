@@ -1,5 +1,10 @@
-import { infiniteQueryOptions, type QueryFunctionContext } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import {
+  infiniteQueryOptions,
+  type InfiniteData,
+  type QueryFunctionContext,
+  type UseInfiniteQueryOptions,
+} from '@tanstack/react-query'
+import { api } from '@ploykit/client'
 export interface WorkItem {
   id: string
   workspace_id: string
@@ -202,7 +207,17 @@ export interface WorkItemListFilters {
   creator?: string
   subscriber?: string
 }
-export const workItemsInfiniteQuery = (limit = 30, filters: WorkItemListFilters = {}) =>
+// Explicit UseInfiniteQueryOptions annotation — see identity.ts note (TS2742).
+export const workItemsInfiniteQuery = (
+  limit = 30,
+  filters: WorkItemListFilters = {},
+): UseInfiniteQueryOptions<
+  { items: WorkItem[]; next_cursor: string | null },
+  Error,
+  InfiniteData<{ items: WorkItem[]; next_cursor: string | null }, string>,
+  readonly ['work-items', WorkItemListFilters],
+  string
+> =>
   infiniteQueryOptions({
     queryKey: ['work-items', filters] as const,
     queryFn: ({

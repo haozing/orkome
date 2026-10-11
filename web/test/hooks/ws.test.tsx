@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWsFrame, useWsScope, useWsStatus } from '@/hooks/ws'
-import type { FrameHandler } from '@/lib/ws'
+import type { FrameHandler } from '@ploykit/client'
 import { makeFakeSocketClient, resetFakeSockets } from '../helpers/fake-websocket'
 beforeEach(() => {
   resetFakeSockets()
@@ -64,18 +64,18 @@ describe('useWsScope', () => {
       { initialProps: { id: 't-1' } },
     )
     expect(lastSocket().sent).toContain(
-      '{"type":"subscribe","payload":{"scope":"task","id":"t-1"}}',
+      '{"type":"subscribe","scope":"task","id":"t-1"}',
     )
     rerender({ id: 't-2' })
     expect(lastSocket().sent).toContain(
-      '{"type":"subscribe","payload":{"scope":"task","id":"t-2"}}',
+      '{"type":"subscribe","scope":"task","id":"t-2"}',
     )
     expect(lastSocket().sent).toContain(
-      '{"type":"unsubscribe","payload":{"scope":"task","id":"t-1"}}',
+      '{"type":"unsubscribe","scope":"task","id":"t-1"}',
     )
     unmount()
     expect(lastSocket().sent).toContain(
-      '{"type":"unsubscribe","payload":{"scope":"task","id":"t-2"}}',
+      '{"type":"unsubscribe","scope":"task","id":"t-2"}',
     )
     client.close()
   })

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api } from '@ploykit/client'
 interface PackUIEntry {
   id: string
   pack: string

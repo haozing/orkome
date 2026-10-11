@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Ellipsis, ExternalLink, Link2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { deleteWorkItem, type WorkItem } from '@/api/work'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
 import {
   DropdownMenu,

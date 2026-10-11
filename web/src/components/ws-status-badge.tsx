@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { useWsStatus } from '@/hooks/ws'
-import type { WsStatus } from '@/lib/ws'
+import type { WsStatus } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
 const STATUS_META: Record<
   WsStatus,

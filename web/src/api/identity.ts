@@ -1,5 +1,5 @@
-import { queryOptions } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { queryOptions, type UseQueryOptions } from '@tanstack/react-query'
+import { api } from '@ploykit/client'
 export interface User {
   id: string
   email: string
@@ -12,7 +12,10 @@ export interface Workspace {
   id: string
   name: string
   slug: string
-  work_item_counter: number
+  /** Legacy /api/me carried it; the framework /api/workspaces list does not. */
+  work_item_counter?: number
+  plan_code?: string
+  role?: string
   created_at: string
 }
 export interface Member {
@@ -34,14 +37,17 @@ export function getServerConfig() {
   return api.get<ServerConfig>('/config')
 }
 export function sendLoginCode(email: string) {
+  // ploykit identity: {"status":"sent"} on success.
   return api.post<{
-    sent: boolean
+    status: string
   }>('/auth/send-code', { email })
 }
 export function verifyLoginCode(email: string, code: string) {
+  // ploykit identity: session cookie is set here; the CSRF token keeps
+  // coming from GET /config (no csrf_token in the response body anymore).
   return api.post<{
     user: User
-    csrf_token: string
+    expires_at: string
   }>('/auth/verify-code', { email, code })
 }
 export function logout() {
@@ -91,27 +97,52 @@ export function createToken(name: string, ttlSeconds = 0) {
 export function revokeToken(id: string) {
   return api.delete<void>(`/api/tokens/${id}`)
 }
-export const configQueryOptions = queryOptions({
+// Explicit UseQueryOptions annotations: the '@tanstack/react-query' paths
+// shim in tsconfig (for the module-cache ploykit bridge file) makes the
+// inferred option types non-portable for declaration emit (TS2742).
+export const configQueryOptions: UseQueryOptions<
+  ServerConfig,
+  Error,
+  ServerConfig,
+  readonly ['config']
+> = queryOptions({
   queryKey: ['config'] as const,
   queryFn: getServerConfig,
   staleTime: 5 * 60000,
 })
-export const meQueryOptions = queryOptions({
+export const meQueryOptions: UseQueryOptions<Me, Error, Me, readonly ['me']> = queryOptions({
   queryKey: ['me'] as const,
-  queryFn: async () => {
-    const me = await api.get<Me>('/api/me')
-    return { ...me, workspaces: me.workspaces ?? [] }
+  queryFn: async (): Promise<Me> => {
+    // Wire change on the ploykit rebase: GET /api/me {user, workspaces} was
+    // split into GET /auth/me (user) + GET /api/workspaces (memberships).
+    const [user, workspaces] = await Promise.all([
+      api.get<User>('/auth/me'),
+      api.get<Workspace[] | null>('/api/workspaces'),
+    ])
+    return { user, workspaces: workspaces ?? [] }
   },
   staleTime: 30000,
 })
-export const membersQueryOptions = (workspaceId: string) =>
+export const membersQueryOptions = (
+  workspaceId: string,
+): UseQueryOptions<
+  Member[],
+  Error,
+  Member[],
+  readonly ['workspace', string, 'members']
+> =>
   queryOptions({
     queryKey: ['workspace', workspaceId, 'members'] as const,
     queryFn: () => listMembers(workspaceId),
     enabled: !!workspaceId,
     staleTime: 5 * 60000,
   })
-export const tokensQueryOptions = queryOptions({
+export const tokensQueryOptions: UseQueryOptions<
+  PatToken[],
+  Error,
+  PatToken[],
+  readonly ['tokens']
+> = queryOptions({
   queryKey: ['tokens'] as const,
   queryFn: listTokens,
 })

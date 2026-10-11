@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { api, ApiError, __resetApiForTests, setWorkspaceIdProvider } from '@/lib/api'
+import { api, ApiError, setWorkspaceIdProvider } from '@ploykit/client'
+import { __resetApiForTests } from '@ploykit/client/api'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { server } from '../msw'
 describe('api client', () => {
@@ -65,16 +66,14 @@ describe('api client', () => {
     await api.post('/auth/verify-code', { email: 'a@b.c', code: '123456' })
     await api.post('/api/after-login')
   })
-  it('unified error envelope → ApiError (status/code/message/details)', async () => {
+  it('flat error envelope → ApiError (status/code/message/details)', async () => {
     server.use(
       http.post('/api/things', () =>
         HttpResponse.json(
           {
-            error: {
-              code: 'E_REVISION_CONFLICT',
-              message: 'revision conflict',
-              details: { expected: 3 },
-            },
+            error: 'E_REVISION_CONFLICT',
+            message: 'revision conflict',
+            details: { expected: 3 },
           },
           { status: 409 },
         ),

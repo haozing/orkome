@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { api } from '@ploykit/client'
 export interface Credential {
   id: string
   provider: string

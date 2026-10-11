@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 const COLLAPSED_COUNT = 5

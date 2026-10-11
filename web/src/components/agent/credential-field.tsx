@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { createCredential, listCredentials } from '@/api/credentials'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 const SELECT_CLASS =
   'h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
 export function CredentialField({

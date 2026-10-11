@@ -5,7 +5,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getWorkItem, updateWorkItem, type WorkItem } from '@/api/work'
 import { Markdown } from '@/components/markdown'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 const RichEditor = lazy(() =>
   import('@/components/editor/rich-editor').then((m) => ({ default: m.RichEditor })),
 )

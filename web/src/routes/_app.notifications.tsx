@@ -1,7 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Archive, CheckCheck, Circle, CircleCheck } from 'lucide-react'
-import { useEffect } from 'react'
 import { z } from 'zod'
 import {
   archiveAllReadNotifications,
@@ -14,7 +13,6 @@ import {
 } from '@/api/notification'
 import { Button } from '@/components/ui/button'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
-import { wsClient } from '@/realtime/client'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 const searchSchema = z.object({
@@ -28,14 +26,9 @@ export const Route = createFileRoute('/_app/notifications')({
   },
   component: NotificationsPage,
 })
-const NOTIFICATION_FRAMES = [
-  'notification:read',
-  'notification:unread',
-  'notification:batch_read',
-  'notification:archived',
-  'notification:unarchived',
-  'notification:batch_archived',
-] as const
+// Realtime: user-scoped notification:* frames arrive on the hub's user scope;
+// the central bridge in main.tsx invalidates the ['notifications', …] prefix
+// on them (see wsInvalidationRules), so this page needs no frame listeners.
 function useFormatTime() {
   const { i18n } = useTranslation()
   return (iso: string) =>
@@ -139,14 +132,6 @@ function NotificationsPage() {
     : search.unread
       ? 'unread'
       : 'all'
-  useEffect(() => {
-    const unsubs = NOTIFICATION_FRAMES.map((type) =>
-      wsClient.on(type, () => {
-        void queryClient.invalidateQueries({ queryKey: ['notifications'] })
-      }),
-    )
-    return () => unsubs.forEach((un) => un())
-  }, [queryClient])
   const list = useInfiniteQuery({
     queryKey: ['notifications', 'list', view],
     queryFn: ({ pageParam }: { pageParam: string }) =>

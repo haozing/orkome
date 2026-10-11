@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { createWorkspace, joinByShareCode, meQueryOptions } from '@/api/identity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@ploykit/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 export const Route = createFileRoute('/onboarding')({
   component: OnboardingPage,

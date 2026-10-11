@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { bridgeWsToQuery, type WsInvalidationRule } from '@/lib/ws-query-bridge'
+import { bridgeWsToQuery, type WsInvalidationRule } from '@ploykit/hooks/ws-query-bridge'
 import { makeFakeSocketClient, resetFakeSockets } from '../helpers/fake-websocket'
 describe('WS → Query invalidation bridge', () => {
   let queryClient: QueryClient
@@ -50,5 +50,21 @@ describe('WS → Query invalidation bridge', () => {
     off()
     lastSocket().serverSend({ type: 'task:queued', event_id: 'e4' })
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+  it('ws reconnect (second open) invalidates every rule key — stale-data resync', () => {
+    const { client, lastSocket } = makeFakeSocketClient()
+    bridgeWsToQuery(client, queryClient, rules)
+    client.connect()
+    lastSocket().serverOpen() // first open: no invalidation
+    expect(invalidateSpy).not.toHaveBeenCalled()
+    lastSocket().close()
+    client.reconnect()
+    lastSocket().serverOpen() // second open: resync
+    const invalidated = invalidateSpy.mock.calls.map(
+      (c: Parameters<QueryClient['invalidateQueries']>) => c[0]?.queryKey,
+    )
+    expect(invalidated).toContainEqual(['tasks'])
+    expect(invalidated).toContainEqual(['inbox'])
+    client.close()
   })
 })

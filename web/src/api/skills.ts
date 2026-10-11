@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { api } from '@ploykit/client'
 export interface Skill {
   id: string
   workspace_id: string
