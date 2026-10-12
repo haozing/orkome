@@ -403,6 +403,11 @@ type Repo interface {
 	HasActiveTask(ctx context.Context, wsID, workItemID, agentID string) (bool, error)
 
 	InsertDeferredTask(ctx context.Context, t Task) (Task, error)
+	// FindLeaderTaskByID 按 leader 任务 ID 直取（成员 context.leader_task_id 回指）。
+	FindLeaderTaskByID(ctx context.Context, workspaceID, leaderTaskID string) (Task, bool, error)
+	// CountOpenDispatchedMembers 工单内仍处未终态的 leader_dispatch 成员任务数
+	//（queued/dispatched/running）。为 0 表示全部成员已收割完毕，可唤醒 leader。
+	CountOpenDispatchedMembers(ctx context.Context, workspaceID, workItemID, leaderTaskID string) (int, error)
 
 	PromoteDeferred(ctx context.Context) ([]Task, error)
 
@@ -441,6 +446,12 @@ type NotificationWriter interface {
 type CommentWriter interface {
 	WriteAgentComment(ctx context.Context, workspaceID, workItemID, agentID, content string) error
 	HasAgentComment(ctx context.Context, workItemID string) (bool, error)
+}
+
+// LeaderWakeHook 派发式小队的 leader 自动回环：成员任务终态后调用。
+// 实现检查同工单同队是否全部成员已收割，是则给 leader 插入收割任务。
+type LeaderWakeHook interface {
+	WakeLeaderIfSquadDone(ctx context.Context, memberTask Task) error
 }
 
 // OutcomeWriter 工单产出写入端口（"需求→产出"一等公民）：任务结算 completed
@@ -804,6 +815,56 @@ func (s *EnqueueService) EnqueueLeaderDispatch(ctx context.Context, in LeaderDis
 		return "", "", err
 	}
 	return taskID, dispatchreason.Queued, nil
+}
+
+// SquadHarvestInput 派发式小队的 leader 收割任务入参（全部成员收割后的
+// 自动回环；IsLeaderTask=true + SquadID，让引擎注入 squadBrief 与成员工具）。
+type SquadHarvestInput struct {
+	WorkspaceID       string
+	WorkItemID        string
+	SquadID           string
+	LeaderTaskID      string
+	LeaderAgentID     string
+	Instruction       string
+	OriginatorUserID  string
+	AccountableUserID string
+}
+
+// EnqueueSquadHarvest 给 leader 插入收割任务。去重：同工单同队 leader 已有
+// queued/dispatched/running 任务则 coalesce（返回 AlreadyActive，不入队）。
+func (s *EnqueueService) EnqueueSquadHarvest(ctx context.Context, in SquadHarvestInput) (string, string, error) {
+	active, err := s.repo.HasActiveTask(ctx, in.WorkspaceID, in.WorkItemID, in.LeaderAgentID)
+	if err != nil {
+		return "", "", err
+	}
+	if active {
+		return "", dispatchreason.AlreadyActive, nil
+	}
+	ctxJSON := map[string]any{
+		"trigger": "squad_harvest", "squad_id": in.SquadID, "leader_task_id": in.LeaderTaskID,
+		"instruction": in.Instruction,
+	}
+	env := envelope(events.TaskQueued, in.WorkspaceID, in.OriginatorUserID, nil)
+	var t Task
+	if err := emitCommitted(ctx, s.emit, s.outbox, s.uow, &env, func(ctx context.Context) error {
+		inserted, err := s.repo.InsertTask(ctx, Task{
+			WorkspaceID: in.WorkspaceID, AgentID: in.LeaderAgentID, WorkItemID: in.WorkItemID,
+			Status: domain.Queued, MaxAttempts: 1, Context: ctxJSON,
+			OriginatorUserID: in.OriginatorUserID, AccountableUserID: in.AccountableUserID,
+			OriginatorSource: domain.SrcDelegation, TriggerEvidenceKind: domain.EvidenceSquad,
+			IsLeaderTask: true, SquadID: in.SquadID,
+		})
+		if err != nil {
+			return err
+		}
+		t = inserted
+		env.Payload = TaskPayload{ID: t.ID, WorkspaceID: t.WorkspaceID, AgentID: t.AgentID,
+			WorkItemID: t.WorkItemID, Status: t.Status}
+		return nil
+	}); err != nil {
+		return "", "", err
+	}
+	return t.ID, dispatchreason.Queued, nil
 }
 
 type ApprovalNotifier interface {

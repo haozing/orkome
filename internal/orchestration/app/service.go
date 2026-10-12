@@ -616,6 +616,9 @@ type SettlementService struct {
 	// outcomes 工单产出写入端口（"需求→产出"一等公民）：completed 结算时
 	// 后写覆盖工单 outcome。nil 时跳过（outcome 不落，行为同旧）。
 	outcomes     OutcomeWriter
+	// squadWake 派发式小队的 leader 自动回环：成员任务终态后检查同工单同队
+	// 是否全部收割，是则给 leader 挂一个收割任务（record_evaluation/汇总）。
+	squadWake    LeaderWakeHook
 	chats        ChatWriter
 	notifier     ApprovalNotifier
 	engine       Engine
@@ -654,6 +657,9 @@ func (s *SettlementService) SetChatDonePush(p UserFramePusher) { s.chatDonePush 
 // SetOutcomeWriter 接线工单产出写入（"需求→产出"）。不调用时 completed
 // 结算不落 outcome（评论兜底照旧——产出只活在工作项评论区）。
 func (s *SettlementService) SetOutcomeWriter(w OutcomeWriter) { s.outcomes = w }
+
+// SetSquadWake 接线派发式小队的 leader 自动回环（不调用则不唤醒——旧行为）。
+func (s *SettlementService) SetSquadWake(h LeaderWakeHook) { s.squadWake = h }
 
 // summaryForComplete 生成 completed 结算的 summary；summaries 未接线时
 // 直接走 domain.TaskSummary（与上移前 repo 内行为 byte-identical）。
@@ -726,7 +732,22 @@ func (s *SettlementService) complete(ctx context.Context, task Task, out EngineO
 		return err
 	}
 	s.promoteAfterTerminal(ctx, task)
+	s.wakeLeaderAfterTerminal(ctx, task)
 	return nil
+}
+
+// wakeLeaderAfterTerminal 派发式小队自动回环：来自 leader_dispatch 的成员
+// 任务终态后，若同工单同队全部成员已收割，则给 leader 插入收割任务
+// （record_evaluation/汇总用）。子任务链的唤醒由 create_child_work_item 的
+// 子工单完成事件另行驱动，不在此处。
+func (s *SettlementService) wakeLeaderAfterTerminal(ctx context.Context, task Task) {
+	if s.squadWake == nil || task.WorkItemID == "" {
+		return
+	}
+	if task.Context == nil || task.Context["trigger"] != "leader_dispatch" {
+		return
+	}
+	_ = s.squadWake.WakeLeaderIfSquadDone(ctx, task)
 }
 
 func (s *SettlementService) promoteAfterTerminal(ctx context.Context, task Task) {
@@ -923,6 +944,7 @@ func (s *SettlementService) fail(ctx context.Context, task Task, agent Agent, er
 	}
 
 	s.promoteAfterTerminal(ctx, task)
+	s.wakeLeaderAfterTerminal(ctx, task)
 	return nil
 }
 

@@ -174,6 +174,10 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 	)
 	// 工单产出（"需求→产出"一等公民）：completed 结算后写覆盖 work_item.outcome
 	settle.SetOutcomeWriter(workOutcomeWriter{wRepo: wRepo})
+	// 派发式小队自动回环：成员任务终态后检查同队全部收割 → leader 插收割任务
+	//（兑现 dispatch_to_member/create_child_work_item 对 leader 的"woken
+	// automatically"承诺；真模型 E2E 实证该回环此前未实现）。
+	settle.SetSquadWake(squadLeaderWake{repo: repo, enqueue: enq, log: log})
 
 	settle.SetApprovalDeps(approvalNotifier{repo: notification}, eng, func(ctx context.Context, ws, credID string) (string, error) {
 		_, secret, ok, err := repo.GetCredential(ctx, ws, credID)
@@ -489,6 +493,63 @@ type workItemPort struct{ wRepo *workpgrepo.Repo }
 func (p workItemPort) GetWorkItem(ctx context.Context, ws, id string) (orchapp.WorkItemInfo, bool, error) {
 	wi, ok, err := p.wRepo.GetWorkItem(ctx, ws, id)
 	return orchapp.WorkItemInfo{ID: wi.ID, Title: wi.Title, Desc: wi.Description}, ok, err
+}
+
+// squadLeaderWake orchapp.LeaderWakeHook 的装配适配器：成员任务终态后检查
+// 同工单同小队是否全部成员已收割，是则给 leader 插入一个收割任务
+//（IsLeaderTask=true，instruction 指向 record_evaluation + 最终汇总）。
+type squadLeaderWake struct {
+	repo    *orchpgrepo.Repo
+	enqueue *orchapp.EnqueueService
+	log     *slog.Logger
+}
+
+func (w squadLeaderWake) WakeLeaderIfSquadDone(ctx context.Context, memberTask orchapp.Task) error {
+	squadID, _ := memberTask.Context["squad_id"].(string)
+	leaderTaskID, _ := memberTask.Context["leader_task_id"].(string)
+	w.log.Info("squad wake: invoked", "trigger", memberTask.Context["trigger"], "squad_id", squadID, "leader_task_id", leaderTaskID, "wi", memberTask.WorkItemID)
+	if squadID == "" || leaderTaskID == "" {
+		return nil
+	}
+	leader, ok, err := w.repo.FindLeaderTaskByID(ctx, memberTask.WorkspaceID, leaderTaskID)
+	if err != nil {
+		w.log.Error("squad wake: find leader failed", "err", err)
+		return err
+	}
+	if !ok {
+		w.log.Error("squad wake: leader task not found", "squad", squadID)
+		return nil
+	}
+	// 唯一性：leader 已有收割任务在队（同工单同队 leader 任务 active）则不重复挂
+	open, err := w.repo.CountOpenDispatchedMembers(ctx, memberTask.WorkspaceID, memberTask.WorkItemID, leader.ID)
+	if err != nil {
+		w.log.Error("squad wake: count open failed", "err", err)
+		return err
+	}
+	if open > 0 {
+		w.log.Info("squad wake: members still open, skip", "open", open, "leader_task", leader.ID)
+		return nil
+	}
+	// leader 自身 active（如正在跑）也不重复挂——HasActiveTask 语义复用
+	if active, err := w.repo.HasActiveTask(ctx, memberTask.WorkspaceID, memberTask.WorkItemID, leader.AgentID); err == nil && active {
+		w.log.Info("squad wake: leader has active task, skip", "leader_task", leader.ID)
+		return nil
+	}
+	instruction := "小队成员任务已全部完成。请收尾：1) 用 record_evaluation 对各成员工作记录评估（正式台账，勿用评论代替）；2) 汇总各成员产出，用 post_comment 发中文总结评论（含各成员结果与最终结论）；3) 视需要更新工单状态。"
+	// 收割任务直接插 leader 任务（IsLeaderTask=true + SquadID）——
+	// EnqueueLeaderDispatch 会阻断 MemberAgentID==LeaderAgentID，不适用。
+	_, reason, err := w.enqueue.EnqueueSquadHarvest(ctx, orchapp.SquadHarvestInput{
+		WorkspaceID: memberTask.WorkspaceID, WorkItemID: memberTask.WorkItemID,
+		SquadID: squadID, LeaderTaskID: leader.ID, LeaderAgentID: leader.AgentID,
+		Instruction:    instruction,
+		OriginatorUserID: memberTask.OriginatorUserID, AccountableUserID: memberTask.AccountableUserID,
+	})
+	if err != nil {
+		w.log.Error("squad wake: enqueue harvest task failed", "err", err)
+		return err
+	}
+	w.log.Info("squad wake: harvest task enqueued", "leader_agent", leader.AgentID, "reason", reason)
+	return nil
 }
 
 // workOutcomeWriter orchapp.OutcomeWriter 的 work 域适配器：把结算产出

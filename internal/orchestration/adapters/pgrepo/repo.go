@@ -756,6 +756,32 @@ WHERE workspace_id=$1 AND work_item_id=$2::uuid AND agent_id=$3::uuid AND status
 	return exists, err
 }
 
+// FindLeaderTaskByID 按 leader 任务 ID 直取（成员 context.leader_task_id 精确回指，
+// 与工单/子工单归属无关——成员任务可能挂在子工单上）。
+func (r *Repo) FindLeaderTaskByID(ctx context.Context, wsID, leaderTaskID string) (orchapp.Task, bool, error) {
+	t, err := scanTask(r.q(ctx).QueryRow(ctx,
+		fmt.Sprintf(`SELECT %s FROM agent_task_queue WHERE workspace_id=$1::uuid AND id=$2::uuid AND is_leader_task`, taskCols),
+		wsID, leaderTaskID))
+	if noRow(err) {
+		return t, false, nil
+	}
+	return t, err == nil, err
+}
+
+// CountOpenDispatchedMembers 工单内仍处未终态的 leader_dispatch 成员任务数。
+// 排除 leader 自己与 defer 态（deferred 不占派发栅栏，promoteAfterTerminal 负责）。
+func (r *Repo) CountOpenDispatchedMembers(ctx context.Context, wsID, wiID, leaderTaskID string) (int, error) {
+	var n int
+	err := r.q(ctx).QueryRow(ctx, `
+SELECT count(*) FROM agent_task_queue
+WHERE workspace_id=$1::uuid AND work_item_id=$2::uuid
+  AND id <> $3::uuid AND is_leader_task = false
+  AND context->>'leader_task_id' = $3::text
+  AND status IN ('queued','dispatched','running')`,
+		wsID, wiID, leaderTaskID).Scan(&n)
+	return n, err
+}
+
 func (r *Repo) InsertDeferredTask(ctx context.Context, t orchapp.Task) (orchapp.Task, error) {
 	if t.OriginatorSource == "" {
 		t.OriginatorSource = "direct_human"

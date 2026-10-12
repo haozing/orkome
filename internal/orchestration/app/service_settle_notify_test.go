@@ -248,3 +248,52 @@ func TestSettle_NoOutcomeWriter_FallsBackToComment(t *testing.T) {
 
 	assert.Equal(t, 1, comments.writes, "outcome 未接线（旧行为）：评论兜底照旧")
 }
+
+// ---- 派发式小队自动回环（leader wake）----
+
+type fakeSquadWake struct{ calls int; last Task }
+
+func (f *fakeSquadWake) WakeLeaderIfSquadDone(_ context.Context, t Task) error {
+	f.calls++
+	f.last = t
+	return nil
+}
+
+func memberDispatchTask() Task {
+	return Task{
+		ID: "member-task-1", WorkspaceID: "ws-1", AgentID: "ag-member", WorkItemID: "wi-1",
+		Status: "running", MaxAttempts: 2,
+		Context: map[string]any{"trigger": "leader_dispatch", "leader_task_id": "leader-task-0", "squad_id": "sq-1"},
+	}
+}
+
+func TestSettle_MemberCompleted_TriggersSquadWake(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	wake := &fakeSquadWake{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, nil, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetSquadWake(wake)
+
+	agent := Agent{ID: "ag-member", WorkspaceID: "ws-1", Name: "member"}
+	require.NoError(t, settle.Settle(context.Background(), memberDispatchTask(), agent,
+		EngineOutput{Output: "member deliverable"}, nil))
+
+	assert.Equal(t, 1, wake.calls, "leader_dispatch 成员任务终态必须触发 wake")
+	assert.Equal(t, "leader_dispatch", wake.last.Context["trigger"])
+}
+
+func TestSettle_CommentTriggerTask_DoesNotWake(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	wake := &fakeSquadWake{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, nil, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetSquadWake(wake)
+
+	tk := memberDispatchTask()
+	tk.Context = map[string]any{"trigger": "comment"}
+	agent := Agent{ID: "ag-member", WorkspaceID: "ws-1", Name: "member"}
+	require.NoError(t, settle.Settle(context.Background(), tk, agent,
+		EngineOutput{Output: "x"}, nil))
+
+	assert.Equal(t, 0, wake.calls, "非 leader_dispatch 任务不触发 wake")
+}
