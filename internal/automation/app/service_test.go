@@ -1005,6 +1005,7 @@ func seedWakeup(t *testing.T, svc *WakeupService, repo *fakeRepo, kind, ws, wi, 
 		WorkspaceID: ws, WorkItemID: wi, AgentID: agent, Kind: kind, Instruction: "check it",
 		IntervalSeconds: 3600, EventTypes: []string{"comment.created"},
 		Condition: map[string]any{"field": "status", "op": "eq", "value": "done"},
+		CreatedBy: "user-1",
 	})
 	require.NoError(t, err)
 	stored := repo.wakeups[w.ID]
@@ -1580,17 +1581,22 @@ func TestWakeup_CreateValidation(t *testing.T) {
 	svc := newTestWakeupService(repo, &fakeEnqueuer{}, fakeFacts{})
 
 	_, err := svc.Create(context.Background(), Wakeup{
-		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1",
+		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1", CreatedBy: "user-1",
 		Kind: domain.WakeupEvent, Instruction: "x"})
 	require.Error(t, err, "event type must carry event_types")
 
 	_, err = svc.Create(context.Background(), Wakeup{
-		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1",
+		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1", CreatedBy: "user-1",
 		Kind: "weird", Instruction: "x"})
 	require.Error(t, err, "unknown kind rejected (system only via the platform entry)")
 
-	out, err := svc.Create(context.Background(), Wakeup{
+	_, err = svc.Create(context.Background(), Wakeup{
 		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1",
+		Kind: domain.WakeupEvent, Instruction: "x", EventTypes: []string{"comment.created"}})
+	require.Error(t, err, "missing created_by rejected at the gate (zero uuid would hit the originator FK on fire)")
+
+	out, err := svc.Create(context.Background(), Wakeup{
+		WorkspaceID: "ws-1", WorkItemID: "wi-1", AgentID: "ag-1", CreatedBy: "user-1",
 		Kind: domain.WakeupEvent, Instruction: "x", EventTypes: []string{"comment.created"}})
 	require.NoError(t, err)
 	require.Nil(t, out.NextFireAt, "event type has no next_fire (receipt-driven)")

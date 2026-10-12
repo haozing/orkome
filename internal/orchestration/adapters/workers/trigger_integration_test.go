@@ -231,7 +231,7 @@ func TestM4_Resume_PoisonConsistency(t *testing.T) {
 	require.True(t, ok)
 	_, err := e.repo.StartTask(ctx0(), t1.ID, "", "")
 	require.NoError(t, err)
-	require.NoError(t, e.repo.CompleteRun(ctx0(), t1.ID, "ok", "sess-1", "eino",
+	require.NoError(t, e.repo.CompleteRun(ctx0(), t1.ID, "ok", "sess-1", "eino", "",
 		orchapp.UsageReport{Provider: "fake", Model: "m"}))
 
 	t2, _, _ := e.enq.EnqueueAssignment(ctx0(), ws, wi, a.ID, user)
@@ -239,7 +239,7 @@ func TestM4_Resume_PoisonConsistency(t *testing.T) {
 	require.True(t, ok)
 	_, err = e.repo.StartTask(ctx0(), t2.ID, "", "")
 	require.NoError(t, err)
-	_, err = e.repo.FailRun(ctx0(), t2.ID, "agent_error.context_overflow", "ctx too long")
+	_, err = e.repo.FailRun(ctx0(), t2.ID, "agent_error.context_overflow", "ctx too long", "")
 	require.NoError(t, err)
 
 	ref, ok, err := e.repo.GetLastSessionRef(ctx0(), wi, a.ID, "")
@@ -251,7 +251,7 @@ func TestM4_Resume_PoisonConsistency(t *testing.T) {
 	_, ok, _ = e.repo.ClaimNext(ctx0(), a.ID, 6)
 	require.True(t, ok)
 	_, _ = e.repo.StartTask(ctx0(), t3.ID, "", "")
-	require.NoError(t, e.repo.CompleteRun(ctx0(), t3.ID, "ok2", "sess-2", "eino",
+	require.NoError(t, e.repo.CompleteRun(ctx0(), t3.ID, "ok2", "sess-2", "eino", "",
 		orchapp.UsageReport{Provider: "fake", Model: "m"}))
 	ref2, ok2, _ := e.repo.GetLastSessionRef(ctx0(), wi, a.ID, "")
 	require.True(t, ok2)
@@ -276,7 +276,7 @@ func TestM4_DelegatedRecovery(t *testing.T) {
 	require.True(t, ok)
 	_, _ = e.repo.StartTask(ctx0(), t1.ID, "", "")
 
-	_, err := e.repo.FailRun(ctx0(), t1.ID, "agent_provider.auth", "bad key")
+	_, err := e.repo.FailRun(ctx0(), t1.ID, "agent_provider.auth", "bad key", "")
 	require.NoError(t, err)
 
 	trig := orchapp.NewTriggerService(e.repo, e.bus)
@@ -295,7 +295,7 @@ func TestM4_DelegatedRecovery(t *testing.T) {
 	assert.Equal(t, user, recovery.OriginatorUserID, "attribution inherits from the source task (I3)")
 
 	for i := 0; i < 4; i++ {
-		_, _ = e.repo.FailRun(ctx0(), recovery.ID, "agent_provider.auth", "x")
+		_, _ = e.repo.FailRun(ctx0(), recovery.ID, "agent_provider.auth", "x", "")
 		_, _ = trig.RecoverDelegated(ctx0(), mustTask(t, e, ws, recovery.ID), "again")
 	}
 	all, _ := e.repo.ListTasksByWorkItem(ctx0(), wi, false)

@@ -1,0 +1,49 @@
+# agentblog pack —— 首个 pack 上板（波 4 D2，v1 格式）。
+# 契约基准：docs/pack-tool-contract-design-2026-10-11.md §4（v1 目标格式）；
+# D1 交接：D:\code\agentblog\doc\pack-mcp-jiaojie.md。
+# 说明：mcp.tools 段有意省略——六工具全部协议自描述 outputSchema
+#（B1 闸门 source=protocol 直接通过，pack.yaml 无需重复声明 output）。
+apiVersion: pack/v1
+name: agentblog
+version: 0.1.0
+
+# 凭证方向分离（契约文档 §4.3）：本 credential 仅用于
+# "平台 → agentblog（MCP 调用方向）"——provision 经 credentialRef 把它注入
+# MCP 请求头（Authorization: Bearer <token>）。
+# agentblog 侧对应环境变量 AGENTBLOG_MCPACK_TOKEN（/mcp/pack 端点开关 +
+# 校验值，token 未配置 = 端点 503 不放行匿名）。
+# "agentblog → 平台（回调 API）"走 PAT（专用服务账号），"平台 → agentblog
+#（事件推送验签）"走 webhook subscription 的 signing secret（D3 归属）——
+# 三者严格分离，均不经本键。
+credentials:
+  - key: AGENTBLOG_CALLBACK_TOKEN
+    description: agentblog 验证 orkome MCP 调用方向的 Bearer token（对端环境变量 AGENTBLOG_MCPACK_TOKEN 的取值）
+
+mcp:
+  - name: agentblog
+    transport: streamable_http
+    # 占位默认值：本机 fake 形态 full-server（AGENTBLOG_MCPACK_TOKEN 已配置时
+    # 挂 /mcp/pack）。provision 现状不做模板替换——url 是安装时写死进注册表的
+    # 值；换环境部署时安装前直接改本文件（或装后走 MCP 注册表端点改），
+    # 详见同目录 README.md。
+    url: http://localhost:8080/mcp/pack
+    credentialRef: AGENTBLOG_CALLBACK_TOKEN
+
+# 事件订阅（D3 归属；本 pack 先声明订阅面）：
+# 订阅 work_item.updated（work_item.completed 事件不存在——事件目录审计结论），
+# agentblog 侧按 payload.WorkItemPayload.status 过滤终态后归档。
+# url 需指向 agentblog 的 webhook 接收端（D3 交付前该端点不存在，安装时
+# 订阅创建会成功但推送将失败重试——README 有说明）。
+events:
+  - url: http://localhost:8080/hooks/orkome
+    types: ["work_item.updated"]
+
+ui:
+  entry:
+    label: 内容工厂
+    urlTemplate: http://localhost:8080/console?ws={workspaceId}&t={uiToken}
+  slots:
+    - slot: workitem.detail.tab
+      label: 文章预览
+      urlTemplate: http://localhost:8080/preview?item={workItemId}&t={uiToken}
+      height: 480

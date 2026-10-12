@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/events"
@@ -129,6 +131,26 @@ func (s *CatalogService) UpsertLabel(ctx context.Context, workspaceID, name, col
 
 func (s *CatalogService) ListLabels(ctx context.Context, workspaceID string) ([]Label, error) {
 	return s.repo.ListLabels(ctx, workspaceID)
+}
+
+// UpdateLabel updates the label addressed by path id (PUT /api/labels/{id}).
+// 404 when the id does not exist in the workspace — never an upsert-by-name.
+func (s *CatalogService) UpdateLabel(ctx context.Context, workspaceID, id, name, color string) (*Label, error) {
+	if _, ok := domain.ParseUUID(id); !ok {
+		return nil, apierr.New(apierr.NotFound, "label not found")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 50 {
+		return nil, apierr.NewValidation("invalid label name")
+	}
+	l, ok, err := s.repo.UpdateLabel(ctx, workspaceID, id, name, color)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, apierr.New(apierr.NotFound, "label not found")
+	}
+	return &l, nil
 }
 
 func (s *CatalogService) GetLabel(ctx context.Context, workspaceID, id string) (*Label, error) {
@@ -439,28 +461,45 @@ func (s *ViewService) Rows(ctx context.Context, workspaceID string, f QueryFilte
 	f = s.expandStatusFilter(ctx, workspaceID, f)
 	where, args := compileFilters(workspaceID, f, props)
 	if cursor != "" {
-		ct, cid, ok := parseCursor(cursor)
+		ct, cid, ok := decodeRowsCursor(cursor)
 		if !ok {
-			return nil, apierr.NewValidation("bad cursor")
+			return nil, apierr.NewValidation("bad cursor",
+				apierr.FieldError{Field: "cursor", Problem: "malformed cursor token"})
 		}
 
 		n := len(args)
-		where += fmt.Sprintf(" AND (wi.created_at, wi.id) < ($%d::timestamptz, $%d)", n+1, n+2)
+		where += fmt.Sprintf(" AND (wi.created_at, wi.id) < ($%d::timestamptz, $%d::uuid)", n+1, n+2)
 		args = append(args, ct, cid)
 	}
-	sqlq := fmt.Sprintf(`SELECT wi.id, wi.number, wi.title, wi.status_key, wi.priority, wi.assignee_type,
-		coalesce(wi.assignee_id::text,''), wi.revision, wi.created_at
-		FROM work_item wi %s ORDER BY wi.created_at DESC, wi.id DESC LIMIT %d`, where, limit)
+	// ::text + explicit aliases everywhere: pgx Values() hands uuid columns back
+	// as [16]byte (JSON: numeric array) and expression columns default to the
+	// expression text as the field name ("coalesce") — FP-18 D-01.
+	// LIMIT limit+1 mirrors ListWorkItems: an exactly-full last page must not
+	// advertise a next cursor that replays to an empty page.
+	sqlq := fmt.Sprintf(`SELECT wi.id::text AS id, wi.number AS number, wi.title AS title,
+		wi.status_key AS status_key, wi.priority AS priority, wi.assignee_type AS assignee_type,
+		coalesce(wi.assignee_id::text,'') AS assignee_id, wi.revision AS revision, wi.created_at AS created_at
+		FROM work_item wi %s ORDER BY wi.created_at DESC, wi.id DESC LIMIT %d`, where, limit+1)
 	rows, err := s.repo.QueryRows(ctx, sqlq, args)
 	if err != nil {
 		return nil, err
 	}
 	var next string
-	if len(rows) == limit {
-		last := rows[len(rows)-1]
-		next = fmt.Sprintf("%v|%v", last["created_at"], last["id"])
+	if len(rows) > limit {
+		last := rows[limit-1]
+		rows = rows[:limit]
+		if ct, ok := last["created_at"].(time.Time); ok {
+			cid, _ := last["id"].(string)
+			next = encodeRowsCursor(ct, cid)
+		}
 	}
-	return map[string]any{"items": rows, "next_cursor": next, "fingerprint": f.Fingerprint()}, nil
+	// Same exhausted-cursor rule as the list endpoints: omit next_cursor instead
+	// of sending "" (FP-11 P1-1 family).
+	out := map[string]any{"items": rows, "fingerprint": f.Fingerprint()}
+	if next != "" {
+		out["next_cursor"] = next
+	}
+	return out, nil
 }
 
 func (s *ViewService) Groups(ctx context.Context, workspaceID, groupBy string, f QueryFilters) ([]map[string]any, error) {
@@ -548,6 +587,21 @@ func compileFilters(workspaceID string, f QueryFilters, props []domain.PropFilte
 		conds = append(conds, fmt.Sprintf("wi.project_id::text = $%d", n))
 		args = append(args, f.Project)
 	}
+	// FP-18 D-04: labels/priority_min were echoed back by FilterSummary but
+	// never executed — implement both. A labels entry matches label id OR name
+	// (names are workspace-unique), unknown values simply filter to nothing.
+	if len(f.Labels) > 0 {
+		n++
+		conds = append(conds, fmt.Sprintf(
+			`EXISTS(SELECT 1 FROM work_item_to_label wl JOIN label l ON l.id = wl.label_id
+			  WHERE wl.work_item_id = wi.id AND (l.id::text = ANY($%d) OR l.name = ANY($%d)))`, n, n))
+		args = append(args, f.Labels)
+	}
+	if f.PriorityMin != nil {
+		n++
+		conds = append(conds, fmt.Sprintf("wi.priority >= $%d", n))
+		args = append(args, *f.PriorityMin)
+	}
 	if f.Search != "" {
 		n++
 		conds = append(conds, fmt.Sprintf("(wi.title ILIKE $%d OR wi.description ILIKE $%d)", n, n))
@@ -614,12 +668,38 @@ func resolvePropFilters(defs []domain.PropertyDef, raw map[string]string) ([]dom
 	return out, nil
 }
 
-func parseCursor(c string) (string, string, bool) {
-	parts := strings.SplitN(c, "|", 2)
-	if len(parts) != 2 {
-		return "", "", false
+// rowsCursor is the structured page cursor for table/rows. The old format was
+// fmt.Sprintf("%v|%v", time.Time, [16]byte) — Go debug text that could never be
+// replayed (any self-produced cursor 500'd, FP-18 D-01) — and its parser only
+// checked for a "|" so garbage cursors 500'd too (D-11). The cursor is now
+// base64url(JSON{created_at,id}); anything that does not decode to a real
+// timestamp + uuid is a 400, never a 500.
+type rowsCursor struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+}
+
+func encodeRowsCursor(ct time.Time, id string) string {
+	b, _ := json.Marshal(rowsCursor{CreatedAt: ct.UTC(), ID: id})
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeRowsCursor(c string) (time.Time, string, bool) {
+	b, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return time.Time{}, "", false
 	}
-	return parts[0], parts[1], true
+	var rc rowsCursor
+	if err := json.Unmarshal(b, &rc); err != nil {
+		return time.Time{}, "", false
+	}
+	if rc.ID == "" || rc.CreatedAt.IsZero() {
+		return time.Time{}, "", false
+	}
+	if _, ok := domain.ParseUUID(rc.ID); !ok {
+		return time.Time{}, "", false
+	}
+	return rc.CreatedAt, rc.ID, true
 }
 
 func (s *ViewService) Views(ctx context.Context, workspaceID, userID string) ([]View, error) {
@@ -693,7 +773,7 @@ func (s *SearchService) Search(ctx context.Context, workspaceID, q string, inclu
 	if q == "" || len(q) > 200 {
 		return nil, apierr.NewValidation("empty or too long query")
 	}
-	args := []any{workspaceID, "%" + q + "%"}
+	args := []any{workspaceID, "%" + q + "%", q}
 	conds := "wi.workspace_id = $1 AND (wi.title ILIKE $2 OR wi.description ILIKE $2)"
 	if !includeTerminal {
 		active := domain.ActiveStatusKeys(toDomainDefs(defs))
@@ -703,8 +783,12 @@ func (s *SearchService) Search(ctx context.Context, workspaceID, q string, inclu
 		args = append(args, active)
 		conds += fmt.Sprintf(" AND wi.status_key = ANY($%d)", len(args))
 	}
-	sqlq := fmt.Sprintf(`SELECT wi.id, wi.number, wi.title, wi.status_key,
-		substring(wi.title from greatest(1, strpos(lower(wi.title), lower($2)) - 20) for 80) AS snippet
+	// id must be ::text (uuid scans back as a numeric byte array otherwise) and
+	// the snippet anchors on the bare query $3 — using the %wildcard% $2 there
+	// made strpos miss every time (FP-18 D-09).
+	sqlq := fmt.Sprintf(`SELECT wi.id::text AS id, wi.number AS number, wi.title AS title,
+		wi.status_key AS status_key,
+		substring(wi.title from greatest(1, strpos(lower(wi.title), lower($3)) - 20) for 80) AS snippet
 		FROM work_item wi WHERE %s ORDER BY wi.updated_at DESC LIMIT 50`, conds)
 	return s.repo.SearchRows(ctx, sqlq, args)
 }

@@ -60,6 +60,7 @@ import (
 	"orkome/internal/orchestration/adapters/workers"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
+	"orkome/internal/platform/outboxx"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillpgrepo "orkome/internal/skills/adapters/pgrepo"
 	skillapp "orkome/internal/skills/app"
@@ -117,6 +118,11 @@ type stack struct {
 	jar      map[string][]*http.Cookie
 	csrf     map[string]string
 	wsID     string
+
+	// bus 事件总线（D4 金线：golden_thread_test.go 的 webhook 扇出 handler
+	// 需要 On(PhaseProject)——newStack 的 bus 原为局部变量，回填进 stack。
+	// 既有测试零行为改动，不读它）。
+	bus *eventbus.Bus
 }
 
 func newStack(t *testing.T) *stack {
@@ -157,7 +163,7 @@ autopilot_subscriber, autopilot_rule_version, autopilot_quota_period, autopilot_
 autopilot_quota_reservation, search_index_change, search_index_prune_mark, skill_to_label, agent_to_label,
 chat_draft_restore, chat_pinned_agent, chat_message, chat_cancel_pending, chat_session,
 source_context_object_intent, system_wakeup_setting, agent_builder_draft, quick_action,
-member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_token, pack_ui_entry, "user" RESTART IDENTITY CASCADE`)
+member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_token, pack_ui_entry, pack_tool_schema, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	db := pg.WrapPool(pool)
@@ -181,12 +187,23 @@ member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_
 
 	wRepo := &workpgrepo.Repo{DB: db}
 	workDeps := workhttpDeps(db, bus, wRepo, idRepo)
+	// D4 金线：事件 outbox（与生产 wiring_work.go SetOutbox(rec, db.Within)
+	// 同构）——Envelope.EventID 只在 outbox 分支填充，未接时 work_item.updated
+	// 事件无 EventID，webhook 扇出（Emit→delivery）按 EventID 空值丢弃。
+	rec := outboxx.NewRecorder(db)
+	workDeps.WorkItems.SetOutbox(rec, db.Within)
+	workDeps.Comments.SetOutbox(rec, db.Within)
 
 	orepo := orchpgrepo.New(db)
 	convRepo := convpgrepo.New(db)
 	eng := &engine.EinoEngine{
 		Checkpoints: &engine.CheckpointStore{DB: db},
 		WorkBench:   wbAdapter{wRepo: wRepo},
+		// D4 金线：task_message 落库 sink（与生产 wiring_orchestration.go
+		// TaskMessages: repo 同构）——此前 stack 未接，engine 的 tool_use/
+		// tool_result/text 消息不落 task_message 表，金线的三卡形状断言
+		// （B2 数据面）读不到。
+		TaskMessages: orepo,
 		TaskStatus: func(ctx context.Context, taskID string) (string, error) {
 			var st string
 			err := db.Tx(ctx).QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id=$1`, taskID).Scan(&st)
@@ -488,7 +505,7 @@ ORDER BY created_at DESC LIMIT 50`, ws, wakeupID)
 
 	s := &stack{t: t, pool: pool, rootRec: rootRec, wsMux: wsMux, handler: webx.ClientMetadata(webx.CSRFConditional(&webx.CSRFConfig{Key: webx.DeriveCSRFKey(secret), TrustLocalhostAnyPort: true}, false)(authMw(root))), rootMux: root, authMw: authMw, orepo: orepo, settle: settle, eng: eng, auto: auto,
 		wRepo: wRepo, comments: workapp.NewCommentService(wRepo, bus, time.Now),
-		jar: map[string][]*http.Cookie{}, csrf: map[string]string{}}
+		jar: map[string][]*http.Cookie{}, csrf: map[string]string{}, bus: bus}
 
 	dctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

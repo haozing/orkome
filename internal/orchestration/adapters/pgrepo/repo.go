@@ -354,6 +354,7 @@ t.attempt, t.max_attempts, t.context, coalesce(t.originator_user_id::text,''), c
 t.originator_source, coalesce(t.trigger_evidence_kind,''), coalesce(t.session_ref_in,''), t.is_leader_task, coalesce(t.squad_id::text,''), coalesce(t.failure_reason,''), coalesce(t.error,''),
 coalesce(t.result,''), t.created_at, t.completed_at, coalesce(t.summary,'')`
 
+// lastText 保留为内部实现（LastTaskText 的底层），供需要旧读路径的地方复用。
 func (r *Repo) lastText(ctx context.Context, taskID string) string {
 	var s string
 	if err := r.q(ctx).QueryRow(ctx,
@@ -364,6 +365,12 @@ func (r *Repo) lastText(ctx context.Context, taskID string) string {
 	return s
 }
 
+// LastTaskText 实现 app.Repo 端口：summary 生成已上移 service 层（A2），
+// repo 只负责读取材料（最后一条 text 消息）与落存，不再计算 summary。
+func (r *Repo) LastTaskText(ctx context.Context, taskID string) (string, error) {
+	return r.lastText(ctx, taskID), nil
+}
+
 func (r *Repo) StartTask(ctx context.Context, id, runtimeID, engineTag string) (orchapp.Task, error) {
 	t, err := scanTask(r.q(ctx).QueryRow(ctx, fmt.Sprintf(`
 UPDATE agent_task_queue SET status='running', started_at=now(), prepare_lease_expires_at=NULL,
@@ -372,9 +379,10 @@ WHERE id=$1 AND status IN ('dispatched') RETURNING %s`, taskCols), id, runtimeID
 	return t, err
 }
 
-func (r *Repo) CompleteRun(ctx context.Context, id, result, sessionRef, engineTag string, u orchapp.UsageReport) error {
+// CompleteRun 落存结算。summary 由 service 层生成后传入（A2 分层上移：
+// repo 只存取，LLM/截断逻辑都在 service 层）；usage 落 task_usage。
+func (r *Repo) CompleteRun(ctx context.Context, id, result, sessionRef, engineTag, summary string, u orchapp.UsageReport) error {
 	return r.DB.Within(ctx, func(ctx context.Context) error {
-		summary := domain.TaskSummary(r.lastText(ctx, id), result)
 		tag, err := r.q(ctx).Exec(ctx, `
 UPDATE agent_task_queue SET status='completed', completed_at=now(), result=$2,
   session_ref_out=nullif($3,''), engine_tag=nullif($4,''), summary=nullif($5,'')
@@ -397,10 +405,11 @@ FROM agent_task_queue WHERE id=$1`,
 	})
 }
 
-func (r *Repo) FailRun(ctx context.Context, id, reason, errMsg string) (bool, error) {
+// FailRun 落存失败并按失败分类学决定是否排重试子任务。summary 由 service
+// 层生成后传入（A2 分层上移）；重试子任务的 prior_summary 携带同一份 summary。
+func (r *Repo) FailRun(ctx context.Context, id, reason, errMsg, summary string) (bool, error) {
 	attempted := false
 	err := r.DB.Within(ctx, func(ctx context.Context) error {
-		summary := domain.TaskSummary(r.lastText(ctx, id), reason+": "+errMsg)
 		var t orchapp.Task
 		err := r.q(ctx).QueryRow(ctx, fmt.Sprintf(`
 UPDATE agent_task_queue SET status='failed', completed_at=now(), failure_reason=$2, error=$3, summary=$4
@@ -498,151 +507,6 @@ WHERE status='running'
 		return 0, err
 	}
 	return int(tag.RowsAffected()), nil
-}
-
-const wsMCPCols = `id::text, workspace_id::text, name, transport, url, credentials, created_at`
-
-func scanWSMCP(row pgx.Row) (orchapp.WorkspaceMCP, error) {
-	var m orchapp.WorkspaceMCP
-	err := row.Scan(&m.ID, &m.WorkspaceID, &m.Name, &m.Transport, &m.URL, &m.Credentials, &m.CreatedAt)
-	m.HasCreds = len(m.Credentials) > 0
-	return m, err
-}
-
-func (r *Repo) ListWorkspaceMCP(ctx context.Context, wsID string) ([]orchapp.WorkspaceMCP, error) {
-	rows, err := r.q(ctx).Query(ctx,
-		`SELECT `+wsMCPCols+` FROM workspace_mcp_server WHERE workspace_id=$1 ORDER BY name`, wsID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []orchapp.WorkspaceMCP
-	for rows.Next() {
-		m, err := scanWSMCP(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-func (r *Repo) CreateWorkspaceMCP(ctx context.Context, m orchapp.WorkspaceMCP) (orchapp.WorkspaceMCP, error) {
-	out, err := scanWSMCP(r.q(ctx).QueryRow(ctx, `
-INSERT INTO workspace_mcp_server (workspace_id, name, transport, url, credentials)
-VALUES ($1,$2,$3,$4,$5) RETURNING `+wsMCPCols,
-		m.WorkspaceID, m.Name, orDefault(m.Transport, "http"), m.URL, credJSON(m.Credentials)))
-
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return out, apierr.New(apierr.Conflict, "mcp server name already taken")
-	}
-	return out, err
-}
-
-func (r *Repo) UpdateWorkspaceMCP(ctx context.Context, m orchapp.WorkspaceMCP) (orchapp.WorkspaceMCP, bool, error) {
-	out, err := scanWSMCP(r.q(ctx).QueryRow(ctx, `
-UPDATE workspace_mcp_server SET name=$3, transport=$4, url=$5, credentials=$6
-WHERE workspace_id=$1 AND id=$2 RETURNING `+wsMCPCols,
-		m.WorkspaceID, m.ID, m.Name, orDefault(m.Transport, "http"), m.URL, credJSON(m.Credentials)))
-	if noRow(err) {
-		return out, false, nil
-	}
-	return out, err == nil, err
-}
-
-func (r *Repo) DeleteWorkspaceMCP(ctx context.Context, wsID, id string) error {
-	_, err := r.q(ctx).Exec(ctx,
-		`DELETE FROM workspace_mcp_server WHERE workspace_id=$1 AND id=$2`, wsID, id)
-	return err
-}
-
-func credJSON(c map[string]any) []byte {
-	if len(c) == 0 {
-		return []byte(`{}`)
-	}
-	b, _ := json.Marshal(c)
-	return b
-}
-
-func credJSONOrNull(c map[string]any) any {
-	if c == nil {
-		return nil
-	}
-	return credJSON(c)
-}
-
-func (r *Repo) ListAgentMCP(ctx context.Context, wsID, agentID string) ([]orchapp.AgentMCP, bool, error) {
-	var n int
-	if err := r.q(ctx).QueryRow(ctx,
-		`SELECT count(*) FROM agent WHERE workspace_id=$1 AND id=$2`, wsID, agentID).Scan(&n); err != nil || n == 0 {
-		return nil, false, err
-	}
-	rows, err := r.q(ctx).Query(ctx, `
-SELECT id::text, agent_id::text, name, transport, url, enabled, credentials
-FROM agent_mcp_server WHERE agent_id=$1 ORDER BY name`, agentID)
-	if err != nil {
-		return nil, true, err
-	}
-	defer rows.Close()
-	var out []orchapp.AgentMCP
-	for rows.Next() {
-		var m orchapp.AgentMCP
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Name, &m.Transport, &m.URL, &m.Enabled, &m.Credentials); err != nil {
-			return nil, true, err
-		}
-		m.HasCreds = len(m.Credentials) > 0
-		out = append(out, m)
-	}
-	return out, true, rows.Err()
-}
-
-const agentMCPCols = `id::text, agent_id::text, name, transport, url, enabled, credentials`
-
-func scanAgentMCP(row pgx.Row) (orchapp.AgentMCP, error) {
-	var m orchapp.AgentMCP
-	if err := row.Scan(&m.ID, &m.AgentID, &m.Name, &m.Transport, &m.URL, &m.Enabled, &m.Credentials); err != nil {
-		return m, err
-	}
-	m.HasCreds = len(m.Credentials) > 0
-	return m, nil
-}
-
-func (r *Repo) UpsertAgentMCP(ctx context.Context, m orchapp.AgentMCP) (orchapp.AgentMCP, error) {
-	return scanAgentMCP(r.q(ctx).QueryRow(ctx, `
-INSERT INTO agent_mcp_server (agent_id, name, transport, url, credentials, enabled)
-VALUES ($1,$2,$3,$4,coalesce($5::jsonb,'{}'::jsonb),$6)
-ON CONFLICT (agent_id, name) DO UPDATE SET
-  transport=EXCLUDED.transport, url=EXCLUDED.url, enabled=EXCLUDED.enabled,
-  credentials=coalesce($5::jsonb, agent_mcp_server.credentials)
-RETURNING `+agentMCPCols,
-		m.AgentID, m.Name, orDefault(m.Transport, "http"), m.URL, credJSONOrNull(m.Credentials), m.Enabled))
-}
-
-func (r *Repo) UpdateAgentMCP(ctx context.Context, m orchapp.AgentMCP) (orchapp.AgentMCP, bool, error) {
-	out, err := scanAgentMCP(r.q(ctx).QueryRow(ctx, `
-UPDATE agent_mcp_server s SET name=$3, transport=$4, url=$5,
-  credentials=coalesce($6::jsonb, s.credentials), enabled=$7
-WHERE s.id=$2 AND s.agent_id=$1
-  AND EXISTS (SELECT 1 FROM agent a WHERE a.id=s.agent_id AND a.workspace_id=$8)
-RETURNING `+agentMCPCols,
-		m.AgentID, m.ID, m.Name, orDefault(m.Transport, "http"), m.URL, credJSONOrNull(m.Credentials),
-		m.Enabled, m.WorkspaceID))
-	if noRow(err) {
-		return out, false, nil
-	}
-	if err != nil {
-		return out, false, err
-	}
-	return out, true, nil
-}
-
-func (r *Repo) DeleteAgentMCP(ctx context.Context, wsID, agentID, id string) error {
-	_, err := r.q(ctx).Exec(ctx, `
-DELETE FROM agent_mcp_server s
-WHERE s.id=$3 AND s.agent_id=$2
-  AND EXISTS (SELECT 1 FROM agent a WHERE a.id=s.agent_id AND a.workspace_id=$1)`, wsID, agentID, id)
-	return err
 }
 
 func (r *Repo) UpsertRuntime(ctx context.Context, instanceID, engineName string, caps []string) error {
@@ -984,6 +848,11 @@ func (r *Repo) CancelTasksByTriggerComment(ctx context.Context, wsID, commentID 
 }
 
 func (r *Repo) HistoryAgentIDs(ctx context.Context, workItemID string) ([]string, error) {
+	if workItemID == "" {
+		// preview-trigger 无 workItemId（POST /api/work-items/preview-trigger）：
+		// 空串进 $1::uuid 会撞 22P02，直接返回空历史（无历史即无推荐输入）。
+		return nil, nil
+	}
 	rows, err := r.q(ctx).Query(ctx, `
 SELECT DISTINCT agent_id::text FROM agent_task_queue WHERE work_item_id=$1::uuid`, workItemID)
 	if err != nil {
@@ -1043,9 +912,14 @@ func (r *Repo) GetLastSessionRef(ctx context.Context, workItemID, agentID, engin
 }
 
 func (r *Repo) ListSquadFacts(ctx context.Context, wsID string) ([]domain.SquadFacts, error) {
+	// 三处可空/数组列都必须落成"可 Scan 进 string/[]byte"的形状：
+	// - leader_agent_id 可空 → coalesce(...,'')（NULL 扫进 string 曾致 Preview/OnComment 全链 500，batch1 根因 D）
+	// - array_agg 产出 text[]（OID 1009），pgx 二进制协议扫不进 []byte → 改 jsonb_agg
+	//   产出 jsonb（可扫 []byte），且 jsonUnmarshalStrings 从此真正解析出成员（旧 PG 数组
+	//   字面量 `{a,b}` 不是 JSON，MemberIDs 恒空）
 	rows, err := r.q(ctx).Query(ctx, `
-SELECT s.id::text, s.leader_agent_id::text,
-  coalesce((SELECT array_agg(sm.agent_id::text) FROM squad_member sm WHERE sm.squad_id=s.id), '{}')
+SELECT s.id::text, coalesce(s.leader_agent_id::text,''),
+  coalesce((SELECT jsonb_agg(sm.agent_id::text) FROM squad_member sm WHERE sm.squad_id=s.id), '[]'::jsonb)
 FROM squad s WHERE s.workspace_id=$1`, wsID)
 	if err != nil {
 		return nil, err

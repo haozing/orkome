@@ -6,12 +6,15 @@ var RouteContract = map[string][]string{
 	"identity_root": {
 		"POST /auth/send-code", "POST /auth/verify-code",
 		"POST /auth/logout", "GET /config", "POST /cli-token",
+		// FP-16 P1-1 接线后活化的账号端点（identityhttp.Mount，Account 非 nil 才挂）
+		"POST /auth/forgot-password", "POST /auth/reset-password",
+		"POST /auth/send-verification", "POST /auth/verify-email", "DELETE /auth/me",
 	},
 	"identity_api": {
 		"GET/PATCH /me", "GET/POST /workspaces", "GET/PATCH/DELETE /workspaces/{id}",
 		"GET/POST /workspaces/{id}/members", "PATCH/DELETE .../members/{memberId}", "POST .../leave",
-		"GET/POST/DELETE .../invitations", "GET /invitations", "POST /invitations/{id}/accept|decline",
-		"POST/GET/DELETE .../share-links", "GET /share-links/{code}", "POST /share-links/join",
+		"GET/POST/DELETE .../invitations", "GET /invitations/mine", "POST /invitations/{id}/accept|decline",
+		"POST/GET/DELETE .../share-links", "POST /share-links/redeem", // 框架只有 redeem（batch1 根因 C：join 为幽灵契约）
 		"GET/POST /tokens", "POST /tokens/current/renew", "DELETE /tokens/{id}",
 	},
 	"work": {

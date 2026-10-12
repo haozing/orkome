@@ -32,6 +32,7 @@ type Repo interface {
 	AdvisoryLockTitle(ctx context.Context, workspaceID, normTitle string) (func(), error)
 
 	UpsertLabel(ctx context.Context, workspaceID, name, color string) (Label, error)
+	UpdateLabel(ctx context.Context, workspaceID, id, name, color string) (Label, bool, error)
 	DeleteLabel(ctx context.Context, workspaceID, id string) error
 	ListLabels(ctx context.Context, workspaceID string) ([]Label, error)
 	SetWorkItemLabels(ctx context.Context, workItemID string, labelIDs []string) error

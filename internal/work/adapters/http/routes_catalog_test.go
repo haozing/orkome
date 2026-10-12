@@ -29,6 +29,9 @@ type fakeCatalogRepo struct {
 	resources map[string]app.ProjectResource
 	attached  [][2]string
 	subCalls  int
+	// nextCursor is returned by ListWorkItems when the filtered page is full
+	// (simulates "more pages exist"); "" means exhausted.
+	nextCursor string
 }
 
 type fakeProject struct {
@@ -43,6 +46,14 @@ type fakePropDef struct {
 	archived bool
 }
 
+// Label ids are uuid-shaped because UpdateLabel (like the real pgrepo layer)
+// rejects non-uuid path ids with 404 before ever reaching storage.
+const (
+	lab1ID   = "00000000-0000-4000-8000-000000000001"
+	lab2ID   = "00000000-0000-4000-8000-000000000002"
+	labGhost = "00000000-0000-4000-8000-0000000000ff"
+)
+
 func newFakeCatalogRepo() *fakeCatalogRepo {
 	return &fakeCatalogRepo{
 		items: map[string]app.WorkItem{
@@ -50,8 +61,8 @@ func newFakeCatalogRepo() *fakeCatalogRepo {
 				Properties: map[string]any{}, Revision: 3},
 		},
 		labels: map[string]app.Label{
-			"lab-1": {ID: "lab-1", Name: "core", Color: "#f00"},
-			"lab-2": {ID: "lab-2", Name: "peripheral"},
+			lab1ID: {ID: lab1ID, Name: "core", Color: "#f00"},
+			lab2ID: {ID: lab2ID, Name: "peripheral"},
 		},
 		mounted:  map[[2]string]bool{},
 		subs:     map[[2]string]app.Subscriber{},
@@ -362,14 +373,14 @@ func TestLabelsIncrementalMount(t *testing.T) {
 
 	assert.Equal(t, http.StatusMethodNotAllowed, doCat(r, http.MethodPut, base, `{"label_ids":[]}`).Code)
 
-	rec := doCat(r, http.MethodPost, base, `{"label_id":"lab-1"}`)
+	rec := doCat(r, http.MethodPost, base, `{"label_id":"`+lab1ID+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var labels []app.Label
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &labels))
 	require.Len(t, labels, 1)
-	assert.Equal(t, "lab-1", labels[0].ID)
+	assert.Equal(t, lab1ID, labels[0].ID)
 
-	rec = doCat(r, http.MethodPost, base, `{"label_id":"lab-1"}`)
+	rec = doCat(r, http.MethodPost, base, `{"label_id":"`+lab1ID+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &labels))
 	assert.Len(t, labels, 1)
@@ -382,13 +393,13 @@ func TestLabelsIncrementalMount(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, doCat(r, http.MethodPost, base, `{}`).Code)
 	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, base, `{"label_id":"lab-x"}`).Code)
 
-	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, "/api/work-items/wi-x/labels", `{"label_id":"lab-1"}`).Code)
+	assert.Equal(t, http.StatusNotFound, doCat(r, http.MethodPost, "/api/work-items/wi-x/labels", `{"label_id":"`+lab1ID+`"}`).Code)
 
-	rec = doCat(r, http.MethodDelete, base+"/lab-1", "")
+	rec = doCat(r, http.MethodDelete, base+"/"+lab1ID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &labels))
 	assert.Empty(t, labels)
-	rec = doCat(r, http.MethodDelete, base+"/lab-1", "")
+	rec = doCat(r, http.MethodDelete, base+"/"+lab1ID, "")
 	require.Equal(t, http.StatusOK, rec.Code, "re-deleting an unmounted entry should succeed idempotently")
 	require.Len(t, repo.attached, 2, "two attaches each hit one repo write")
 }
@@ -642,11 +653,11 @@ func TestProjectCRUD(t *testing.T) {
 func TestGetLabel(t *testing.T) {
 	r, _ := newCatalogRouter(t)
 
-	rec := doCat(r, http.MethodGet, "/api/labels/lab-1", "")
+	rec := doCat(r, http.MethodGet, "/api/labels/"+lab1ID, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var l app.Label
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &l))
-	assert.Equal(t, "lab-1", l.ID)
+	assert.Equal(t, lab1ID, l.ID)
 	assert.Equal(t, "core", l.Name)
 
 	rec = doCat(r, http.MethodGet, "/api/labels/lab-x", "")

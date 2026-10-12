@@ -67,6 +67,10 @@ type EventIn struct {
 	Type        string
 	WorkItemID  string
 
+	// ActorUserID 事件起源者（Envelope.ActorUserID 透传）。非空时投影侧跳过
+	// 本人——起源者不再收到"自己动作"的通知（FP-10 P2-2 自通知族）。
+	ActorUserID string
+
 	SessionID string
 	Title     string
 	Body      string
@@ -100,6 +104,11 @@ func (s *NotifyService) Handle(ctx context.Context, in EventIn) error {
 		if id != "" {
 			recipients[id] = true
 		}
+	}
+	// FP-10：起源者自通知过滤——actor 本人无论经由订阅/提及/直发进入收件
+	// 集合，一律跳过（评估/审批等直写路径不在本投影内，不受影响）。
+	if in.ActorUserID != "" {
+		delete(recipients, in.ActorUserID)
 	}
 	if len(recipients) == 0 {
 		return nil

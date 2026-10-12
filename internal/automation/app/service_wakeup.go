@@ -45,6 +45,11 @@ type MemberNotifier func(ctx context.Context, workspaceID, userID, title, body, 
 func (s *WakeupService) SetBurstLimit(n int) { s.burstMax = n }
 
 func (s *WakeupService) Create(ctx context.Context, w Wakeup) (*Wakeup, error) {
+	if strings.TrimSpace(w.CreatedBy) == "" {
+		// created_by 缺失会让 fire 阶段补零 UUID 撞 originator FK：任务插不进去、
+		// next_fire_at 永不推进、due 扫描每秒重试同一失败。必须在创建入口拦下。
+		return nil, apierr.NewValidation("created_by required (authenticated principal missing)")
+	}
 	if err := domain.ValidateInstruction(w.Instruction); err != nil {
 		return nil, apierr.NewValidation(err.Error())
 	}

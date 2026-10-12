@@ -17,6 +17,12 @@ func toolFail(what string, err error) (string, error) {
 	return fmt.Sprintf("%s: %s: %s", failuretax.AgentToolFailed, what, err.Error()), nil
 }
 
+// ---- C1 契约元数据（ContractTool 可选接口实现，行为不变，仅注册表侧声明）------
+//
+// 领队三件套全部有副作用（派发任务/建子工单/写评估台账）且输出是含动态
+// 标识（taskID/工单ID/成员名）的模板文本，schema 只锚定字符串形状；
+// 全部不并行（fail-closed 默认）。
+
 func chainRootOf(t orchapp.Task) orchapp.ChildDelegation {
 	root := t.OriginatorUserID
 	return orchapp.ChildDelegation{
@@ -77,6 +83,14 @@ func (t *dispatchToMemberTool) InvokableRun(ctx context.Context, args string, _ 
 	}
 }
 
+// dispatchToMemberTool 派发任务（有副作用），输出是含成员名/taskID 的模板文本。
+func (t *dispatchToMemberTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// dispatchToMemberTool 有副作用，不并行。
+func (t *dispatchToMemberTool) ConcurrencySafe() bool { return false }
+
 func (t *dispatchToMemberTool) resolveMember(m string) (string, string) {
 	for _, mem := range t.members {
 		if mem.AgentID == m || mem.Name == m {
@@ -126,6 +140,14 @@ func (t *createChildWorkItemTool) InvokableRun(ctx context.Context, args string,
 	return fmt.Sprintf("Sub work item created: %s (%s). You will be woken automatically when all sub-items complete.", wi.Title, wi.ID), nil
 }
 
+// createChildWorkItemTool 建子工单（有副作用），输出是含标题/ID 的模板文本。
+func (t *createChildWorkItemTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// createChildWorkItemTool 有副作用，不并行。
+func (t *createChildWorkItemTool) ConcurrencySafe() bool { return false }
+
 type recordEvaluationTool struct {
 	recorder orchapp.SquadEvaluationRecorder
 	task     orchapp.Task
@@ -164,3 +186,11 @@ func (t *recordEvaluationTool) InvokableRun(ctx context.Context, args string, _ 
 	}
 	return fmt.Sprintf("Evaluation recorded (%s → %s).", in.Member, in.Verdict), nil
 }
+
+// recordEvaluationTool 写评估台账（有副作用），输出是含成员名/裁定的模板文本。
+func (t *recordEvaluationTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// recordEvaluationTool 有副作用，不并行。
+func (t *recordEvaluationTool) ConcurrencySafe() bool { return false }

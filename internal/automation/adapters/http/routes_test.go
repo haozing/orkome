@@ -302,6 +302,12 @@ func newWakeupRepoFake() *wakeupRepoFake {
 		sysRules: map[string]app.Wakeup{}, deliveries: map[string]app.Delivery{}}
 }
 
+func (f *wakeupRepoFake) CreateWakeup(_ context.Context, w app.Wakeup) (app.Wakeup, error) {
+	w.ID = f.id("wk")
+	f.wakeups[w.ID] = w
+	return w, nil
+}
+
 func (f *wakeupRepoFake) id(p string) string {
 	f.nextID++
 	return fmt.Sprintf("%s-%d", p, f.nextID)
@@ -533,6 +539,46 @@ func TestWakeupTailEndpoints(t *testing.T) {
 	require.True(t, fr.deleted)
 }
 
+// FP-13 P0-2 回归：createWakeup 曾从不设置 CreatedBy（Wakeup.CreatedBy 无 json
+// tag 暴露，body 也传不进来）→ fire 时补零 UUID 撞 agent_task_queue 的
+// originator_user_id FK → InsertTask 失败、next_fire_at 永不推进、due 扫描每秒
+// 重试同一失败（PG 错误洪水，无日志无自愈）。修复后 handler 必须从认证
+// principal 回填 created_by。
+func TestCreateWakeup_BackfillsCreatedByFromPrincipal(t *testing.T) {
+	fr := newWakeupRepoFake()
+	r := mountedDeps(newTailDeps(fr))
+
+	w := doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups", "ws-1",
+		`{"kind":"event","instruction":"check it","event_types":["comment.created"]}`)
+	require.Equal(t, http.StatusCreated, w.Code)
+	var created app.Wakeup
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	stored, ok := fr.wakeups[created.ID]
+	require.True(t, ok)
+	require.Equal(t, "user-1", stored.CreatedBy,
+		"handler must backfill created_by from the authenticated principal (else fire hits the originator FK)")
+}
+
+// principal 没有 UserID（坏会话/装配缺失）时不许落库——那正是"永不 fire + 每秒
+// 刷 FK 错误"的死循环入口，必须在创建入口 400 拦下。
+func TestCreateWakeup_MissingPrincipalUserID_Returns400(t *testing.T) {
+	fr := newWakeupRepoFake()
+	d := newTailDeps(fr)
+	r := http.NewServeMux()
+	Mount(r, d, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			next.ServeHTTP(w, req.WithContext(webx.WithPrincipal(req.Context(),
+				&webx.Principal{Source: webx.SourceSession})))
+		})
+	})
+
+	w := doJSON(r, http.MethodPost, "/api/work-items/wi-1/wakeups", "ws-1",
+		`{"kind":"event","instruction":"check it","event_types":["comment.created"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "E_VALIDATION")
+	require.Empty(t, fr.wakeups, "must not persist a wakeup that can never fire")
+}
+
 func TestWorkspaceWakeupViews(t *testing.T) {
 	fr := newWakeupRepoFake()
 	r := mountedDeps(newTailDeps(fr))
@@ -634,6 +680,21 @@ func newAPDeps(fr *autopilotRepoFake) Deps {
 		}}
 }
 
+// triggerWouldFire 与 pgrepo.DeleteAutopilot 的守卫 SQL 保持同一语义：
+// 只挡会真正触发的 trigger（webhook / 带非空 cron 的 schedule）。
+// 空 cron 的默认兜底 trigger 永不触发，不挡删除（FP-13 P0-3）。
+// 教训（FP-13 审计 §六）：fake 与真库守卫语义漂移正是 P0 漏网的原因，改一处必须同步另一处。
+func triggerWouldFire(t app.Trigger) bool {
+	switch t.Kind {
+	case domain.TriggerWebhook:
+		return true
+	case domain.TriggerSchedule:
+		return t.CronExpression != ""
+	default: // manual 从不自行触发
+		return false
+	}
+}
+
 func (f *autopilotRepoFake) GetAutopilot(_ context.Context, ws, id string) (app.Autopilot, bool, error) {
 	a, ok := f.autopilots[id]
 	if !ok || a.WorkspaceID != ws {
@@ -685,7 +746,7 @@ func (f *autopilotRepoFake) DeleteAutopilot(_ context.Context, ws, id string) (a
 	}
 	out := app.DeleteOutcome{Found: true}
 	for _, t := range f.triggers {
-		if t.AutopilotID == id && t.Enabled {
+		if t.AutopilotID == id && t.Enabled && triggerWouldFire(t) {
 			out.BlockedTriggers = true
 		}
 	}
@@ -824,6 +885,8 @@ func TestAutopilotDeleteEndpoint(t *testing.T) {
 	fr.autopilots["ap-1"] = app.Autopilot{ID: "ap-1", WorkspaceID: "ws-1", Name: "inspection"}
 	fr.triggers["trig-1"] = app.Trigger{ID: "trig-1", AutopilotID: "ap-1", Kind: domain.TriggerWebhook, Enabled: true}
 	fr.triggers["trig-2"] = app.Trigger{ID: "trig-2", AutopilotID: "ap-1", Kind: domain.TriggerSchedule, Enabled: false}
+	// FP-13 P0-3 回归：创建必产的空 cron 兜底 trigger（enabled、永不触发）不挡删除。
+	fr.triggers["trig-3"] = app.Trigger{ID: "trig-3", AutopilotID: "ap-1", Kind: domain.TriggerSchedule, Enabled: true}
 	fr.collaborators["ap-1"] = []string{"user-2"}
 	fr.runs = []app.Run{{ID: "run-1", AutopilotID: "ap-1", Status: domain.RunCompleted}}
 	r := mountedDeps(newAPDeps(fr))
@@ -846,12 +909,13 @@ func TestAutopilotDeleteEndpoint(t *testing.T) {
 
 	fr.runs = fr.runs[:1]
 	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-1", "ws-1", "")
-	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, http.StatusNoContent, w.Code,
+		"only the inert empty-cron fallback trigger remains; delete must succeed")
 	require.NotContains(t, fr.autopilots, "ap-1")
 	require.NotContains(t, fr.triggers, "trig-1")
 	require.NotContains(t, fr.triggers, "trig-2")
 	require.NotContains(t, fr.collaborators, "ap-1")
-	require.ElementsMatch(t, []string{"trig-1", "trig-2"}, fr.deletedTrig, "deletion order is not contractual (map iteration order)")
+	require.ElementsMatch(t, []string{"trig-1", "trig-2", "trig-3"}, fr.deletedTrig, "deletion order is not contractual (map iteration order)")
 	require.Equal(t, []string{"user-2"}, fr.deletedCollab)
 
 	w = doJSON(r, http.MethodDelete, "/api/autopilots/ap-none", "ws-1", "")

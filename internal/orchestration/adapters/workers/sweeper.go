@@ -51,8 +51,17 @@ func (s *LivenessSweeper) RunOnce(ctx context.Context) (int, error) {
 	s.hit("runtime_recovery", len(ids))
 	for _, id := range ids {
 
+		// summary 由 settlement service 生成（A2 上移：repo 不再自行截断）；
+		// sweep 只有 taskID，LLM 路径材料不足自然回落纯截断。
+		summary := ""
+		if s.Settle != nil {
+			summary = s.Settle.SummaryForSweep(ctx, id, failuretax.RuntimeRecovery,
+				"engine instance heartbeat absent beyond grace window")
+		} else {
+			summary = domain.TaskSummary("", failuretax.RuntimeRecovery+": engine instance heartbeat absent beyond grace window")
+		}
 		if _, err := s.Repo.FailRun(ctx, id, failuretax.RuntimeRecovery,
-			"engine instance heartbeat absent beyond grace window"); err != nil {
+			"engine instance heartbeat absent beyond grace window", summary); err != nil {
 			return len(ids), err
 		}
 		_ = s.Repo.DeleteTaskCheckpoints(ctx, id)

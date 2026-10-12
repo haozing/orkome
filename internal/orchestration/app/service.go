@@ -388,7 +388,9 @@ func (s *MCPServerService) CreateAgentMCP(ctx context.Context, m AgentMCP) (*Age
 			return nil, apierr.NewValidation(err.Error())
 		}
 	}
-	out, err := s.repo.UpsertAgentMCP(ctx, m)
+	// CreateAgentMCP：创建语义，重名由 repo 映射 23505 → 409（FP-07 P1-4：
+	// agent 级不再静默 upsert 覆盖既有条目，对齐 ws 级）。
+	out, err := s.repo.CreateAgentMCP(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -604,14 +606,26 @@ func (s *ClaimService) ClaimNext(ctx context.Context, agent Agent) (Task, bool, 
 }
 
 type SettlementService struct {
-	repo         Repo
-	emit         Emitter
+	repo Repo
+	emit Emitter
+	// notification 保留占位：任务完成通知已收敛为单一 outbox 投影路径
+	//（FP-10 P1-2），Settle 内的 WriteTaskCompleted 直写第三条已下线；
+	// 构造参数保留以兼容既有装配（cmd 侧无需改动）。
 	notification NotificationWriter
 	comments     CommentWriter
 	chats        ChatWriter
 	notifier     ApprovalNotifier
 	engine       Engine
 	secret       func(ctx context.Context, ws, credID string) (string, error)
+
+	// summaries 生成结算 summary（A2 分层上移：LLM 七段 checkpoint，开关
+	// 默认关时为纯截断回落）。nil 时按开关关处理。
+	summaries *SummaryService
+
+	// chatDonePush chat:done 收尾帧的 creator 定向投递端口（W2-1：帧不再进
+	// workspace 广播，改 SendToUser(creator)；notification×6 帧同构，wiring
+	// 侧以 notifUserFrames 适配 hub.SendToUser）。nil 时仅发 bus 事件。
+	chatDonePush UserFramePusher
 
 	instanceID string
 	outbox     OutboxRecorder
@@ -626,6 +640,48 @@ func (s *SettlementService) SetApprovalDeps(n ApprovalNotifier, e Engine, cred f
 	s.notifier, s.engine, s.secret = n, e, cred
 }
 
+// SetSummarySummarizer 接线 summary 生成器（A2）。不调用时 summaries 为
+// nil，结算走 domain.TaskSummary 等价的纯截断路径（byte-identical 旧行为）。
+func (s *SettlementService) SetSummarySummarizer(ss *SummaryService) { s.summaries = ss }
+
+// SetChatDonePush 接线 chat:done 帧的 creator 定向投递（W2-1）。不调用时
+// 只发 bus 事件（QuickActionGenerator 仍工作），creator 收不到 WS 帧。
+func (s *SettlementService) SetChatDonePush(p UserFramePusher) { s.chatDonePush = p }
+
+// summaryForComplete 生成 completed 结算的 summary；summaries 未接线时
+// 直接走 domain.TaskSummary（与上移前 repo 内行为 byte-identical）。
+func (s *SettlementService) summaryForComplete(ctx context.Context, task Task, result string) string {
+	if s.summaries == nil {
+		return domain.TaskSummary(s.lastTaskText(ctx, task.ID), result)
+	}
+	return s.summaries.ForComplete(ctx, task, result)
+}
+
+// summaryForFail 生成 failed 结算的 summary；summaries 未接线时直接走
+// domain.TaskSummary（fallback 口径 reason+": "+errMsg，byte-identical）。
+func (s *SettlementService) summaryForFail(ctx context.Context, task Task, reason, errMsg string) string {
+	if s.summaries == nil {
+		return domain.TaskSummary(s.lastTaskText(ctx, task.ID), reason+": "+errMsg)
+	}
+	return s.summaries.ForFail(ctx, task, reason, errMsg)
+}
+
+func (s *SettlementService) lastTaskText(ctx context.Context, taskID string) string {
+	txt, err := s.repo.LastTaskText(ctx, taskID)
+	if err != nil {
+		return ""
+	}
+	return txt
+}
+
+// SummaryForSweep 供 workers 的 liveness sweep（runtime_recovery / 判死路径）
+// 生成失败结算 summary。sweep 侧只有 taskID（无 workspace 上下文），LLM 路
+// 径会因材料不足自然回落纯截断——判死任务的轨迹通常也已残缺，这是可接受
+// 的降级（见交接笔记）。
+func (s *SettlementService) SummaryForSweep(ctx context.Context, taskID, reason, errMsg string) string {
+	return s.summaryForFail(ctx, Task{ID: taskID}, reason, errMsg)
+}
+
 func (s *SettlementService) SetRuntimeInstance(instanceID string) { s.instanceID = instanceID }
 
 func (s *SettlementService) SetOutbox(rec OutboxRecorder, uow Within) {
@@ -633,8 +689,9 @@ func (s *SettlementService) SetOutbox(rec OutboxRecorder, uow Within) {
 }
 
 func (s *SettlementService) complete(ctx context.Context, task Task, out EngineOutput, env events.Envelope) error {
+	summary := s.summaryForComplete(ctx, task, out.Output)
 	if err := emitCommitted(ctx, s.emit, s.outbox, s.uow, &env, func(ctx context.Context) error {
-		if err := s.repo.CompleteRun(ctx, task.ID, out.Output, out.SessionRef, CurrentEngineTag(), out.Usage); err != nil {
+		if err := s.repo.CompleteRun(ctx, task.ID, out.Output, out.SessionRef, CurrentEngineTag(), summary, out.Usage); err != nil {
 			return err
 		}
 		if err := s.repo.SettlePendingSupplements(ctx, task.ID); err != nil {
@@ -706,14 +763,13 @@ func (s *SettlementService) Settle(ctx context.Context, task Task, agent Agent, 
 
 	if task.Context != nil {
 		if sid, _ := task.Context["chat_session_id"].(string); sid != "" {
-			s.emit.Emit(ctx, envelope(events.ChatDone, task.WorkspaceID, "", chatDonePayload(sid, task.ID, out.Output)))
+			s.emitChatDone(ctx, task, sid, out.Output, domain.Completed)
 		}
 	}
-	s.emit.Emit(ctx, envelope(events.TaskCompleted, task.WorkspaceID, "", taskResult(task, out.Output)))
-
-	if s.notification != nil && task.OriginatorUserID != "" {
-		_ = s.notification.WriteTaskCompleted(ctx, task.WorkspaceID, task.OriginatorUserID, task.WorkItemID, agent.Name, out.Output)
-	}
+	// FP-10 P1-2 通知双发/三发治理：complete() 已在同一事务内把 TaskCompleted
+	// 经 outbox 落一次（唯一投影源），此处不再重复 Emit（新 EventID 会绕过
+	// 投影 dedup 造成订阅者双通知）；起源者直写第三条已下线——通知统一收敛
+	// 为"投影单路径"，起源者自通知由投影侧按 Envelope.ActorUserID 过滤。
 	return nil
 }
 
@@ -769,7 +825,7 @@ func (s *SettlementService) Approve(ctx context.Context, workspaceID, taskID, by
 	}
 
 	if sid, _ := task.Context["chat_session_id"].(string); sid != "" {
-		s.emit.Emit(ctx, envelope(events.ChatDone, workspaceID, byUser, chatDonePayload(sid, task.ID, out.Output)))
+		s.emitChatDone(ctx, task, sid, out.Output, domain.Completed)
 	}
 	if task.WorkItemID != "" && s.comments != nil {
 		has, _ := s.comments.HasAgentComment(ctx, task.WorkItemID)
@@ -777,7 +833,8 @@ func (s *SettlementService) Approve(ctx context.Context, workspaceID, taskID, by
 			_ = s.comments.WriteAgentComment(ctx, task.WorkspaceID, task.WorkItemID, task.AgentID, out.Output)
 		}
 	}
-	s.emit.Emit(ctx, envelope(events.TaskCompleted, workspaceID, byUser, taskResult(task, out.Output)))
+	// FP-10：complete() 已在事务内 emit 过 TaskCompleted，这里不再重复 Emit
+	//（双 EventID 会让订阅者收到双通知）。actor=byUser 供投影侧过滤自通知。
 	return nil
 }
 
@@ -787,7 +844,8 @@ func (s *SettlementService) SweepExpiredAwaiting(ctx context.Context) (int, erro
 		return 0, err
 	}
 	for _, id := range ids {
-		if _, err := s.repo.FailRun(ctx, id, "interrupt_timeout", "approval wait exceeded 24h"); err != nil {
+		if _, err := s.repo.FailRun(ctx, id, "interrupt_timeout", "approval wait exceeded 24h",
+			s.summaryForFail(ctx, Task{ID: id}, "interrupt_timeout", "approval wait exceeded 24h")); err != nil {
 			return 0, err
 		}
 		_ = s.repo.DeleteTaskCheckpoints(ctx, id)
@@ -813,9 +871,10 @@ func (s *SettlementService) resolveSecret(ctx context.Context, agent Agent) stri
 func (s *SettlementService) fail(ctx context.Context, task Task, agent Agent, err error) error {
 	reason := classify(err)
 	detail := redactx.String(err.Error())
+	summary := s.summaryForFail(ctx, task, reason, detail)
 	env := envelope(events.TaskFailed, task.WorkspaceID, "", taskResult(task, ""))
 	if cerr := emitCommitted(ctx, s.emit, s.outbox, s.uow, &env, func(ctx context.Context) error {
-		if _, serr := s.repo.FailRun(ctx, task.ID, reason, detail); serr != nil {
+		if _, serr := s.repo.FailRun(ctx, task.ID, reason, detail, summary); serr != nil {
 			return serr
 		}
 		if err := s.repo.SettlePendingSupplements(ctx, task.ID); err != nil {
@@ -830,6 +889,16 @@ func (s *SettlementService) fail(ctx context.Context, task Task, agent Agent, er
 		return nil
 	}); cerr != nil {
 		return cerr
+	}
+
+	// W2-1：fail 路径同样发 chat:done 收尾帧（此前只发 task:failed，聊天页
+	// 失败场景永远等不到收尾）。content 恒空、kind 走 no_response 规则——
+	// 与 fail 落库的空 assistant 行（AppendAssistantMessage("")→no_response）
+	// 保持 REST/帧一致；失败语义由 status=failed 携带。
+	if task.Context != nil {
+		if sid, _ := task.Context["chat_session_id"].(string); sid != "" {
+			s.emitChatDone(ctx, task, sid, "", domain.Failed)
+		}
 	}
 
 	s.promoteAfterTerminal(ctx, task)
@@ -887,8 +956,18 @@ func (e *EngineError) Error() string { return e.Reason + ": " + e.Detail }
 
 func (s *EnqueueService) EnqueueChatInTx(ctx context.Context, workspaceID, sessionID, agentID, userID, content string) (string, error) {
 	a, ok, err := s.repo.GetAgent(ctx, workspaceID, agentID)
-	if err != nil || !ok || a.Archived {
-		return "", errors.New("agent unavailable")
+	if err != nil {
+		return "", err
+	}
+	// FP-14 P1-1：裸 error 会被 writeErr 兜底成 500 且无日志。分类：
+	// 不存在 → 400（请求引用了不存在的 agent）；已归档 → 409 Conflict
+	//（请求本身合法，是 agent 生命周期状态与之冲突——本仓 409 通用码为
+	// apierr.Conflict/E_REVISION_CONFLICT，writeErr 双域均已映射 409）。
+	if !ok {
+		return "", apierr.NewValidation("agent not found in this workspace")
+	}
+	if a.Archived {
+		return "", apierr.New(apierr.Conflict, "agent archived")
 	}
 	t, err := s.repo.InsertChatTask(ctx, Task{
 		WorkspaceID: workspaceID, AgentID: agentID,
@@ -910,8 +989,15 @@ func (s *EnqueueService) EnqueueChatInTx(ctx context.Context, workspaceID, sessi
 
 func (s *EnqueueService) EnqueueChat(ctx context.Context, workspaceID, sessionID, agentID, userID, content string) (string, error) {
 	a, ok, err := s.repo.GetAgent(ctx, workspaceID, agentID)
-	if err != nil || !ok || a.Archived {
-		return "", errors.New("agent unavailable")
+	if err != nil {
+		return "", err
+	}
+	// 与 EnqueueChatInTx 同口径（FP-14 P1-1）：不存在→400、已归档→409。
+	if !ok {
+		return "", apierr.NewValidation("agent not found in this workspace")
+	}
+	if a.Archived {
+		return "", apierr.New(apierr.Conflict, "agent archived")
 	}
 	env := envelope(events.TaskQueued, workspaceID, userID, nil)
 	var taskID string
@@ -1056,20 +1142,52 @@ func mustJSON(m map[string]any) []byte {
 	return b
 }
 
-func chatDonePayload(sessionID, taskID, content string) ChatDoneFrame {
+func chatDonePayload(sessionID, taskID, content, status string) ChatDoneFrame {
 	kind := "message"
 	if strings.TrimSpace(content) == "" {
 		kind, content = "no_response", ""
 	}
-	return ChatDoneFrame{SessionID: sessionID, TaskID: taskID, Role: "assistant", Kind: kind, Content: content}
+	return ChatDoneFrame{SessionID: sessionID, TaskID: taskID, Role: "assistant", Kind: kind, Status: status, Content: content}
+}
+
+// chatDoneFramePayload ChatDoneFrame → Push 端口的 map 形参（键名与 JSON
+// tag 一致，前端看到的帧形状与旧广播帧仅多 status 一键）。
+func chatDoneFramePayload(f ChatDoneFrame) map[string]any {
+	return map[string]any{"session_id": f.SessionID, "task_id": f.TaskID,
+		"role": f.Role, "kind": f.Kind, "status": f.Status, "content": f.Content}
+}
+
+// emitChatDone W2-1：chat:done 收尾帧唯一出口，completed/approve/fail 三
+// 结算路径共用（cancel 路径由 conversation 域 Finalize 发射——queued 直取消
+// 不过 orchestration 事件，TaskCancelled 漏斗也终结在会话投影侧）。两路投递：
+//  1. bus 事件：WorkspaceID 置空——带全文的帧禁止再进 workspace/chat scope
+//     广播（creator 私有裁决，wiring_ws 的 PhaseBroadcast 对空 WorkspaceID
+//     短路）；唯一消费方 QuickActionGenerator 按 payload 取数不受影响。
+//  2. creator 定向 push：notification×6 帧的 SendToUser 模式，帧含完整回复
+//     （creator 本人可见，与 REST 读口径一致，隐私矛盾消解）。
+func (s *SettlementService) emitChatDone(ctx context.Context, task Task, sessionID, content, status string) {
+	frame := chatDonePayload(sessionID, task.ID, content, status)
+	s.emit.Emit(ctx, envelope(events.ChatDone, "", task.OriginatorUserID, frame))
+	if s.chatDonePush != nil && task.OriginatorUserID != "" {
+		s.chatDonePush.Push(ctx, task.OriginatorUserID, events.ChatDoneFrameType, chatDoneFramePayload(frame))
+	}
+}
+
+// UserFramePusher 用户定向 WS 帧发送端口（notification 域 UserFrames 同构；
+// cmd 侧 notifUserFrames 满足该接口，直接适配 hub.SendToUser）。
+type UserFramePusher interface {
+	Push(ctx context.Context, userID, frameType string, payload map[string]any)
 }
 
 // chatDoneFrame is the chat.done realtime payload (product vocabulary; the
 // framework wswire ships the frame shape, not orkome's payload types).
+// W2-1：+Status 终态语义（completed|failed|cancelled）——fail/cancel 路径
+// 补帧后，前端靠 status 区分收尾原因；形状与 completed 帧完全一致。
 type ChatDoneFrame struct {
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
 	Role      string `json:"role"`
 	Kind      string `json:"kind"`
+	Status    string `json:"status"`
 	Content   string `json:"content"`
 }

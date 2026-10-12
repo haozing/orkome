@@ -112,6 +112,45 @@ type searchWorkspaceTool struct {
 	task   orchapp.Task
 }
 
+// ---- C1 契约元数据（ContractTool 可选接口实现，行为不变，仅注册表侧声明）------
+//
+// OutputSchema 按 InvokableRun 既有返回串的实际形状写（常量文本 → const
+// 锚定），使内置工具输出从此也受 A1 校验管线约束（C1 目标 1 的红利闭环）。
+
+// approvalTool 的输出是人类审批决定的转述（Approved/Denied 文本），
+// 豁免输出契约（纯文本答复类）；审批中断语义由 eino Interrupt 保证，
+// 中断型工具保守不并行。
+func (t *approvalTool) OutputSchema() json.RawMessage { return nil }
+
+// approvalTool 中断型工具，保守不并行。
+func (t *approvalTool) ConcurrencySafe() bool { return false }
+
+// postCommentTool 写评论（有副作用）。成功输出是常量文本，但端口失败时
+// 返回 toolFail 错误串（同为 string）——契约按"字符串"形状声明，锚定
+// 形状不锚定具体文案（改文案不需动契约，改结构则会被拦下）。
+func (t *postCommentTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// postCommentTool 有副作用，不并行。
+func (t *postCommentTool) ConcurrencySafe() bool { return false }
+
+// getWorkItemTool 只读，输出 Title/Description 两行人类可读文本（自由文本
+// 不可枚举），按字符串形状声明。
+func (t *getWorkItemTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// getWorkItemTool 只读无副作用，可并行。
+func (t *getWorkItemTool) ConcurrencySafe() bool { return true }
+
+// searchWorkspaceTool 只读检索，输出是人类可读的命中清单文本（含截断省略
+// 号等动态格式），豁免输出契约。
+func (t *searchWorkspaceTool) OutputSchema() json.RawMessage { return nil }
+
+// searchWorkspaceTool 只读无副作用，可并行。
+func (t *searchWorkspaceTool) ConcurrencySafe() bool { return true }
+
 func (t *searchWorkspaceTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "search_workspace",

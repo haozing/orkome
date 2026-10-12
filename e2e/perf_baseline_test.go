@@ -258,7 +258,7 @@ func TestPerf_CompleteRun(t *testing.T) {
 			PromptTokens: 1000, CompletionTokens: 200, CostUSDTicks: 5}
 		st := time.Now()
 		require.NoError(t, s.orepo.CompleteRun(ctx, id,
-			fmt.Sprintf("conclusion #%d", i), "sess-ref-perf", "eino", u))
+			fmt.Sprintf("conclusion #%d", i), "sess-ref-perf", "eino", "", u))
 		durs = append(durs, time.Since(st))
 	}
 	usageAfter := count(t, s.pool, `SELECT count(*) FROM task_usage`)

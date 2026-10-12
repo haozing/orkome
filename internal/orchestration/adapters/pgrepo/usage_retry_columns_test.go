@@ -24,7 +24,7 @@ func TestCompleteRunWritesRetryFailoverColumns(t *testing.T) {
 
 	u := app.UsageReport{Provider: "openai", Model: "gpt-5",
 		PromptTokens: 5, CompletionTokens: 7, ModelRetries: 2, ModelFailovers: 1}
-	require.NoError(t, e.repo.CompleteRun(e.ctx, started.ID, "conclusion", "session:ulid1", "eino", u))
+	require.NoError(t, e.repo.CompleteRun(e.ctx, started.ID, "conclusion", "session:ulid1", "eino", "", u))
 
 	var retries, failovers, prompt, completion int
 	var label string
@@ -52,7 +52,7 @@ func TestCompleteRunZeroRetryColumnsBackwardCompatible(t *testing.T) {
 	require.NoError(t, err)
 
 	u := app.UsageReport{Provider: "fake", Model: "m", PromptTokens: 1}
-	require.NoError(t, e.repo.CompleteRun(e.ctx, started.ID, "ok", "", "eino", u))
+	require.NoError(t, e.repo.CompleteRun(e.ctx, started.ID, "ok", "", "eino", "", u))
 
 	var retries, failovers int
 	err = e.pool.QueryRow(e.ctx,

@@ -110,9 +110,11 @@ var registryPos = []iface{
 		Setup:      func(w *world) string { return "/api/labels/" + w.ensureLabel() },
 		WantStatus: http.StatusOK},
 	{Method: http.MethodPut, Path: "/api/labels/{labelId}", Domain: "work", Auth: authMember,
-		Body:       func() any { return map[string]string{"name": "rename signature"} },
-		Setup:      func(w *world) string { return "/api/labels/" + w.ensureLabel() },
-		MissStatus: http.StatusCreated, WantStatus: http.StatusCreated},
+		Body:  func() any { return map[string]string{"name": "rename signature"} },
+		Setup: func(w *world) string { return "/api/labels/" + w.ensureLabel() },
+		// FP-18 D-02 fix: PUT updates by path id — 200 on hit, 404 on miss
+		// (the old by-name upsert answered 201/201).
+		MissStatus: http.StatusNotFound, WantStatus: http.StatusOK},
 	{Method: http.MethodGet, Path: "/api/projects", Domain: "work", Auth: authMember, WantStatus: http.StatusOK},
 	{Method: http.MethodPost, Path: "/api/projects", Domain: "work", Auth: authMember,
 		Body:       func() any { return map[string]string{"name": "positive project"} },

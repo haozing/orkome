@@ -87,6 +87,16 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 
 		TaskMessages: repo,
 
+		// C1：统一 Tool 注册表接线——B1 存档读取（未自描述工具补输出
+		// 契约，勿走 HTTP，见 handoff-b1 §3）+ 引擎侧 task.context 快照
+		// 回写（tools 全量清单 + mcp_servers 细化态）+ 输出契约违规审计
+		// 日志（A1 遗留坑 #7：AuditLog 未显式接线，此处收口——专用
+		// audit logger 复用主 logger 的 handler，键名带 audit 语义经
+		// 结构化字段区分，不额外开文件句柄）。
+		PackToolSchemas:    orchapp.NewPackToolSchemaService(repo),
+		TaskContextPatcher: repo,
+		AuditLog:           slog.New(log.Handler()).With(slog.String("channel", "audit")),
+
 		WorkItemSession: func(ctx context.Context, wi, agentID string) ([]orchapp.SessionTurn, error) {
 			return repo.SessionTranscript(ctx, wi, agentID, 5)
 		},
@@ -166,6 +176,19 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 		}
 		return secret, nil
 	})
+	// A2：summary 生成上移 service 层。开关 ORKOME_SUMMARY_LLM_ENABLED
+	// 默认关——关闭时纯截断（byte-identical 旧行为），打开走 LLM 七段
+	// checkpoint（Engine.Generate aux 调用，失败 fail-open 回落）。
+	summarySvc := orchapp.NewSummaryService(repo, eng, func(ctx context.Context, ws, credID string) (string, error) {
+		_, secret, ok, err := repo.GetCredential(ctx, ws, credID)
+		if err != nil || !ok {
+			return "", err
+		}
+		return secret, nil
+	}, log)
+	summarySvc.Enabled = cfg != nil && cfg.SummaryLLMEnabled
+	settle.SetSummarySummarizer(summarySvc)
+
 	settle.SetRuntimeInstance(instanceID)
 
 	notifRepo := notifpgrepo.New(db)
@@ -193,6 +216,9 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 		_ = notify.Handle(ctx, notifapp.EventIn{
 			EventID: e.EventID, WorkspaceID: e.WorkspaceID, Type: e.Event,
 			WorkItemID: wi, Title: title, Body: body, DirectUserIDs: direct,
+			// FixF 移交激活项：起源者自通知过滤（FP-10 P2-2 / FP-06 P2-2）。
+			// 空串不过滤——不接这行，投影侧过滤器在生产恒不生效。
+			ActorUserID: e.ActorUserID,
 		})
 	})
 
@@ -240,6 +266,7 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 
 	external := orchapp.NewExternalTaskService(repo, bus)
 	external.SetOutbox(recorder, db.Within)
+	external.SetSummarySummarizer(summarySvc) // A2：external runtime 结算同口径
 	mintRuntimeCredential := func(ctx context.Context, ws, agentID, name string) (string, error) {
 		a, ok, err := repo.GetAgent(ctx, ws, agentID)
 		if err != nil {
@@ -324,6 +351,7 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 		RoleOf:                roleOf(db),
 		External:              external,
 		PackUIEntries:         orchapp.NewPackUIEntryService(repo),
+		PackToolSchemas:       orchapp.NewPackToolSchemaService(repo),
 		MintRuntimeCredential: mintRuntimeCredential,
 		TaskMessages: func(ctx context.Context, ws, taskID string, q orchapp.TaskMessagesQuery) ([]orchapp.TaskMessage, error) {
 			return repo.ListTaskMessages(ctx, ws, taskID, q)

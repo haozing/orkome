@@ -34,5 +34,21 @@ func (a batchDoneAdapter) NotifyBatchDone(ctx context.Context, ws, wi, batchID s
 type batchEmitter struct{ bus *eventbus.Bus }
 
 func (e batchEmitter) Emit(ctx context.Context, event string, payload map[string]any) {
-	e.bus.Emit(ctx, events.Envelope{Event: event, Payload: payload, OccurredAt: time.Now().UTC()})
+	e.bus.Emit(ctx, events.Envelope{
+		Event: event,
+		// FP-20 F3：batch 帧此前不带 WorkspaceID，被 wiring_ws 的广播门禁
+		// （空 WorkspaceID 静默 return）整族丢弃——batch.created/progress/
+		// completed/failed 四类帧全灭。工作区 ID 由 app 层从 batch 实体放进
+		// payload（orchapp/batch.go 三个 Emit 位点）。
+		WorkspaceID: payloadString(payload, "workspace_id"),
+		Payload:     payload,
+		OccurredAt:  time.Now().UTC(),
+	})
+}
+
+func payloadString(payload map[string]any, key string) string {
+	if v, ok := payload[key].(string); ok {
+		return v
+	}
+	return ""
 }

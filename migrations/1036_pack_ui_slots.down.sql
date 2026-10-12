@@ -1,0 +1,1 @@
+ALTER TABLE pack_ui_entry DROP COLUMN IF EXISTS slots;

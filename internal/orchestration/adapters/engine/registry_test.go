@@ -132,7 +132,7 @@ func TestToolSearchThirtyRealMCPTools(t *testing.T) {
 	cli := newInProcessMCPClient(t, 30, "real")
 	ctx := context.Background()
 
-	tools, err := mcpConnect(ctx, cli, nil)
+	tools, _, err := mcpConnect(ctx, cli, nil)
 	require.NoError(t, err, "real MCP handshake + inventory (in-process transport)")
 	require.Len(t, tools, 30, "all 30 tools arrive (within the 32-per-server cap)")
 
@@ -154,7 +154,7 @@ func TestToolSearchConstructionFailureFallback(t *testing.T) {
 	cli := newInProcessMCPClient(t, 29, "real")
 	ctx := context.Background()
 
-	tools, err := mcpConnect(ctx, cli, nil)
+	tools, _, err := mcpConnect(ctx, cli, nil)
 	require.NoError(t, err)
 	require.Len(t, tools, 29)
 	pool := append(append([]tool.BaseTool(nil), tools...), badInfoTool{})

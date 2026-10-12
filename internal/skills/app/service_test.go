@@ -28,10 +28,15 @@ type fakeSkillsRepo struct {
 	files    map[string][]SkillFile
 	inserted []Skill
 	replaced [][]SkillFile
+
+	// FP-08 P1-4 绑定面：记录归属与写调用
+	agentsInWs   map[string]bool
+	bindingCalls []string
 }
 
 func newFakeSkillsRepo() *fakeSkillsRepo {
-	return &fakeSkillsRepo{skills: map[string]Skill{}, byName: map[string]string{}, files: map[string][]SkillFile{}}
+	return &fakeSkillsRepo{skills: map[string]Skill{}, byName: map[string]string{},
+		files: map[string][]SkillFile{}, agentsInWs: map[string]bool{}}
 }
 
 func (f *fakeSkillsRepo) InsertSkill(_ context.Context, s Skill) (Skill, error) {
@@ -130,14 +135,23 @@ func (f *fakeSkillsRepo) GetSkillByName(_ context.Context, ws, name string) (Ski
 	}
 	return f.skills[id], true, nil
 }
-func (f *fakeSkillsRepo) SetAgentSkills(_ context.Context, agentID string, ids []string, en bool) error {
+func (f *fakeSkillsRepo) AgentInWorkspace(_ context.Context, ws, agentID string) (bool, error) {
+	return f.agentsInWs[ws+"/"+agentID], nil
+}
+func (f *fakeSkillsRepo) SetAgentSkills(_ context.Context, ws, agentID string, ids []string, en bool) error {
+	f.bindingCalls = append(f.bindingCalls, "set:"+ws+"/"+agentID)
 	return nil
 }
-func (f *fakeSkillsRepo) AddAgentSkill(_ context.Context, agentID, skillID string) error { return nil }
-func (f *fakeSkillsRepo) SetAgentSkillEnabled(_ context.Context, agentID, skillID string, en bool) error {
+func (f *fakeSkillsRepo) AddAgentSkill(_ context.Context, ws, agentID, skillID string) error {
+	f.bindingCalls = append(f.bindingCalls, "add:"+ws+"/"+agentID+"->"+skillID)
 	return nil
 }
-func (f *fakeSkillsRepo) RemoveAgentSkill(_ context.Context, agentID, skillID string) error {
+func (f *fakeSkillsRepo) SetAgentSkillEnabled(_ context.Context, ws, agentID, skillID string, en bool) error {
+	f.bindingCalls = append(f.bindingCalls, "enable:"+ws+"/"+agentID+"->"+skillID)
+	return nil
+}
+func (f *fakeSkillsRepo) RemoveAgentSkill(_ context.Context, ws, agentID, skillID string) error {
+	f.bindingCalls = append(f.bindingCalls, "remove:"+ws+"/"+agentID+"->"+skillID)
 	return nil
 }
 func (f *fakeSkillsRepo) ListAgentSkills(_ context.Context, ws, agentID string) ([]AgentSkill, error) {

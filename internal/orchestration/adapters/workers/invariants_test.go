@@ -410,7 +410,7 @@ func TestIE3_SupplementTurnEnded(t *testing.T) {
 	e.SetReply(func(string) (string, int, int, error) { return "done", 1, 1, nil })
 
 	u := orchapp.UsageReport{Provider: "fake", Model: "m"}
-	require.NoError(t, e.repo.CompleteRun(ctx0(), task.ID, "done", "", "", u))
+	require.NoError(t, e.repo.CompleteRun(ctx0(), task.ID, "done", "", "", "", u))
 	require.NoError(t, e.repo.SettlePendingSupplements(ctx0(), task.ID))
 
 	var st, fc string

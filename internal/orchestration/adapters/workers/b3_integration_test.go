@@ -75,7 +75,7 @@ func TestB3_OutboxCrashReplayExactlyOnce(t *testing.T) {
 		if _, err := e.repo.StartTask(ctx, task.ID, "", ""); err != nil {
 			return err
 		}
-		if _, err := e.repo.FailRun(ctx, task.ID, failuretax.Timeout, "crash before emit"); err != nil {
+		if _, err := e.repo.FailRun(ctx, task.ID, failuretax.Timeout, "crash before emit", ""); err != nil {
 			return err
 		}
 		return recorder.Append(ctx, env)

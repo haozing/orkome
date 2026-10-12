@@ -6,17 +6,47 @@ import (
 
 	"orkome/internal/contract/apierr"
 	"orkome/internal/contract/events"
+	"orkome/internal/orchestration/domain"
 )
 
 type ExternalTaskService struct {
-	repo   Repo
-	emit   Emitter
-	outbox OutboxRecorder
-	uow    Within
+	repo      Repo
+	emit      Emitter
+	outbox    OutboxRecorder
+	uow       Within
+	summaries *SummaryService
 }
 
 func NewExternalTaskService(repo Repo, emit Emitter) *ExternalTaskService {
 	return &ExternalTaskService{repo: repo, emit: emit}
+}
+
+// SetSummarySummarizer 接线 summary 生成器（A2）：external runtime 的
+// Complete/Fail 结算同样经 service 层生成 summary。未接线时走纯截断。
+func (s *ExternalTaskService) SetSummarySummarizer(ss *SummaryService) { s.summaries = ss }
+
+// summaryForComplete 与 SettlementService 同口径：summaries 未接线时纯截断。
+func (s *ExternalTaskService) summaryForComplete(ctx context.Context, t Task, result string) string {
+	if s.summaries == nil {
+		return domain.TaskSummary(s.lastTaskText(ctx, t.ID), result)
+	}
+	return s.summaries.ForComplete(ctx, t, result)
+}
+
+// summaryForFail 与 SettlementService 同口径。
+func (s *ExternalTaskService) summaryForFail(ctx context.Context, t Task, reason, errMsg string) string {
+	if s.summaries == nil {
+		return domain.TaskSummary(s.lastTaskText(ctx, t.ID), reason+": "+errMsg)
+	}
+	return s.summaries.ForFail(ctx, t, reason, errMsg)
+}
+
+func (s *ExternalTaskService) lastTaskText(ctx context.Context, taskID string) string {
+	txt, err := s.repo.LastTaskText(ctx, taskID)
+	if err != nil {
+		return ""
+	}
+	return txt
 }
 
 func (s *ExternalTaskService) SetOutbox(rec OutboxRecorder, uow Within) {
@@ -88,11 +118,12 @@ func (s *ExternalTaskService) Complete(ctx context.Context, ws, taskID, agentID,
 	env := envelope(events.TaskCompleted, ws, "", TaskPayload{
 		ID: t.ID, WorkspaceID: ws, AgentID: t.AgentID, WorkItemID: t.WorkItemID,
 		Status: "completed", Result: result})
+	summary := s.summaryForComplete(ctx, t, result)
 	if err := emitCommitted(ctx, s.emit, s.outbox, s.uow, &env, func(ctx context.Context) error {
 		if _, err := s.repo.AppendTaskMessage(ctx, ws, t.ID, "text", "", result, false); err != nil {
 			return err
 		}
-		return s.repo.CompleteRun(ctx, t.ID, result, "", CurrentEngineTag(), UsageReport{})
+		return s.repo.CompleteRun(ctx, t.ID, result, "", CurrentEngineTag(), summary, UsageReport{})
 	}); err != nil {
 		return err
 	}
@@ -107,8 +138,9 @@ func (s *ExternalTaskService) Fail(ctx context.Context, ws, taskID, agentID, rea
 	}
 	env := envelope(events.TaskFailed, ws, "", TaskPayload{
 		ID: t.ID, WorkspaceID: ws, AgentID: t.AgentID, WorkItemID: t.WorkItemID, Status: "failed"})
+	summary := s.summaryForFail(ctx, t, reason, detail)
 	if err := emitCommitted(ctx, s.emit, s.outbox, s.uow, &env, func(ctx context.Context) error {
-		_, serr := s.repo.FailRun(ctx, t.ID, reason, detail)
+		_, serr := s.repo.FailRun(ctx, t.ID, reason, detail, summary)
 		return serr
 	}); err != nil {
 		return err

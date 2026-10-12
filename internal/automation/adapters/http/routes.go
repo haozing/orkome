@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -126,8 +127,14 @@ func (d Deps) memberMW(next http.Handler) http.Handler {
 func wsOf(r *http.Request) string { return r.Header.Get("X-Workspace-Id") }
 
 func writeErr(w http.ResponseWriter, err error) {
+	writeErrReq(nil, w, err)
+}
+
+func writeErrReq(r *http.Request, w http.ResponseWriter, err error) {
 	var ae *apierr.Error
 	if !errors.As(err, &ae) {
+		// 非 apierr 一律压成 500，根因必须留在服务端日志（否则 500 零痕）。
+		slog.Error("automation http: internal error", "path", reqPath(r), "err", err.Error())
 		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "internal error", nil)
 		return
 	}
@@ -145,14 +152,24 @@ func writeErr(w http.ResponseWriter, err error) {
 	webx.WriteError(w, status, ae.Code, ae.Message, ae.Details)
 }
 
+func reqPath(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	return r.Method + " " + r.URL.Path
+}
+
 func (d Deps) createWakeup(w http.ResponseWriter, r *http.Request) {
 	var in app.Wakeup
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18)).Decode(&in)
 	in.WorkspaceID = wsOf(r)
 	in.WorkItemID = r.PathValue("workItemId")
+	if p := webx.PrincipalFrom(r.Context()); p != nil {
+		in.CreatedBy = p.UserID
+	}
 	out, err := d.Wakeups.Create(r.Context(), in)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, out)
@@ -170,7 +187,7 @@ func (d Deps) listWakeups(w http.ResponseWriter, r *http.Request) {
 func (d Deps) getWakeup(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Wakeups.Get(r.Context(), wsOf(r), r.PathValue("workItemId"), r.PathValue("wakeupId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -190,7 +207,7 @@ func (d Deps) putWakeup(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Wakeups.Update(r.Context(), wsOf(r), r.PathValue("workItemId"),
 		r.PathValue("wakeupId"), in.Wakeup, in.ExpectedRevision)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -198,7 +215,7 @@ func (d Deps) putWakeup(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) deleteWakeup(w http.ResponseWriter, r *http.Request) {
 	if err := d.Wakeups.Delete(r.Context(), wsOf(r), r.PathValue("workItemId"), r.PathValue("wakeupId")); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -207,7 +224,7 @@ func (d Deps) deleteWakeup(w http.ResponseWriter, r *http.Request) {
 func (d Deps) enableWakeup(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<12))
 	if err := d.Wakeups.SetEnabled(r.Context(), wsOf(r), r.PathValue("wakeupId"), true); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -215,7 +232,7 @@ func (d Deps) enableWakeup(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) disableWakeup(w http.ResponseWriter, r *http.Request) {
 	if err := d.Wakeups.SetEnabled(r.Context(), wsOf(r), r.PathValue("wakeupId"), false); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -230,7 +247,7 @@ func (d Deps) putWakeupInstruction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.Wakeups.EditInstruction(r.Context(), wsOf(r), r.PathValue("wakeupId"), in.Instruction); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -247,7 +264,7 @@ func (d Deps) checkinWakeup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := d.Wakeups.CheckIn(r.Context(), wsOf(r), r.PathValue("workItemId"),
 		r.PathValue("wakeupId"), in.TaskID, in.Note); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -255,7 +272,7 @@ func (d Deps) checkinWakeup(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) triggerWakeup(w http.ResponseWriter, r *http.Request) {
 	if err := d.Wakeups.Trigger(r.Context(), wsOf(r), r.PathValue("workItemId"), r.PathValue("wakeupId")); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -264,7 +281,7 @@ func (d Deps) triggerWakeup(w http.ResponseWriter, r *http.Request) {
 func (d Deps) wakeupTasks(w http.ResponseWriter, r *http.Request) {
 	wu, err := d.Wakeups.Get(r.Context(), wsOf(r), r.PathValue("workItemId"), r.PathValue("wakeupId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if d.WakeupTasks == nil {
@@ -330,7 +347,7 @@ func (d Deps) putSystemDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.Wakeups.SetSystemDefault(r.Context(), wsOf(r), in); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, in)
@@ -363,7 +380,7 @@ func (d Deps) putSystemWakeup(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := d.Wakeups.UpdateSystem(r.Context(), wsOf(r), r.PathValue("wakeupId"), in.Instruction, in.Enabled)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -381,7 +398,7 @@ func (d Deps) listSystemByWorkItem(w http.ResponseWriter, r *http.Request) {
 func (d Deps) ensureSystemWakeup(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Wakeups.EnsureChildDoneRule(r.Context(), wsOf(r), r.PathValue("workItemId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -403,7 +420,7 @@ func (d Deps) createAutopilot(w http.ResponseWriter, r *http.Request) {
 		Template: in.Template, TargetAgentID: in.TargetAgentID, CreatedBy: p.UserID,
 	}, in.CronExpression, in.Timezone)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, ap)
@@ -413,7 +430,7 @@ func (d Deps) listAutopilots(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	out, err := d.Autopilots.List(r.Context(), wsOf(r), limit)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -422,7 +439,7 @@ func (d Deps) listAutopilots(w http.ResponseWriter, r *http.Request) {
 func (d Deps) getAutopilot(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Autopilots.Get(r.Context(), wsOf(r), r.PathValue("autopilotId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -443,7 +460,7 @@ func (d Deps) patchAutopilot(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Autopilots.Update(r.Context(), wsOf(r), r.PathValue("autopilotId"),
 		in.Name, in.ExecMode, in.Template, in.TargetAgentID, in.Enabled)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -451,7 +468,7 @@ func (d Deps) patchAutopilot(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) deleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	if err := d.Autopilots.Delete(r.Context(), wsOf(r), r.PathValue("autopilotId")); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -465,6 +482,8 @@ func (d Deps) triggerAutopilot(w http.ResponseWriter, r *http.Request) {
 			webx.WriteJSON(w, http.StatusOK, run)
 			return
 		}
+		// 400 "trigger failed" 会吞掉真实根因（PG 约束/调度错误），必须留痕。
+		slog.Error("automation http: autopilot manual trigger failed", "path", reqPath(r), "err", err.Error())
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "trigger failed", nil)
 		return
 	}
@@ -487,7 +506,7 @@ func (d Deps) cronPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := d.Autopilots.CronPreview(r.Context(), in.CronExpression, in.Timezone, in.Count)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, map[string]any{"next_runs": runs})
@@ -507,7 +526,7 @@ func (d Deps) createTrigger(w http.ResponseWriter, r *http.Request) {
 	t, err := d.Autopilots.CreateTrigger(r.Context(), wsOf(r), r.PathValue("autopilotId"),
 		in.Kind, in.CronExpression, in.Timezone, in.Enabled)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	resp := map[string]any{"trigger": t}
@@ -532,7 +551,7 @@ func (d Deps) patchTrigger(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Autopilots.UpdateTrigger(r.Context(), wsOf(r), r.PathValue("autopilotId"),
 		r.PathValue("triggerId"), in.CronExpression, in.Timezone, in.Enabled)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -541,7 +560,7 @@ func (d Deps) patchTrigger(w http.ResponseWriter, r *http.Request) {
 func (d Deps) deleteTrigger(w http.ResponseWriter, r *http.Request) {
 	if err := d.Autopilots.DeleteTrigger(r.Context(), wsOf(r), r.PathValue("autopilotId"),
 		r.PathValue("triggerId")); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -558,7 +577,7 @@ func (d Deps) putSigningSecret(w http.ResponseWriter, r *http.Request) {
 	cred, err := d.Webhooks.SetSigningSecret(r.Context(), wsOf(r),
 		r.PathValue("autopilotId"), r.PathValue("triggerId"), in.Secret)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, cred)
@@ -568,7 +587,7 @@ func (d Deps) rotateWebhookToken(w http.ResponseWriter, r *http.Request) {
 	cred, err := d.Webhooks.RotateWebhookToken(r.Context(), wsOf(r),
 		r.PathValue("autopilotId"), r.PathValue("triggerId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, cred)
@@ -587,7 +606,7 @@ func (d Deps) listRuns(w http.ResponseWriter, r *http.Request) {
 func (d Deps) getRun(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Autopilots.GetRun(r.Context(), wsOf(r), r.PathValue("runId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -606,7 +625,7 @@ func (d Deps) listDeliveries(w http.ResponseWriter, r *http.Request) {
 func (d Deps) getDelivery(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Webhooks.GetDelivery(r.Context(), wsOf(r), r.PathValue("deliveryId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)
@@ -615,7 +634,7 @@ func (d Deps) getDelivery(w http.ResponseWriter, r *http.Request) {
 func (d Deps) replayDelivery(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Webhooks.ReplayDelivery(r.Context(), wsOf(r), r.PathValue("deliveryId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, out)

@@ -183,7 +183,7 @@ func (d Deps) handleListSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	sess, err := d.Chat.GetSession(r.Context(), d.ws(r), d.sid(r))
+	sess, err := d.Chat.GetSession(r.Context(), d.ws(r), d.sid(r), webx.PrincipalFrom(r.Context()).UserID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -193,12 +193,10 @@ func (d Deps) handleGetSession(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleArchive(archived bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-
-		if _, err := d.Chat.GetSession(r.Context(), d.ws(r), d.sid(r)); err != nil {
-			writeErr(w, err)
-			return
-		}
-		if err := d.Chat.Archive(r.Context(), d.ws(r), d.sid(r), archived); err != nil {
+		p := webx.PrincipalFrom(r.Context())
+		// W2-1 creator 私有：归属校验在 Archive 内（mustOwnSession），此处
+		// 不再前置 GetSession 双查。
+		if err := d.Chat.Archive(r.Context(), d.ws(r), d.sid(r), p.UserID, archived); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -213,7 +211,7 @@ func (d Deps) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sess, err := d.Chat.UpdateSession(r.Context(), d.ws(r), d.sid(r), in.Title)
+	sess, err := d.Chat.UpdateSession(r.Context(), d.ws(r), d.sid(r), webx.PrincipalFrom(r.Context()).UserID, in.Title)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -223,7 +221,7 @@ func (d Deps) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handlePin(pinned bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := d.Chat.SetPinned(r.Context(), d.ws(r), d.sid(r), pinned); err != nil {
+		if _, err := d.Chat.SetPinned(r.Context(), d.ws(r), d.sid(r), webx.PrincipalFrom(r.Context()).UserID, pinned); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -233,7 +231,8 @@ func (d Deps) handlePin(pinned bool) http.HandlerFunc {
 
 func (d Deps) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	ws, sid := d.ws(r), d.sid(r)
-	if _, err := d.Chat.GetSession(r.Context(), ws, sid); err != nil {
+	p := webx.PrincipalFrom(r.Context())
+	if _, err := d.Chat.GetSession(r.Context(), ws, sid, p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -249,7 +248,7 @@ func (d Deps) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := d.Chat.DeleteSession(r.Context(), ws, sid); err != nil {
+	if err := d.Chat.DeleteSession(r.Context(), ws, sid, p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -274,7 +273,8 @@ func (d Deps) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	sid := d.sid(r)
-	if _, err := d.Chat.GetSession(r.Context(), d.ws(r), sid); err != nil {
+	// W2-1 creator 私有：消息流只对 creator 可读（此前任何同区成员可读）。
+	if _, err := d.Chat.GetSession(r.Context(), d.ws(r), sid, webx.PrincipalFrom(r.Context()).UserID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -300,6 +300,11 @@ func (d Deps) handleListMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handlePendingTask(w http.ResponseWriter, r *http.Request) {
+	// W2-1 creator 私有：pending-task 读同样不泄露他人会话存在性。
+	if _, err := d.Chat.GetSession(r.Context(), d.ws(r), d.sid(r), webx.PrincipalFrom(r.Context()).UserID); err != nil {
+		writeErr(w, err)
+		return
+	}
 	status, taskID, ok, err := d.TaskStatus(r.Context(), d.ws(r), d.sid(r))
 	if err != nil {
 		writeErr(w, err)
@@ -323,7 +328,8 @@ func (d Deps) handleCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleRead(w http.ResponseWriter, r *http.Request) {
-	if err := d.Chat.MarkRead(r.Context(), d.sid(r)); err != nil {
+	p := webx.PrincipalFrom(r.Context())
+	if err := d.Chat.MarkRead(r.Context(), d.ws(r), d.sid(r), p.UserID); err != nil {
 		writeErr(w, err)
 		return
 	}

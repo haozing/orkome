@@ -143,9 +143,9 @@ var registryPos3 = []iface{
 		Setup:      func(w *world) string { return "/api/skills/" + w.ensureSkill() + "/labels" },
 		WantStatus: http.StatusOK, ListLike: true},
 	{Method: http.MethodPut, Path: "/api/agents/{agentId}/skills/{skillId}/enabled", Domain: "skills", Auth: authMember,
-		Body:        func() any { return map[string]bool{"enabled": true} },
-		MissStatus:  http.StatusOK,
-		SkipBadBody: true,
+		Body: func() any { return map[string]bool{"enabled": true} },
+		// FP-08 fence（wave1 FixF）后缺失 agent/skill 一律 404（不再无校验静默写）
+		MissStatus: http.StatusNotFound,
 		Setup: func(w *world) string {
 			return "/api/agents/" + w.ensureAgent() + "/skills/" + w.ensureSkill() + "/enabled"
 		},

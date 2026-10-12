@@ -17,6 +17,7 @@ import (
 	"github.com/haozing/ploykit/platform/pg"
 	pgmigrate "github.com/haozing/ploykit/platform/pgmigrate"
 	"orkome/internal/orchestration/app"
+	"orkome/internal/orchestration/domain"
 	"orkome/migrations"
 )
 
@@ -90,7 +91,9 @@ func TestCompleteRunSummaryFromLastText(t *testing.T) {
 	_, err = r.AppendTaskMessage(ctx, ws, id, "tool_result", "c1", "raw tool output", false)
 	require.NoError(t, err)
 
-	require.NoError(t, r.CompleteRun(ctx, id, "Sprint 2: implemented /feed.xml with go-feed, summary mode only. Added 5-minute in-memory cache with stampede protection. Unit tests cover escaping, date formatting and empty-corpus. Integration test green locally. Remaining: full-text mode blocked on paywall flag API, W3C validation pending CI wiring.", "sess-1", "eino", app.UsageReport{Provider: "p", Model: "m"}))
+	result := "Sprint 2: implemented /feed.xml with go-feed, summary mode only. Added 5-minute in-memory cache with stampede protection. Unit tests cover escaping, date formatting and empty-corpus. Integration test green locally. Remaining: full-text mode blocked on paywall flag API, W3C validation pending CI wiring."
+	summary := domain.TaskSummary(r.lastText(ctx, id), result)
+	require.NoError(t, r.CompleteRun(ctx, id, result, "sess-1", "eino", summary, app.UsageReport{Provider: "p", Model: "m"}))
 
 	task, ok, err := r.GetTask(ctx, ws, id)
 	require.NoError(t, err)
@@ -105,7 +108,8 @@ func TestCompleteRunSummaryFallbackToResult(t *testing.T) {
 	id := seedRunningTask(t, r, ws, ag)
 
 	long := strings.Repeat("R", 600)
-	require.NoError(t, r.CompleteRun(ctx, id, long, "", "eino", app.UsageReport{}))
+	summary := domain.TaskSummary(r.lastText(ctx, id), long)
+	require.NoError(t, r.CompleteRun(ctx, id, long, "", "eino", summary, app.UsageReport{}))
 	task, ok, err := r.GetTask(ctx, ws, id)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -121,7 +125,7 @@ func TestFailRunSummaryLeavesTrace(t *testing.T) {
 	_, err := r.AppendTaskMessage(ctx, ws, id, "text", "", "halfway through: cache layer ready, waiting for upstream response", false)
 	require.NoError(t, err)
 
-	attempted, err := r.FailRun(ctx, id, "provider.timeout", "context deadline exceeded")
+	attempted, err := r.FailRun(ctx, id, "provider.timeout", "context deadline exceeded", domain.TaskSummary(r.lastText(ctx, id), "provider.timeout: context deadline exceeded"))
 	require.NoError(t, err)
 	assert.False(t, attempted)
 
@@ -147,7 +151,7 @@ func TestFailRunRetryChildCarriesPriorSummary(t *testing.T) {
 	_, err = r.AppendTaskMessage(ctx, ws, task.ID, "text", "", "cache layer ready, waiting for upstream response", false)
 	require.NoError(t, err)
 
-	attempted, err := r.FailRun(ctx, task.ID, "runtime_recovery", "engine instance heartbeat absent beyond grace window")
+	attempted, err := r.FailRun(ctx, task.ID, "runtime_recovery", "engine instance heartbeat absent beyond grace window", domain.TaskSummary(r.lastText(ctx, task.ID), "runtime_recovery: engine instance heartbeat absent beyond grace window"))
 	require.NoError(t, err)
 	assert.True(t, attempted, "runtime_recovery is in the retry allowlist with MaxAttempts=3, should produce a retry subtask")
 
@@ -167,7 +171,7 @@ func TestFailRunSummaryFallbackReasonError(t *testing.T) {
 	r := New(db)
 	ctx := context.Background()
 	id := seedRunningTask(t, r, ws, ag)
-	_, err := r.FailRun(ctx, id, "engine_error", "boom")
+	_, err := r.FailRun(ctx, id, "engine_error", "boom", domain.TaskSummary(r.lastText(ctx, id), "engine_error: boom"))
 	require.NoError(t, err)
 	task, ok, err := r.GetTask(ctx, ws, id)
 	require.NoError(t, err)

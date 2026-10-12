@@ -22,9 +22,7 @@ import (
 	"github.com/haozing/ploykit/platform/webx"
 	"github.com/haozing/ploykit/platform/wswire"
 	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
-	"github.com/haozing/ploykit/workspace"
 	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
-	"github.com/jackc/pgx/v5"
 	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
 	chpgrepo "orkome/internal/channels/adapters/pgrepo"
@@ -126,8 +124,34 @@ func main() {
 	orchHTTPDeps.Builder = orchapp.NewAgentBuilderService(orchpgrepo.New(db))
 	convDeps := wiringConversation(log, db, bus, orchEng, orchEnq, orchHTTPDeps.Settle, idMemberCheck(db))
 
-	wsHub, wsCast := wiringWS(ctx, log, bus, idMemberCheck(db), idDeps.PAT, cfg, redisCli, workersReg)
+	// FP-20 F1/F3 订阅 fence：task/chat scope 的实体→工作区归属校验。
+	orchRepo := orchpgrepo.New(db)
+	convRepo := convpgrepo.New(db)
+	wsHub, wsCast := wiringWS(ctx, log, bus, idMemberCheck(db), subScopeFence{
+		task: func(ctx context.Context, ws, taskID string) (bool, error) {
+			_, ok, err := orchRepo.GetTask(ctx, ws, taskID)
+			return ok, err
+		},
+		chat: func(ctx context.Context, ws, sessionID, userID string) (bool, error) {
+			sess, ok, err := convRepo.GetSession(ctx, ws, sessionID)
+			if err != nil || !ok {
+				return false, err
+			}
+			return sess.CreatorID == userID, nil
+		},
+	}, idDeps.PAT, cfg, redisCli, workersReg)
 	wsHub.Metrics = metricsReg
+
+	// W2-1 chat:done creator 定向：帧不再进 workspace 广播，改经 notification
+	// ×6 帧同款 notifUserFrames 适配器 SendToUser 投给会话 creator（结算侧
+	// completed/failed + 会话侧 cancel 终态两个发射口共用一个适配器）。
+	// 注：本段属 wave2-chat 对 FixD 波次文件（cmd/orkome-server）的最小增量
+	// 接线，交接见 docs/fix-wave2-chat-2026-10-12.md §6。
+	if settle := orchHTTPDeps.Settle; settle != nil {
+		settle.SetChatDonePush(notifUserFrames{cast: wsCast})
+	}
+	convDeps.Chat.SetUserFrames(notifUserFrames{cast: wsCast})
+
 	orchEng.InterimPush = func(wsID, taskID, kind, content string) {
 		b, _ := json.Marshal(map[string]any{"kind": kind, "content": content, "task_id": taskID})
 		wsCast.Broadcast(context.Background(), wswire.ScopeKey(wswire.ScopeWorkspace, wsID),
@@ -219,10 +243,11 @@ func main() {
 
 	api := http.NewServeMux()
 
-	idDeps.WS = idDeps.WS.WithHooks(workspace.WorkspaceHooks{
-		OnMemberRemoved: _oldRevocation,
-		OnTeardown:      func(ctx context.Context, tx pgx.Tx, workspaceID string) error { return _oldTeardown(ctx, workspaceID) },
-	})
+	// 工作区硬删接线（FP-02 P1-1 / wave2-ws-delete）：BeforeDelete 预清跨域
+	// label join 表，OnTeardown = 取消活跃任务 → FixE CleanupWorkspaceTables
+	// （work 域 21 表）→ 跨域业务表清理，随后框架 DELETE workspace。
+	// 事务编排与失败语义见 wiring_workspace.go 头注。
+	idDeps.WS = idDeps.WS.WithHooks(workspaceHardDeleteHooks(db, _oldRevocation, _oldTeardown))
 	authMw := webx.Authenticate(&idDeps.Auth, idDeps.Repo, idDeps.PAT)
 	// The chain-level authMw authenticates once for every request; domain
 	// mounts only add the runtime-agent write fence on top of it.
@@ -236,7 +261,7 @@ func main() {
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
 
 	// Commercial surfaces (P6-2): audit / quota usage / billing plans / admin.
-	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az)
+	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az, idDeps.Repo)
 	wsHeaderMW := workspacehttp.WorkspaceHeaderCtx(idDeps.WSRepo)
 	comm.MountAPI(api, wsHeaderMW, idDeps.Az)
 	comm.MountAdmin(root, idDeps.Repo, idDeps.Auth, admin.Hooks{
@@ -303,9 +328,17 @@ func main() {
 
 	// F21 fixed in ploykit v0.4.1 (statusRecorder passes Hijack through) —
 	// AccessLog is safe for the /ws upgrade again.
+	// FP-01/09/13 三缝同修：①csrf.MaxAge 对齐会话 TTL（v0.4.1 框架无此旋钮，
+	// 见 csrf_session.go）；②PATPrefix "ork_"（回落 tk_ 会拦死所有 PAT 写请求）；
+	// ③/webhooks/ 豁免（automation 公开入站自带 HMAC 防护，不该被 CSRF 拦）。
 	handler := webx.Recover(log)(webx.RequestIDMiddleware(webx.ClientMetadata(webx.AccessLog(log, proxies...)(
 		webx.SecurityHeaders(webx.CORS(webx.ParseOrigins(cfg.CORSAllowedOrigins), true)(
-			webx.CSRFConditional(&webx.CSRFConfig{Key: webx.DeriveCSRFKey([]byte(cfg.JWTSecret)), TrustLocalhostAnyPort: true, ExemptPrefixes: []string{"/ws"}}, cfg.IsProd())(authMw(root))))))))
+			csrfChain(&webx.CSRFConfig{
+				Key:                   webx.DeriveCSRFKey([]byte(cfg.JWTSecret)),
+				TrustLocalhostAnyPort: true,
+				ExemptPrefixes:        []string{wsPathPrefix, webhookInboundPrefix, uiTokenConsumePrefix},
+				PATPrefix:             "ork_", // external MCP/client-kit contract
+			}, cfg.IsProd(), idDeps.Auth.SessionTTL)(authMw(root))))))))
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           handler,
@@ -414,6 +447,18 @@ func idMemberCheck(db *pg.DB) func(ctx context.Context, workspaceID, userID stri
 	repo := idpgrepo.New(db)
 	return func(ctx context.Context, wsID, userID string) (bool, error) {
 		_, ok, err := repo.GetMember(ctx, wsID, userID)
+		return ok, err
+	}
+}
+
+// idWorkItemCheck adapts the work domain's existing workspace-scoped work item
+// read onto identity's WorkItemLocator (ui-token mint-time work_item_id
+// binding, FP-15 P1-2). It only calls the existing GetWorkItem API — identity
+// and work stay decoupled (the function shape crosses at the composition root).
+func idWorkItemCheck(db *pg.DB) func(ctx context.Context, workspaceID, workItemID string) (bool, error) {
+	repo := workpgrepo.Repo{DB: db}
+	return func(ctx context.Context, wsID, wiID string) (bool, error) {
+		_, ok, err := repo.GetWorkItem(ctx, wsID, wiID)
 		return ok, err
 	}
 }

@@ -165,7 +165,11 @@ func (r *Repo) GetWorkItem(ctx context.Context, wsID, id string) (app.WorkItem, 
 }
 
 func (r *Repo) UpdateWorkItem(ctx context.Context, wsID, id string, p app.WorkItemPatch, rev int64) (app.WorkItem, error) {
-	sets := []string{"updated_at = now()"}
+	// last_activity_at bumps on every core-field PUT (status transition, reassign,
+	// priority, title, ...) — same semantics the comment/metadata/property paths
+	// already had, so "recently active" views do not go stale on the most common
+	// work actions (FP-11 P1-2).
+	sets := []string{"updated_at = now()", "last_activity_at = now()"}
 	args := []any{wsID, id, rev}
 	n := 3
 	add := func(sql string, v any) { n++; sets = append(sets, fmt.Sprintf(sql, n)); args = append(args, v) }
@@ -319,7 +323,10 @@ func (r *Repo) ListWorkItems(ctx context.Context, q app.ListQuery) ([]app.WorkIt
 	next := ""
 	if len(out) > q.Limit {
 		last := out[q.Limit-1]
-		next = fmt.Sprintf("%v|%v", last.CreatedAt.Format("2006-01-02T15:04:05.999999Z07:00"), last.ID)
+		// UTC "Z" form keeps the cursor URL-safe: a "+08:00" offset inside a
+		// query param decodes "+" as a space and the replay dies with PG 22007
+		// (same cursor-robustness family as FP-11 P1-1 / FP-18 D-01).
+		next = last.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z") + "|" + last.ID
 		out = out[:q.Limit]
 	}
 	return out, next, rows.Err()
@@ -388,6 +395,24 @@ INSERT INTO label (workspace_id, name, color) VALUES ($1,$2,nullif($3,''))
 ON CONFLICT (workspace_id, name) DO UPDATE SET color = coalesce(nullif($3,''), label.color)
 RETURNING id, name, coalesce(color,'')`, wsID, name, color).Scan(&l.ID, &l.Name, &l.Color)
 	return l, err
+}
+
+// UpdateLabel renames/recolors an existing label addressed by id (REST PUT
+// /labels/{id} semantics, FP-18 D-02). ok=false when the id does not exist in
+// the workspace; a name collision with another label maps to E_VALIDATION.
+func (r *Repo) UpdateLabel(ctx context.Context, wsID, id, name, color string) (app.Label, bool, error) {
+	var l app.Label
+	err := r.q(ctx).QueryRow(ctx, `
+UPDATE label SET name=$3, color=coalesce(nullif($4,''), label.color)
+WHERE workspace_id=$1 AND id=$2
+RETURNING id, name, coalesce(color,'')`, wsID, id, name, color).Scan(&l.ID, &l.Name, &l.Color)
+	if noRow(err) {
+		return l, false, nil
+	}
+	if err != nil {
+		return l, false, mapUniqueViolation(err, "label name already exists")
+	}
+	return l, true, nil
 }
 
 func (r *Repo) DeleteLabel(ctx context.Context, wsID, id string) error {

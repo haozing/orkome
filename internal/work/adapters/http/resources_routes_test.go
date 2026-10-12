@@ -83,6 +83,10 @@ func (f *fakeCatalogRepo) ListWorkItems(_ context.Context, q app.ListQuery) ([]a
 		}
 		out = append(out, wi)
 	}
+	if len(out) > q.Limit && q.Limit > 0 {
+		out = out[:q.Limit]
+		return out, f.nextCursor, nil
+	}
 	return out, "", nil
 }
 

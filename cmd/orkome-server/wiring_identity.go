@@ -33,6 +33,7 @@ type fwIdentity struct {
 	Repo     *identitypg.Repo
 	Sessions *fwapp.SessionService
 	Tokens   *fwapp.TokenService
+	Account  *fwapp.AccountService
 	WS       *wsapp.WorkspaceService
 	WSRepo   *workspacepg.Repo
 	Az       *authz.Authorizer
@@ -77,6 +78,15 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	}, auth.SessionTTL, 0, time.Now)
 	tokens := fwapp.NewTokenService(repo, nil, time.Now).WithPATPrefix("ork_")
 
+	// FP-16 P1-1：AccountService 此前从未装配——forgot-password / reset-password /
+	// send-verification / verify-email / DELETE /auth/me 五端点因 Deps.Account
+	// 为 nil 全部 500，email_verified 恒 false、忘旧密码即永久锁死。
+	// mailer 三通道（Resend/SMTP/DevLog）上方已就绪，此处补构造 + LinkBaseURL。
+	account := fwapp.NewAccountService(repo, sender, fwapp.AccountConfig{
+		SecretPepper: cfg.JWTSecret,
+		LinkBaseURL:  cfg.AccountLinkBaseURL,
+	}, time.Now)
+
 	catalog := authz.NewCatalog(append(authz.DefaultPerms(),
 		// orkome product permission points (rebase plan Appendix B)
 		"work:read", "work:write", "work:delete", "work:move", "work:catalog",
@@ -96,11 +106,13 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	repoX := idpgrepo.New(db)
 	id := &fwIdentity{
 		Repo: repo, Sessions: sessions, Tokens: tokens, WS: ws, WSRepo: wsRepo, Az: az, Auth: auth,
+		Account: account,
 		Ext: idhttp.Deps{
 			Repo:     repoX,
 			Pins:     idapp.NewPinService(repoX),
-			UITokens: idapp.NewUITokenService(repoX, []byte(cfg.JWTSecret), time.Now),
-			Tokens:   tokens,
+			UITokens: idapp.NewUITokenService(repoX, []byte(cfg.JWTSecret), time.Now).
+				WithWorkItemLocator(idapp.WorkItemLocatorFunc(idWorkItemCheck(db))),
+			Tokens: tokens,
 		},
 	}
 
@@ -131,6 +143,7 @@ func (id *fwIdentity) IdentityMountDeps(proxies []*net.IPNet) identityhttp.Deps 
 	return identityhttp.Deps{
 		AuthCfg: id.Auth, Sessions: id.Repo, PATs: id.Repo,
 		SessionsSvc: id.Sessions, Tokens: id.Tokens,
+		Account: id.Account, // FP-16 P1-1：账号五端点的 nil 守卫在此收口
 		TrustedProxies: proxies,
 	}
 }

@@ -21,8 +21,12 @@ import (
 //
 //	GET/PUT  /api/pins, PUT /api/pins/reorder, DELETE /api/pins/{itemType}/{itemId}
 //	          (RequireAuth + X-Workspace-Id active-membership gate)
-//	POST     /api/ui-tokens, POST /api/ui-tokens/consume   (RequireAuth)
-//	POST     /cli-token                                        (RequireAuth)
+//	POST     /api/ui-tokens                  (RequireAuth; mint checks body
+//	          workspace membership and optionally binds work_item_id)
+//	POST     /api/ui-tokens/consume          (anonymous: the ticket is the
+//	          credential — single-use jti + 60s TTL + DB-atomic consumption,
+//	          FP-15 P1-1; the composition root must exempt this path from CSRF)
+//	POST     /cli-token                                       (RequireAuth)
 //
 // MountExtensions mounts the product account-extension routes. auth is the
 // composition root's Authenticate middleware (the shared root mux carries no
@@ -37,9 +41,16 @@ func MountExtensions(mux webx.Router, auth func(http.Handler) http.Handler, d De
 	mux.Handle("PUT /api/pins/reorder", pins(d.handleReorderPins))
 	mux.Handle("DELETE /api/pins/{itemType}/{itemId}", pins(d.handleRemovePin))
 
-	// ui tokens: RequireAuth (mint additionally checks body workspace membership)
+	// ui tokens: mint requires a session (handler additionally checks body
+	// workspace membership). Consume is deliberately anonymous — the ticket
+	// itself is the credential (single-use jti + 60s TTL + DB-atomic
+	// consumption): pack iframes / pack backends have neither a session nor a
+	// PAT, so a session gate would make the third leg of the three-stage
+	// ticket flow unreachable (FP-15 P1-1). The composition root must exempt
+	// this exact path from CSRF (it already does; the handler reads no
+	// Principal, so nothing else changes for anonymous callers).
 	mux.Handle("POST /api/ui-tokens", auth(webx.RequireAuth(http.HandlerFunc(d.handleUITokenMint))))
-	mux.Handle("POST /api/ui-tokens/consume", auth(webx.RequireAuth(http.HandlerFunc(d.handleUITokenConsume))))
+	mux.Handle("POST /api/ui-tokens/consume", http.HandlerFunc(d.handleUITokenConsume))
 
 	// CLI session→PAT exchange
 	mux.Handle("POST /cli-token", auth(webx.RequireAuth(http.HandlerFunc(d.handleCLIToken))))

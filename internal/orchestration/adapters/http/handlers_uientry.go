@@ -16,6 +16,8 @@ func (d Deps) handleUIEntryList(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []orchapp.PackUIEntry{}
 	}
+	// slots 已在 repo 层 COALESCE 为 []——一个端点两用：深链入口与 slot 宿主
+	// 都读 GET /api/ui-entries，slots 随行返回（前端设计 §1.2，无新路由）。
 	webx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -24,14 +26,15 @@ func (d Deps) handleUIEntryUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in, ok := decode[struct {
-		Pack        string `json:"pack"`
-		Label       string `json:"label"`
-		URLTemplate string `json:"url_template"`
+		Pack        string               `json:"pack"`
+		Label       string               `json:"label"`
+		URLTemplate string               `json:"url_template"`
+		Slots       []orchapp.PackUISlot `json:"slots"`
 	}](w, r)
 	if !ok {
 		return
 	}
-	if err := d.PackUIEntries.Upsert(r.Context(), d.ws(r), in.Pack, in.Label, in.URLTemplate); err != nil {
+	if err := d.PackUIEntries.UpsertWithSlots(r.Context(), d.ws(r), in.Pack, in.Label, in.URLTemplate, in.Slots); err != nil {
 		writeErr(w, err)
 		return
 	}

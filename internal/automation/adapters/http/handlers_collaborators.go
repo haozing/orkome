@@ -11,7 +11,7 @@ import (
 func (d Deps) listCollaborators(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Autopilots.ListCollaborators(r.Context(), wsOf(r), r.PathValue("autopilotId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, map[string]any{"collaborators": out})
@@ -32,7 +32,7 @@ func (d Deps) addCollaborator(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := d.Autopilots.AddCollaborator(r.Context(), wsOf(r), r.PathValue("autopilotId"), in.UserID, grantedBy)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, out)
@@ -45,7 +45,7 @@ func (d Deps) removeCollaborator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.Autopilots.RemoveCollaborator(r.Context(), wsOf(r), r.PathValue("autopilotId"), userID); err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

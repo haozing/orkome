@@ -34,6 +34,7 @@ table_owners:
     - agent_task_queue
     - agent_invocation_target
     - pack_ui_entry
+    - pack_tool_schema
     - agent_mcp_server
     - workspace_mcp_server
     - task_message

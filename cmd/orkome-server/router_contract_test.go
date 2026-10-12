@@ -12,10 +12,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	adminhttp "github.com/haozing/ploykit/admin/adapters/http"
+	audithttp "github.com/haozing/ploykit/audit/adapters/http"
 	"github.com/haozing/ploykit/authz"
 	fwnotifyhttp "github.com/haozing/ploykit/notify/adapters/http"
 	fwnotifapp "github.com/haozing/ploykit/notify/app"
 	"github.com/haozing/ploykit/platform/storagex"
+	"github.com/haozing/ploykit/platform/webx"
+	quotahttp "github.com/haozing/ploykit/quota/adapters/http"
+	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
 	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
 	webhookapp "github.com/haozing/ploykit/webhooks/app"
 	autohttp "orkome/internal/automation/adapters/http"
@@ -33,9 +38,40 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 	skillhttp "orkome/internal/skills/adapters/http"
 	skillapp "orkome/internal/skills/app"
+	idhttp "orkome/internal/identity/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
 	workapp "orkome/internal/work/app"
 )
+
+// rawRoutes — routeTable rows whose Pattern is an absolute composition-root
+// path (product routes the real server mounts on the root mux); the forward
+// walk must not prepend "/api".
+var rawRoutes = map[string]bool{
+	"POST /cli-token":                   true, // idhttp.MountExtensions，root 面
+	"GET /uploads/*":                    true, // contenthttp.MountUploads（LOCAL 模式），root 面
+	"HEAD /uploads/*":                   true,
+	"POST /webhooks/autopilots/{token}": true, // autohttp.MountPublic，HMAC+限流自防护
+}
+
+// subRoutes — workspacehttp 子 mux 的叶子（挂在 /api/workspaces/{workspaceId}/
+// 子树后面，顶层走查只见委托 mount）；TestWorkspaceSubroutesDeclared 用
+// workspacehttp.SubrouteInfos() 逐条对账两侧。
+var subRoutes = map[string]bool{
+	"GET /workspaces/{id}/members":                 true,
+	"PATCH /workspaces/{id}/members/{userId}":      true,
+	"DELETE /workspaces/{id}/members/{userId}":     true,
+	"GET /workspaces/{id}/roles":                   true,
+	"PUT /workspaces/{id}/roles/{role}":            true,
+	"DELETE /workspaces/{id}/roles/{role}":         true,
+	"POST /workspaces/{id}/transfer-ownership":     true,
+	"POST /workspaces/{id}/leave":                  true,
+	"GET /workspaces/{id}/invitations":             true,
+	"POST /workspaces/{id}/invitations":            true,
+	"DELETE /workspaces/{id}/invitations/{invId}":  true,
+	"GET /workspaces/{id}/share-links":             true,
+	"POST /workspaces/{id}/share-links":            true,
+	"DELETE /workspaces/{id}/share-links/{linkId}": true,
+}
 
 var routeTable = []struct{ Method, Pattern string }{
 
@@ -227,19 +263,69 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/autopilots/{id}/runs"}, {"GET", "/autopilots/{id}/runs/{runId}"},
 	{"GET", "/deliveries"}, {"GET", "/deliveries/{deliveryId}"},
 	{"POST", "/deliveries/{deliveryId}/replay"},
+
+	// ── P4 双向守卫补齐（fix-wave3，2026-10-12）─────────────────────────────
+	// 以下路由真实挂载但此前漏登记——TestRouteContractReverseWalk 首跑当场
+	// 抓出 37 条，与 batch1 P1 / batch2 FP-19 的缺口清单一致。
+
+	// work：客户端用量上报（batch2 FP-12 usage 链的写入口；wiring 装配
+	// ClientUsage 非 nil 才挂）
+	{"POST", "/client-usage"},
+
+	// orchestration：pack 工具输出 schema 存档（迁移 1035 / B1 交付面）
+	{"GET", "/pack-tool-schemas"},
+	{"PUT", "/pack-tool-schemas/{pack}"}, {"DELETE", "/pack-tool-schemas/{pack}"},
+
+	// identity 扩展面（idhttp.MountExtensions，root 挂载）：侧边栏 pins×4、
+	// ui-token 三段票据流（FP-15 P1-1）、CLI 会话→PAT 交换
+	{"GET", "/pins"}, {"PUT", "/pins"}, {"PUT", "/pins/reorder"},
+	{"DELETE", "/pins/{itemType}/{itemId}"},
+	{"POST", "/ui-tokens"}, {"POST", "/ui-tokens/consume"},
+	{"POST", "/cli-token"},
+
+	// 框架 workspace 域（workspacehttp.Mount）：工作区、邀请、分享链接
+	// （batch1 根因 C：只有 /redeem，不存在 /join）
+	{"GET", "/workspaces"}, {"POST", "/workspaces"},
+	{"PATCH", "/workspaces/{id}"}, {"DELETE", "/workspaces/{id}"},
+	{"GET", "/invitations/mine"},
+	{"POST", "/invitations/{id}/accept"}, {"POST", "/invitations/{id}/decline"},
+	{"POST", "/share-links/redeem"},
+
+	// 商业化面（wiring_commercial → quotahttp/audithttp，P6-2 装配范围）
+	{"GET", "/usage"},
+	{"GET", "/audit"}, {"GET", "/audit/export.csv"},
+
+	// 平台管理员面（adminhttp.Mount，root 挂载；FP-19 的 admin×10）
+	{"GET", "/admin/stats"}, {"GET", "/admin/users"},
+	{"PATCH", "/admin/users/{id}/status"}, {"PATCH", "/admin/users/{id}/admin"},
+	{"POST", "/admin/users/{id}/impersonate"},
+	{"GET", "/admin/workspaces"}, {"PATCH", "/admin/workspaces/{id}/plan"},
+	{"GET", "/admin/audit"}, {"GET", "/admin/audit/export.csv"},
+	{"GET", "/admin/analytics"},
+
+	// content：/uploads/* 静态面（LOCAL 模式，root 挂载；MountUploads，
+	// Local backend 为 nil 的部署形态不挂）
+	{"GET", "/uploads/*"}, {"HEAD", "/uploads/*"},
+
+	// automation：公开 webhook 入站（root 挂载，自带 HMAC + 限流防护，
+	// 全局 CSRF 豁免面——FP-13）
+	{"POST", "/webhooks/autopilots/{token}"},
 }
 
 func buildTestAPIRouter() *http.ServeMux {
 	r := http.NewServeMux()
 	auth := func(next http.Handler) http.Handler { return next }
 	member := func(context.Context, string, string) (bool, error) { return true, nil }
+	// 挂载顺序镜像 main.go：workspacehttp.Mount 最先（生产 main.go:243）。
+	workspacehttp.Mount(r, workspacehttp.Deps{})
 	workhttp.Mount(r, workhttp.Deps{
 		WorkItems: &workapp.WorkItemService{}, Comments: &workapp.CommentService{},
 		SourceCtx: &workapp.SourceContextService{},
 		Catalog:   &workapp.CatalogService{},
-		Views:     &workapp.ViewService{}, Search: &workapp.SearchService{},
+		Views: &workapp.ViewService{}, Search: &workapp.SearchService{},
 		Timeline:    func(context.Context, string, int, string) ([]workapp.TimelineEntry, error) { return nil, nil },
 		Subscribers: func(context.Context, string) ([]workapp.Subscriber, error) { return nil, nil },
+		ClientUsage: workapp.NewClientUsageService(nil), // 生产 wiring 装配非 nil → POST /api/client-usage
 		MemberCheck: member,
 	}, auth)
 	orchhttp.Mount(r, orchhttp.Deps{
@@ -247,6 +333,7 @@ func buildTestAPIRouter() *http.ServeMux {
 		Repo: stubRepo{}, MCP: &orchapp.MCPServerService{}, Builder: &orchapp.AgentBuilderService{},
 		Batches:     &orchapp.BatchService{},
 		Credentials: &orchapp.CredentialService{},
+		PackToolSchemas: orchapp.NewPackToolSchemaService(nil), // 生产装配非 nil → /api/pack-tool-schemas×3
 		AgentLabels: &orchhttp.AgentLabelEndpoints{
 			List:   func(context.Context, string, string) ([]orchhttp.AgentLabelView, error) { return nil, nil },
 			Attach: func(context.Context, string, string, string) ([]orchhttp.AgentLabelView, error) { return nil, nil },
@@ -290,7 +377,24 @@ func buildTestAPIRouter() *http.ServeMux {
 
 	r.HandleFunc("POST /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
 	r.HandleFunc("GET /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
-	autohttp.Mount(r, autohttp.Deps{Wakeups: &autoapp.WakeupService{}, Autopilots: &autoapp.AutopilotService{}, Webhooks: &autoapp.WebhookService{}}, auth)
+
+	// 商业化面（main.go:253 comm.MountAPI → quotahttp + audithttp）：
+	// 注册期不解引用 nil 服务，测试只关心 pattern 面。
+	quotahttp.Mount(r, quotahttp.Deps{})
+	audithttp.Mount(r, audithttp.Deps{})
+	// 平台管理员面（main.go:254 comm.MountAdmin → adminhttp.Mount，root 挂载、
+	// /api 前缀 pattern）：FP-19 的 admin×10。
+	adminhttp.Mount(r, adminhttp.Deps{AuthCfg: &webx.AuthConfig{}})
+	// 产品身份扩展面（main.go:311 idhttp.MountExtensions，root 挂载）：
+	// 侧边栏 pins×4、ui-token 三段票据流×2、CLI 换 PAT。
+	idhttp.MountExtensions(r, auth, idhttp.Deps{})
+
+	autoDeps := autohttp.Deps{Wakeups: &autoapp.WakeupService{}, Autopilots: &autoapp.AutopilotService{}, Webhooks: &autoapp.WebhookService{}}
+	autohttp.Mount(r, autoDeps, auth)
+	// 公开 webhook 入站在生产挂在 root（main.go:307）；挂进同一测试 mux 以便
+	// 枚举对账（pattern 与 Handler 解析语义不变）。
+	autohttp.MountPublic(r, autoDeps)
+
 	skillhttp.Mount(r, skillhttp.Deps{
 		Skills: &skillapp.SkillService{}, Import: &skillapp.ImportService{}, MemberCheck: member,
 		SkillLabels: skillhttp.SkillLabelEndpoints{
@@ -301,10 +405,13 @@ func buildTestAPIRouter() *http.ServeMux {
 	}, auth)
 
 	chhttp.Mount(r, chhttp.Deps{Titles: &chapp.TitleCallbackService{}})
-	contenthttp.MountAPI(r, contenthttp.Deps{
+	contentDeps := contenthttp.Deps{
 		Attachments: &contentapp.AttachmentService{}, Avatars: &contentapp.AvatarService{},
 		Local: &storagex.LocalBackend{}, MemberCheck: member,
-	}, auth)
+	}
+	contenthttp.MountAPI(r, contentDeps, auth)
+	// /uploads/* 静态面（LOCAL 模式，root 挂载）同样纳入枚举对账。
+	contenthttp.MountUploads(r, contentDeps)
 	return r
 }
 
@@ -315,22 +422,34 @@ func (stubCanceller) CancelChatTask(context.Context, string, string) (string, st
 }
 
 // TestRouteContract resolves every declared route against the mounted mux.
-// stdlib ServeMux cannot enumerate registered patterns, so reconciliation is
-// one-directional (table -> mux) via Handler(), which only matches and never
-// invokes the handler. Drift in the other direction (mounted, undeclared) is
-// guarded by review + the per-domain route accountings.
+// stdlib ServeMux cannot enumerate registered patterns via its public API, so
+// this direction (table -> mux) resolves through Handler(), which only
+// matches and never invokes the handler. The reverse direction (mounted,
+// undeclared) is guarded by TestRouteContractReverseWalk in
+// route_bidirectional_test.go, which enumerates the mux via the internal
+// routing tree.
 func TestRouteContractWalk(t *testing.T) {
 	mux := buildTestAPIRouter()
 	var missing []string
 	for _, e := range routeTable {
-		path := "/api" + fillParams(e.Pattern)
-		req := httptest.NewRequest(e.Method, path, nil)
+		key := e.Method + " " + e.Pattern
+		path := e.Pattern
+		if !rawRoutes[key] {
+			path = "/api" + path
+		}
+		req := httptest.NewRequest(e.Method, fillParams(path), nil)
 		_, pattern := mux.Handler(req)
 		if i := strings.Index(pattern, " "); i >= 0 {
 			pattern = pattern[i+1:] // Handler() returns "METHOD /path"; keep the path half
 		}
-		if canonical(pattern) != canonical("/api"+e.Pattern) {
-			missing = append(missing, e.Method+" "+e.Pattern+" (resolved: "+pattern+")")
+		want := canonical(path)
+		if subRoutes[key] {
+			// Sub-mux leaves answer behind the workspace subtree mount; what
+			// Handler() reports at the top level is the delegation pattern.
+			want = canonical("/api/workspaces/{workspaceId}/")
+		}
+		if canonical(pattern) != want {
+			missing = append(missing, key+" (resolved: "+pattern+")")
 		}
 	}
 	sort.Strings(missing)
@@ -356,3 +475,28 @@ func canonical(p string) string {
 }
 
 type stubRepo struct{ orchapp.Repo }
+
+// TestShareLinksContractRedeem 钉死 batch1 根因 C 的装配层回归：框架
+// workspacehttp.Mount 只有 POST /api/share-links/redeem（前端
+// identity.ts joinByShareCode 已改调 redeem），不存在 /join，也不存在
+// GET /share-links/{code}——契约清单（routes.go RouteContract）与测试
+// 都不得再出现幽灵条目。
+func TestShareLinksContractRedeem(t *testing.T) {
+	r := http.NewServeMux()
+	workspacehttp.Mount(r, workspacehttp.Deps{})
+
+	resolve := func(method, path string) (string, bool) {
+		_, pattern := r.Handler(httptest.NewRequest(method, path, nil))
+		return pattern, pattern != ""
+	}
+
+	pattern, ok := resolve("POST", "/api/share-links/redeem")
+	require.True(t, ok, "POST /api/share-links/redeem must be mounted")
+	require.Equal(t, "POST /api/share-links/redeem", pattern)
+
+	_, ok = resolve("POST", "/api/share-links/join")
+	require.False(t, ok, "POST /api/share-links/join is a ghost route (contract says /redeem)")
+
+	_, ok = resolve("GET", "/api/share-links/00000000-0000-0000-0000-000000000000")
+	require.False(t, ok, "GET /api/share-links/{code} is a ghost route (removed from contract)")
+}

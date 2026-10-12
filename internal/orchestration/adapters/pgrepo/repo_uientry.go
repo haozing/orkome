@@ -2,22 +2,33 @@ package pgrepo
 
 import (
 	"context"
+	"encoding/json"
 
 	"orkome/internal/orchestration/app"
 )
 
 func (r *Repo) UpsertPackUIEntry(ctx context.Context, e app.PackUIEntry) error {
+	// slots 随 entry 同行落库（迁移 1036 的 jsonb 列）；无 slots 写 NULL，
+	// 与 label/url_template 一致的整行覆盖语义——重装即重写。
+	var slotsJSON any
+	if len(e.Slots) > 0 {
+		b, err := json.Marshal(e.Slots)
+		if err != nil {
+			return err
+		}
+		slotsJSON = b
+	}
 	_, err := r.DB.Tx(ctx).Exec(ctx, `
-INSERT INTO pack_ui_entry (workspace_id, pack, label, url_template)
-VALUES ($1,$2,$3,$4)
-ON CONFLICT (workspace_id, pack) DO UPDATE SET label=$3, url_template=$4`,
-		e.WorkspaceID, e.Pack, e.Label, e.URLTemplate)
+INSERT INTO pack_ui_entry (workspace_id, pack, label, url_template, slots)
+VALUES ($1,$2,$3,$4,$5::jsonb)
+ON CONFLICT (workspace_id, pack) DO UPDATE SET label=$3, url_template=$4, slots=$5::jsonb`,
+		e.WorkspaceID, e.Pack, e.Label, e.URLTemplate, slotsJSON)
 	return err
 }
 
 func (r *Repo) ListPackUIEntries(ctx context.Context, ws string) ([]app.PackUIEntry, error) {
 	rows, err := r.DB.Tx(ctx).Query(ctx, `
-SELECT id::text, workspace_id::text, pack, label, url_template, installed_at
+SELECT id::text, workspace_id::text, pack, label, url_template, COALESCE(slots, '[]'::jsonb), installed_at
 FROM pack_ui_entry WHERE workspace_id=$1 ORDER BY pack`, ws)
 	if err != nil {
 		return nil, err
@@ -26,8 +37,17 @@ FROM pack_ui_entry WHERE workspace_id=$1 ORDER BY pack`, ws)
 	var out []app.PackUIEntry
 	for rows.Next() {
 		var e app.PackUIEntry
-		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.Pack, &e.Label, &e.URLTemplate, &e.InstalledAt); err != nil {
+		var slotsRaw []byte
+		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.Pack, &e.Label, &e.URLTemplate, &slotsRaw, &e.InstalledAt); err != nil {
 			return nil, err
+		}
+		if len(slotsRaw) > 0 {
+			if err := json.Unmarshal(slotsRaw, &e.Slots); err != nil {
+				return nil, err
+			}
+		}
+		if e.Slots == nil {
+			e.Slots = []app.PackUISlot{}
 		}
 		out = append(out, e)
 	}

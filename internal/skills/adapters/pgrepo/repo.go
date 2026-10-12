@@ -6,9 +6,10 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/haozing/ploykit/platform/pg"
-	"orkome/internal/platform/pgxerr"
+	"orkome/internal/contract/apierr"
 	"orkome/internal/skills/app"
 )
 
@@ -179,14 +180,40 @@ func (r *Repo) GetSkillByName(ctx context.Context, ws, name string) (app.Skill, 
 	return out, err == nil, err
 }
 
-func (r *Repo) SetAgentSkills(ctx context.Context, agentID string, skillIDs []string, enabled bool) error {
+// AgentInWorkspace 工作区归属校验（FP-08 P1-4）：绑定写面先过这把闸。
+// 非法 uuid 输入映射 400（此前裸 500）。
+func (r *Repo) AgentInWorkspace(ctx context.Context, ws, agentID string) (bool, error) {
+	var exists bool
+	err := r.q(ctx).QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM agent WHERE id=$2::uuid AND workspace_id=$1)`, ws, agentID).
+		Scan(&exists)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return false, apierr.NewValidation("invalid agent id")
+		}
+		return false, err
+	}
+	return exists, nil
+}
+
+// 绑定写面全部带 ag.workspace_id / s.workspace_id 限定（FP-08 P1-4），
+// 由 service 层先做存在性校验，这里作为纵深防御二次收口。
+func (r *Repo) SetAgentSkills(ctx context.Context, ws, agentID string, skillIDs []string, enabled bool) error {
 	return r.DB.Within(ctx, func(ctx context.Context) error {
-		if _, err := r.q(ctx).Exec(ctx, `DELETE FROM agent_skill WHERE agent_id=$1`, agentID); err != nil {
+		if _, err := r.q(ctx).Exec(ctx, `
+DELETE FROM agent_skill a
+USING agent ag
+WHERE a.agent_id=ag.id AND ag.id=$2 AND ag.workspace_id=$1`, ws, agentID); err != nil {
 			return err
 		}
 		for _, sid := range skillIDs {
 			if _, err := r.q(ctx).Exec(ctx, `
-INSERT INTO agent_skill (agent_id, skill_id, enabled) VALUES ($1,$2,$3)`, agentID, sid, enabled); err != nil {
+INSERT INTO agent_skill (agent_id, skill_id, enabled)
+SELECT ag.id, s.id, $4
+FROM agent ag JOIN skill s ON s.id=$3
+WHERE ag.id=$2 AND ag.workspace_id=$1 AND s.workspace_id=$1
+ON CONFLICT (agent_id, skill_id) DO UPDATE SET enabled=EXCLUDED.enabled`, ws, agentID, sid, enabled); err != nil {
 				return err
 			}
 		}
@@ -194,22 +221,37 @@ INSERT INTO agent_skill (agent_id, skill_id, enabled) VALUES ($1,$2,$3)`, agentI
 	})
 }
 
-func (r *Repo) AddAgentSkill(ctx context.Context, agentID, skillID string) error {
+func (r *Repo) AddAgentSkill(ctx context.Context, ws, agentID, skillID string) error {
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO agent_skill (agent_id, skill_id, enabled) VALUES ($1,$2,true)
-ON CONFLICT (agent_id, skill_id) DO NOTHING`, agentID, skillID)
-	return pgxerr.AsNotFound(err, "agent or skill not found")
-}
-
-func (r *Repo) SetAgentSkillEnabled(ctx context.Context, agentID, skillID string, en bool) error {
-	_, err := r.q(ctx).Exec(ctx,
-		`UPDATE agent_skill SET enabled=$3 WHERE agent_id=$1 AND skill_id=$2`, agentID, skillID, en)
+INSERT INTO agent_skill (agent_id, skill_id, enabled)
+SELECT ag.id, s.id, true
+FROM agent ag JOIN skill s ON s.id=$3
+WHERE ag.id=$2 AND ag.workspace_id=$1 AND s.workspace_id=$1
+ON CONFLICT (agent_id, skill_id) DO NOTHING`, ws, agentID, skillID)
 	return err
 }
 
-func (r *Repo) RemoveAgentSkill(ctx context.Context, agentID, skillID string) error {
-	_, err := r.q(ctx).Exec(ctx,
-		`DELETE FROM agent_skill WHERE agent_id=$1 AND skill_id=$2`, agentID, skillID)
+func (r *Repo) SetAgentSkillEnabled(ctx context.Context, ws, agentID, skillID string, en bool) error {
+	tag, err := r.q(ctx).Exec(ctx, `
+UPDATE agent_skill a SET enabled=$4
+FROM agent ag, skill s
+WHERE a.agent_id=ag.id AND a.skill_id=s.id
+  AND ag.id=$2 AND ag.workspace_id=$1 AND s.id=$3 AND s.workspace_id=$1`, ws, agentID, skillID, en)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierr.New(apierr.NotFound, "agent skill binding not found in this workspace")
+	}
+	return nil
+}
+
+func (r *Repo) RemoveAgentSkill(ctx context.Context, ws, agentID, skillID string) error {
+	_, err := r.q(ctx).Exec(ctx, `
+DELETE FROM agent_skill a
+USING agent ag, skill s
+WHERE a.agent_id=ag.id AND a.skill_id=s.id
+  AND ag.id=$2 AND ag.workspace_id=$1 AND s.id=$3 AND s.workspace_id=$1`, ws, agentID, skillID)
 	return err
 }
 

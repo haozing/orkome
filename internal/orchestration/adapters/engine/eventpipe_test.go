@@ -175,7 +175,9 @@ func TestEventPipe_Emit_PersistsAndPushesProgress(t *testing.T) {
 	assert.Equal(t, progressRecord{"ws1", "tk1", "tool_result", "call_9", 2}, prog[1])
 	assert.Equal(t, progressRecord{"ws1", "tk1", "text", "", 3}, prog[2])
 
-	assert.Equal(t, []string{"post_comment {}", "ok" + strings.Repeat("x", summaryMax+5)}, sink.frames)
+	// FP-05 P1-2：interim 帧与 DB 路径同样截 2000 rune——最后一段 "ok"+2005
+	// 个 'x' 经 emit 截为 "ok"+2000 个 'x'（此前整包广播，行为已修正并钉死）。
+	assert.Equal(t, []string{"post_comment {}", "ok" + strings.Repeat("x", summaryMax)}, sink.frames)
 }
 
 func TestEventPipe_Emit_NoProgressWhenPersistFails(t *testing.T) {

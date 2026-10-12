@@ -20,24 +20,63 @@ import (
 	"orkome/internal/platform/eventbus"
 )
 
+// subScopeFence 校验 scoped 实体是否属于连接的授权工作区（FP-20 F1）。
+// 工作区成员资格本身不足以解锁 task/chat 订阅——跨区订阅会持续收到
+// Result/Content 全文，属订阅面 IDOR。
+type subScopeFence struct {
+	// task：taskID 是否属于 workspaceID。
+	task func(ctx context.Context, workspaceID, taskID string) (bool, error)
+	// chat：sessionID 是否为 userID 的会话。裁决 D1（docs/fix-wave2-chat-2026-10-12.md §7）：
+	// 会话口径为 creator 私有，WS 订阅与 REST 读写同口径（ workspace 成员 ≠ 可订他人会话）。
+	chat func(ctx context.Context, workspaceID, sessionID, userID string) (bool, error)
+}
+
 func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
+	fence subScopeFence,
 	pat webx.PATLookup, cfg *Config, rdb redis.UniversalClient, reg *Workers,
 ) (*fwwsx.Hub, fwwsx.Broadcaster) {
 	registerRealtimeVocab()
 	hub := fwwsx.NewHub(log)
 	hub.Capabilities = wswire.Capabilities()
-	hub.PATPrefix = "ork_"
-	hub.PATResolve = func(ctx context.Context, token string) (*webx.Principal, error) {
-		return pat.ResolvePAT(ctx, token, time.Now())
+	if pat != nil {
+		hub.PATPrefix = "ork_"
+		hub.PATResolve = func(ctx context.Context, token string) (*webx.Principal, error) {
+			return pat.ResolvePAT(ctx, token, time.Now())
+		}
 	}
 
-	hub.Authorize = func(ctx context.Context, p *webx.Principal, connWS, _, _ string) bool {
+	// FP-06 P1-1：workspace scope 复活。此前从未设置 WorkspaceMember，
+	// 握手 auto-join 与显式 workspace 订阅全部 rejected，comment:/work_item:/
+	// label: 帧谁都收不到。MemberGate 是框架提供的 principal→成员校验适配器。
+	hub.WorkspaceMember = fwwsx.MemberGate(memberCheck)
+	hub.Authorize = func(ctx context.Context, p *webx.Principal, connWS, scope, id string) bool {
 		if p == nil || connWS == "" {
 			return false
 		}
 		ok, err := memberCheck(ctx, connWS, p.UserID)
-		return err == nil && ok
+		if err != nil || !ok {
+			return false
+		}
+		// FP-20 F1：消费框架传入的 scope/id——workspace 成员资格不外溢到
+		// task/chat scope。能走到 default 分支的 scope 都已注册（hub 侧对
+		// 未注册 scope 静默丢弃），其余一律 fail-closed。
+		switch scope {
+		case "task":
+			if id == "" || fence.task == nil {
+				return false
+			}
+			ok, err := fence.task(ctx, connWS, id)
+			return err == nil && ok
+		case "chat":
+			if id == "" || fence.chat == nil {
+				return false
+			}
+			ok, err := fence.chat(ctx, connWS, id, p.UserID)
+			return err == nil && ok
+		default:
+			return false
+		}
 	}
 	hub.AllowedOrigins = cfg.WSOrigins
 	log.Info("ws origins configured", "n", len(cfg.WSOrigins), "list", cfg.WSOrigins)
@@ -51,9 +90,7 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 		rel = relayx.NewRelay("", relayx.NewRedisTransport(rdb), log)
 		hub.Relay = rel
 		reg.AddFunc("ws-relay", func(ctx context.Context) error {
-			return rel.Run(ctx, func(env relayx.Envelope) {
-				broadcaster.Broadcast(context.Background(), env.Scope, env.Frame)
-			})
+			return rel.Run(ctx, relayDeliver(hub))
 		})
 	}
 	log.Info("relayx: realtime mode", "mode", map[bool]string{true: "redis", false: "memory"}[rdb != nil], "redis", rdb != nil)
@@ -81,6 +118,15 @@ func wiringWS(ctx context.Context, log *slog.Logger, bus *eventbus.Bus,
 }
 
 type hubBroadcaster struct{ hub *fwwsx.Hub }
+
+// relayDeliver 是 relayx 回调的框架契约实现（FP-20 F2）：远端帧只做本地
+// 投递、不再发布。此前误用 Broadcast（= 本地投递 + PublishOut 再发布），
+// ≥2 副本时 origin 抑制无法终止——2 副本无限空转、3+ 副本指数倍增。
+func relayDeliver(hub *fwwsx.Hub) func(relayx.Envelope) {
+	return func(env relayx.Envelope) {
+		hub.DeliverRemote(env.Scope, env.Frame)
+	}
+}
 
 func (h hubBroadcaster) Broadcast(ctx context.Context, scope string, frame wswire.Frame) {
 	h.hub.Broadcast(ctx, scope, frame)

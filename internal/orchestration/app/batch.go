@@ -118,7 +118,10 @@ func (s *BatchService) CreateAndMaterialize(ctx context.Context, b Batch, payloa
 	}
 	if s.bus != nil {
 		s.bus.Emit(ctx, events.BatchCreated, map[string]any{"batch_id": out.ID,
-			"work_item_id": out.WorkItemID, "kind": out.Kind, "total": out.Total})
+			"work_item_id": out.WorkItemID, "kind": out.Kind, "total": out.Total,
+			// FP-20 F3：供 cmd 装配层 batchEmitter 提取 Envelope.WorkspaceID，
+			// 否则 batch 帧被实时广播门禁（空 WorkspaceID）整族丢弃。
+			"workspace_id": out.WorkspaceID})
 	}
 	return &out, nil
 }
@@ -210,7 +213,7 @@ func (s *BatchService) RunWorker(ctx context.Context, b Batch, proc BatchProcess
 						}
 						s.bus.Emit(ctx, evName,
 							map[string]any{"batch_id": b.ID, "work_item_id": b.WorkItemID,
-								"total": b.Total, "done": doneN})
+								"total": b.Total, "done": doneN, "workspace_id": b.WorkspaceID})
 					}
 					if final == domain.BatchCompleted && s.done != nil {
 						_ = s.done.NotifyBatchDone(ctx, b.WorkspaceID, b.WorkItemID, b.ID)
@@ -227,7 +230,8 @@ func (s *BatchService) RunWorker(ctx context.Context, b Batch, proc BatchProcess
 				}
 				if s.bus != nil {
 					s.bus.Emit(ctx, events.BatchProgress, map[string]any{
-						"batch_id": b.ID, "done": doneN, "total": b.Total})
+						"batch_id": b.ID, "done": doneN, "total": b.Total,
+						"workspace_id": b.WorkspaceID})
 				}
 				lastEmittedChunk = doneN / b.ChunkSize
 			}

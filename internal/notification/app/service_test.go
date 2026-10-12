@@ -110,6 +110,32 @@ func TestMutedFor_DirectWritePath(t *testing.T) {
 		domain.MuteTarget{Type: "approval_request"}), "read failures deliver fail-open")
 }
 
+func TestNotify_Handle_ActorSelfNotificationFiltered(t *testing.T) {
+	// FP-10：投影侧跳过 actor 本人——无论 actor 经由订阅、提及还是直发
+	// 进入收件集合，都不再给自己发通知；其他收件人不受影响。
+	repo := newFakeRepo()
+	svc := NewNotifyService(repo, nil)
+	in := EventIn{
+		EventID: "e-1", WorkspaceID: "ws-1", Type: "task.completed",
+		ActorUserID:      "u-actor",
+		MentionedUserIDs: []string{"u-actor", "u-mentioned"},
+		DirectUserIDs:    []string{"u-actor", "u-direct"},
+	}
+	require.NoError(t, svc.Handle(context.Background(), in))
+
+	assert.Empty(t, repo.notification["ws-1/u-actor"], "actor 不自通知")
+	assert.Len(t, repo.notification["ws-1/u-mentioned"], 1)
+	assert.Len(t, repo.notification["ws-1/u-direct"], 1)
+
+	// actor 为空（agent 结算路径）时不过滤，保持既有行为
+	repo2 := newFakeRepo()
+	require.NoError(t, NewNotifyService(repo2, nil).Handle(context.Background(), EventIn{
+		EventID: "e-2", WorkspaceID: "ws-1", Type: "task.completed",
+		DirectUserIDs: []string{"u-originator"},
+	}))
+	assert.Len(t, repo2.notification["ws-1/u-originator"], 1)
+}
+
 func TestPrefs_PatchThirdGroup(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewPreferenceService(repo)

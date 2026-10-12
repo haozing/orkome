@@ -95,7 +95,7 @@ func min(a, b int) int {
 func TestCommentUpdateDelete_AuthorGateAndCancel(t *testing.T) {
 	repo := newFakeCommentRepo()
 	repo.items["wi-1"] = WorkItem{ID: "wi-1", WorkspaceID: "ws-1"}
-	repo.comments["c-1"] = Comment{ID: "c-1", WorkItemID: "wi-1", AuthorType: "user", AuthorID: "u-author"}
+	repo.comments["c-1"] = Comment{ID: "c-1", WorkspaceID: "ws-1", WorkItemID: "wi-1", AuthorType: "user", AuthorID: "u-author"}
 	var cancelled []string
 	SetCommentTaskCanceller(func(_ context.Context, _, commentID string) (int, error) {
 		cancelled = append(cancelled, commentID)
@@ -128,8 +128,8 @@ func TestCommentUpdateDelete_AuthorGateAndCancel(t *testing.T) {
 func TestCommentResolve_OnlyThreadRoot(t *testing.T) {
 	repo := newFakeCommentRepo()
 	repo.items["wi-1"] = WorkItem{ID: "wi-1", WorkspaceID: "ws-1"}
-	repo.comments["root"] = Comment{ID: "root", WorkItemID: "wi-1", AuthorType: "user"}
-	repo.comments["child"] = Comment{ID: "child", WorkItemID: "wi-1", AuthorType: "user", ParentID: "root"}
+	repo.comments["root"] = Comment{ID: "root", WorkspaceID: "ws-1", WorkItemID: "wi-1", AuthorType: "user"}
+	repo.comments["child"] = Comment{ID: "child", WorkspaceID: "ws-1", WorkItemID: "wi-1", AuthorType: "user", ParentID: "root"}
 	emit := &captureEmitter{}
 	svc := NewCommentService(repo, emit, nil)
 	ctx := context.Background()
@@ -207,4 +207,54 @@ func TestUpdate_RevisionCAS(t *testing.T) {
 	var ae *apierr.Error
 	require.ErrorAs(t, err, &ae)
 	require.Equal(t, apierr.Conflict, ae.Code)
+}
+
+// FP-06 P1-2（IDOR）：评论写面（Update/Delete/SetResolve）必须做工作区
+// fence——GetComment 只按 id 查，跨工作区写此前全部 2xx。回归锁定：
+// 跨区一律 404（不泄露存在性），同区合法路径不回归。
+func TestCommentWrite_CrossWorkspaceFence(t *testing.T) {
+	repo := newFakeCommentRepo()
+	repo.items["wi-1"] = WorkItem{ID: "wi-1", WorkspaceID: "ws-1"}
+	repo.comments["c-1"] = Comment{
+		ID: "c-1", WorkspaceID: "ws-1", WorkItemID: "wi-1",
+		AuthorType: "user", AuthorID: "u-author", Content: "original",
+	}
+	var cancelled []string
+	SetCommentTaskCanceller(func(_ context.Context, _, commentID string) (int, error) {
+		cancelled = append(cancelled, commentID)
+		return 1, nil
+	})
+	t.Cleanup(func() { SetCommentTaskCanceller(nil) })
+	svc := NewCommentService(repo, nil, nil)
+	ctx := context.Background()
+
+	// 跨区写三连：一律 404，且不落任何写副作用
+	_, err := svc.Update(ctx, "ws-other", "c-1", "cross ws edit", "u-author", 0)
+	require.Error(t, err)
+	var ae *apierr.Error
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, apierr.NotFound, ae.Code)
+	assert.Equal(t, "original", repo.comments["c-1"].Content, "cross-ws edit must not persist")
+
+	err = svc.Delete(ctx, "ws-other", "c-1", "u-author")
+	require.Error(t, err)
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, apierr.NotFound, ae.Code)
+	assert.False(t, repo.comments["c-1"].Deleted, "cross-ws delete must be refused")
+
+	err = svc.SetResolve(ctx, "ws-other", "c-1", true, "user", "u-author")
+	require.Error(t, err)
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, apierr.NotFound, ae.Code)
+	assert.False(t, repo.comments["c-1"].Resolved, "cross-ws resolve must be refused")
+	assert.Empty(t, cancelled, "refused cross-ws writes cancel nothing")
+
+	// 同区合法路径不回归：作者改/删/解决依旧全通
+	_, err = svc.Update(ctx, "ws-1", "c-1", "same ws edit ok", "u-author", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "same ws edit ok", repo.comments["c-1"].Content)
+	require.NoError(t, svc.SetResolve(ctx, "ws-1", "c-1", true, "user", "u-author"))
+	assert.True(t, repo.comments["c-1"].Resolved)
+	require.NoError(t, svc.Delete(ctx, "ws-1", "c-1", "u-author"))
+	assert.True(t, repo.comments["c-1"].Deleted)
 }

@@ -302,7 +302,9 @@ type Repo interface {
 	DeleteWorkspaceMCP(ctx context.Context, workspaceID, id string) error
 	ListAgentMCP(ctx context.Context, workspaceID, agentID string) ([]AgentMCP, bool, error)
 
-	UpsertAgentMCP(ctx context.Context, m AgentMCP) (AgentMCP, error)
+	// CreateAgentMCP：INSERT 语义，重名 23505 → 409（FP-07 P1-4：不再
+	// ON CONFLICT 静默覆盖，与 ws 级 CreateWorkspaceMCP 对齐）。
+	CreateAgentMCP(ctx context.Context, m AgentMCP) (AgentMCP, error)
 	UpdateAgentMCP(ctx context.Context, m AgentMCP) (AgentMCP, bool, error)
 	DeleteAgentMCP(ctx context.Context, workspaceID, agentID, id string) error
 
@@ -321,8 +323,14 @@ type Repo interface {
 
 	StartTask(ctx context.Context, id, runtimeID, engineTag string) (Task, error)
 
-	CompleteRun(ctx context.Context, id, result string, sessionRef string, engineTag string, usage UsageReport) error
-	FailRun(ctx context.Context, id, reason, errMsg string) (attemptedRetry bool, err error)
+	CompleteRun(ctx context.Context, id, result string, sessionRef string, engineTag string, summary string, usage UsageReport) error
+	FailRun(ctx context.Context, id, reason, errMsg string, summary string) (attemptedRetry bool, err error)
+
+	// LastTaskText 取任务最后一条 kind='text' 的 task_message 内容（无则空串）。
+	// summary 生成已上移 service 层（A2）：repo 只提供材料读取与落存，
+	// 不再自行生成 summary。
+	LastTaskText(ctx context.Context, taskID string) (string, error)
+
 	CancelRun(ctx context.Context, workspaceID, id string) (bool, error)
 	ListTasksByWorkItem(ctx context.Context, workItemID string, newestFirst bool) ([]Task, error)
 	ListActiveTasks(ctx context.Context, workItemID string) ([]Task, error)
@@ -534,7 +542,138 @@ type MCPSnapshotEntry struct {
 	Note      string `json:"note,omitempty"`
 }
 
-func MCPContextSnapshot(entries []MCPSnapshotEntry) map[string]any {
+// ToolSnapshotEntry 是 task.context.tools 快照里一个工具的清单条目（C1）。
+// 统一覆盖内置工具与 MCP 桥接工具；JSON 形状冻结见
+// docs/interfaces-tool-registry-2026-10-11.md §3（前端将来要读）。
+type ToolSnapshotEntry struct {
+	// Name 工具名（内置无前缀；MCP 桥接自动带 <pack>_ 前缀）。
+	Name string `json:"name"`
+	// Origin "builtin"（编译期内置工具）| "mcp"（pack 桥接工具）。
+	Origin string `json:"origin"`
+	// Server 归属 MCP 服务器名（仅 origin=mcp 有值；内置为空）。
+	Server string `json:"server,omitempty"`
+	// HasOutputSchema 是否声明了输出契约（OutputSchema/存档/协议自描述）。
+	HasOutputSchema bool `json:"has_output_schema"`
+	// ConcurrencySafe 是否显式声明可并行（fail-closed：默认 false）。
+	ConcurrencySafe bool `json:"concurrency_safe"`
+}
+
+// ToolContextSnapshot 组装 task.context.tools 的写入载荷：mcp_servers 保持
+// dispatcher 的 resolved 态（兼容旧键），tools 是统一注册表的全量清单。
+// 两者同 patch 写入（见 workers.Dispatcher.snapshotMCP）。
+func ToolContextSnapshot(mcp []MCPSnapshotEntry, tools []ToolSnapshotEntry) map[string]any {
+	patch := map[string]any{}
+	if rows := mcpSnapshotRows(mcp); rows != nil {
+		patch["mcp_servers"] = rows
+	}
+	if len(tools) > 0 {
+		rows := make([]map[string]any, 0, len(tools))
+		for _, t := range tools {
+			rows = append(rows, map[string]any{
+				"name": t.Name, "origin": t.Origin, "server": t.Server,
+				"has_output_schema": t.HasOutputSchema,
+				"concurrency_safe":  t.ConcurrencySafe,
+			})
+		}
+		patch["tools"] = rows
+	}
+	if len(patch) == 0 {
+		return nil
+	}
+	return patch
+}
+
+// TaskContextTools 读取 task.context.tools（新键），兼容回落旧键
+// task.context.mcp_servers 的服务器级聚合（老任务快照无 tools 键）。
+// 返回 nil 表示两处都没有工具快照（兼容读旧路径的判定点，双测覆盖）。
+// 值形态兼容两种：DB jsonb 回读的 []any 与进程内构造的 []map[string]any
+// （引擎回写 patch 后的读路径是前者，单测直接喂 patch 是后者）。
+func TaskContextTools(ctx map[string]any) []ToolSnapshotEntry {
+	if raw, ok := ctx["tools"]; ok {
+		return parseToolSnapshotRows(raw)
+	}
+	return mcpServersAsTools(ctx)
+}
+
+// parseToolSnapshotRows 解析 tools 键的工具清单行。
+func parseToolSnapshotRows(raw any) []ToolSnapshotEntry {
+	rows := anyRows(raw)
+	if rows == nil {
+		return nil
+	}
+	out := make([]ToolSnapshotEntry, 0, len(rows))
+	for _, r := range rows {
+		m, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		e := ToolSnapshotEntry{
+			Name:            strOf(m, "name"),
+			Origin:          strOf(m, "origin"),
+			Server:          strOf(m, "server"),
+			HasOutputSchema: boolOf(m, "has_output_schema"),
+			ConcurrencySafe: boolOf(m, "concurrency_safe"),
+		}
+		if e.Name == "" {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// mcpServersAsTools 从旧键 mcp_servers（dispatcher resolved 态快照）合成
+// 粗粒度工具清单：每服务器一条聚合条目（无逐工具明细——旧快照只有
+// tool_count）。仅作兼容读，不产出新快照。
+func mcpServersAsTools(ctx map[string]any) []ToolSnapshotEntry {
+	rows := anyRows(ctx["mcp_servers"])
+	if rows == nil {
+		return nil
+	}
+	out := make([]ToolSnapshotEntry, 0, len(rows))
+	for _, r := range rows {
+		m, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := strOf(m, "name")
+		if name == "" {
+			continue
+		}
+		out = append(out, ToolSnapshotEntry{
+			Name: name, Origin: "mcp", Server: name,
+			HasOutputSchema: false, ConcurrencySafe: false,
+		})
+	}
+	return out
+}
+
+// anyRows 归一化行切片的两种运行期形态（[]any / []map[string]any）。
+func anyRows(v any) []any {
+	switch t := v.(type) {
+	case []any:
+		return t
+	case []map[string]any:
+		out := make([]any, len(t))
+		for i, m := range t {
+			out[i] = m
+		}
+		return out
+	}
+	return nil
+}
+
+func strOf(m map[string]any, k string) string {
+	s, _ := m[k].(string)
+	return s
+}
+
+func boolOf(m map[string]any, k string) bool {
+	b, _ := m[k].(bool)
+	return b
+}
+
+func mcpSnapshotRows(entries []MCPSnapshotEntry) []map[string]any {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -545,7 +684,17 @@ func MCPContextSnapshot(entries []MCPSnapshotEntry) map[string]any {
 			"status": e.Status, "tool_count": e.ToolCount, "note": e.Note,
 		})
 	}
-	return map[string]any{"mcp_servers": rows}
+	return rows
+}
+
+// MCPContextSnapshot 旧形状（仅 mcp_servers 键）：dispatcher resolved 态
+// 快照的兼容写法，新代码用 ToolContextSnapshot（双键）。
+// 保留：既有调用方（dispatcher 在 C1 前的路径）与测试依赖它。
+func MCPContextSnapshot(entries []MCPSnapshotEntry) map[string]any {
+	if len(entries) == 0 {
+		return nil
+	}
+	return map[string]any{"mcp_servers": mcpSnapshotRows(entries)}
 }
 
 func (s *MCPServerService) ResolveForEngine(ctx context.Context, wsID, agentID string) ([]ResolvedMCPServer, error) {

@@ -112,3 +112,8 @@ const (
 
 	ChatDone = "chat.done"
 )
+
+// ChatDoneFrameType chat:done 用户定向 WS 帧类型（W2-1 creator 私有口径）。
+// chat:done 帧不再走 workspace 广播，改经 SendToUser(creator) 定向投递
+// （notification:×6 帧同构的 colon 形态；与 WSName(ChatDone) 映射结果一致）。
+const ChatDoneFrameType = "chat:done"

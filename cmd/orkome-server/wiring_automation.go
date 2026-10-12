@@ -17,6 +17,7 @@ import (
 	notifpgrepo "orkome/internal/notification/adapters/pgrepo"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
+	orchdomain "orkome/internal/orchestration/domain"
 	"orkome/internal/platform/eventbus"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
@@ -135,11 +136,23 @@ func (u wakeupEnqueuer) EnqueueForWakeupWithChain(ctx context.Context, ws, wi, a
 	if len(chain) > 0 {
 		ctxMap["wakeup_chain"] = chain
 	}
+	// W2-2 归属裁决：userID 为空（system wakeup 的 created_by 恒 NULL、无主）时
+	// originator/accountable 落 NULL、source 标 unattributed（fail-closed：无授权
+	// 轨道，仅留审计语义），不再 orZeroUUID 补零——零 UUID 不满足
+	// agent_task_queue_originator_user_id_fkey，23503 → 任务插不进 →
+	// next_fire_at 永不推进 → due 扫描每 tick 重试同一失败（错误洪水）。
+	// originator 的全部下游消费方对空值均有语义：审批请求通知按非空守卫跳过
+	// （orchestration app service.go）；委派链根 ChainRootDirectHuman=false
+	// （engine chainRootOf）；settlement/batch 读侧 coalesce 为空串。
+	source := orchdomain.SrcTriggerOwner
+	if userID == "" {
+		source = orchdomain.SrcUnattributed
+	}
 	t, err := u.repo.InsertTask(ctx, orchapp.Task{
 		WorkspaceID: ws, AgentID: agentID, WorkItemID: wi, Status: "queued", MaxAttempts: 2,
 		Context:          ctxMap,
-		OriginatorUserID: orZeroUUID(userID), AccountableUserID: orZeroUUID(userID),
-		OriginatorSource: "trigger_owner", TriggerEvidenceKind: "rule",
+		OriginatorUserID: userID, AccountableUserID: userID,
+		OriginatorSource: source, TriggerEvidenceKind: "rule",
 	})
 	if err != nil {
 		return "", false, err
@@ -256,13 +269,6 @@ func (c creatorAdapter) CreateForAutopilotWithSubscribers(ctx context.Context, w
 		return "", err
 	}
 	return wi.ID, nil
-}
-
-func orZeroUUID(s string) string {
-	if s == "" {
-		return "00000000-0000-0000-0000-000000000000"
-	}
-	return s
 }
 
 type checkinAd struct{ wake *autopapp.WakeupService }

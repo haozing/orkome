@@ -106,13 +106,15 @@ func (p *eventPipe) emit(kind, callID, content string) {
 	if kind == "tool_use" || kind == "tool_result" {
 		p.interim.flushBoundary()
 	}
-	p.interim.add(kind, content)
-	if p.msgs == nil {
-		return
-	}
+	// FP-05 P1-2：interim 帧与 DB 路径同样截 summaryMax（2000 rune）——
+	// 此前只有落库截断，MB 级结果经 interim 帧整包广播到 WS。
 	trunc := len([]rune(content)) > summaryMax
 	if trunc {
 		content = string([]rune(content)[:summaryMax])
+	}
+	p.interim.add(kind, content)
+	if p.msgs == nil {
+		return
 	}
 	seq, err := p.msgs.AppendTaskMessage(context.WithoutCancel(context.Background()),
 		p.task.WorkspaceID, p.task.ID, kind, callID, content, trunc)

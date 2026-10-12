@@ -32,11 +32,17 @@ type commercial struct {
 	AdminSvc *adminapp.AdminService
 }
 
-func wiringCommercial(log *slog.Logger, db *pg.DB, pool *pgxpool.Pool, az *authz.Authorizer) *commercial {
+func wiringCommercial(log *slog.Logger, db *pg.DB, pool *pgxpool.Pool, az *authz.Authorizer, idRepo *identitypg.Repo) *commercial {
+	// FP-19 FP19-A2/A5：平台管理员授予/撤销、用户封禁/解封此前零审计、
+	// 解封后旧会话原样复活——AdminService 的 auditor/revoker 从未接线。
+	rec := audit.NewRecorder(pool, log)
+	adminSvc := adminapp.NewAdminService(adminpg.New(pool), time.Now).
+		WithAuditor(rec).        // *audit.Recorder 满足 adminapp.Auditor
+		WithSessionRevoker(idRepo) // identitypg.Repo.RevokeAllUserSessions
 	return &commercial{
 		pool:     pool,
-		Audit:    audit.NewRecorder(pool, log),
-		AdminSvc: adminapp.NewAdminService(adminpg.New(pool), time.Now),
+		Audit:    rec,
+		AdminSvc: adminSvc,
 	}
 }
 

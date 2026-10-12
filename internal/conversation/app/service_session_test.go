@@ -14,12 +14,12 @@ func TestUpdateSession_NilTitleIsNoOp(t *testing.T) {
 	repo.sessions["ws1/sess1"] = activeSession("ws1", "u1")
 	s := NewChatService(repo, nil)
 
-	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", nil)
+	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", "u1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "t", sess.Title, "title not provided: returned as-is")
 	assert.Empty(t, repo.titleUpdated, "repo rename must not be called")
 
-	_, err = s.UpdateSession(context.Background(), "ws1", "nope", nil)
+	_, err = s.UpdateSession(context.Background(), "ws1", "nope", "u1", nil)
 	require.Error(t, err)
 	assert.Equal(t, "E_NOT_FOUND", errCode(t, err))
 }
@@ -30,18 +30,18 @@ func TestUpdateSession_TitleValidation(t *testing.T) {
 	s := NewChatService(repo, nil)
 
 	blank := "   "
-	_, err := s.UpdateSession(context.Background(), "ws1", "sess1", &blank)
+	_, err := s.UpdateSession(context.Background(), "ws1", "sess1", "u1", &blank)
 	require.Error(t, err)
 	assert.Equal(t, "E_VALIDATION", errCode(t, err))
 	assert.Empty(t, repo.titleUpdated, "invalid titles must not reach the repo")
 
 	long := strings.Repeat("mark", MaxSessionTitleRunes+1)
-	_, err = s.UpdateSession(context.Background(), "ws1", "sess1", &long)
+	_, err = s.UpdateSession(context.Background(), "ws1", "sess1", "u1", &long)
 	require.Error(t, err)
 	assert.Equal(t, "E_VALIDATION", errCode(t, err))
 
 	okTitle := strings.Repeat("x", MaxSessionTitleRunes)
-	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", &okTitle)
+	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", "u1", &okTitle)
 	require.NoError(t, err)
 	assert.Equal(t, okTitle, sess.Title)
 }
@@ -52,14 +52,14 @@ func TestUpdateSession_RenamesAndTrims(t *testing.T) {
 	s := NewChatService(repo, nil)
 
 	title := "new name  "
-	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", &title)
+	sess, err := s.UpdateSession(context.Background(), "ws1", "sess1", "u1", &title)
 	require.NoError(t, err)
 	assert.Equal(t, "new name", sess.Title, "title should be persisted after trim")
 	require.Len(t, repo.titleUpdated, 1)
 	assert.Equal(t, "new name", repo.titleUpdated[0].title)
 	assert.Equal(t, "sess1", repo.titleUpdated[0].id)
 
-	_, err = s.UpdateSession(context.Background(), "ws1", "nope", &title)
+	_, err = s.UpdateSession(context.Background(), "ws1", "nope", "u1", &title)
 	require.Error(t, err)
 	assert.Equal(t, "E_NOT_FOUND", errCode(t, err))
 }
@@ -69,17 +69,17 @@ func TestSetPinned_TogglesAndNotFound(t *testing.T) {
 	repo.sessions["ws1/sess1"] = activeSession("ws1", "u1")
 	s := NewChatService(repo, nil)
 
-	sess, err := s.SetPinned(context.Background(), "ws1", "sess1", true)
+	sess, err := s.SetPinned(context.Background(), "ws1", "sess1", "u1", true)
 	require.NoError(t, err)
 	assert.True(t, sess.Pinned)
-	sess, err = s.SetPinned(context.Background(), "ws1", "sess1", false)
+	sess, err = s.SetPinned(context.Background(), "ws1", "sess1", "u1", false)
 	require.NoError(t, err)
 	assert.False(t, sess.Pinned)
 	require.Len(t, repo.pinSet, 2)
 	assert.True(t, repo.pinSet[0].pinned)
 	assert.False(t, repo.pinSet[1].pinned)
 
-	_, err = s.SetPinned(context.Background(), "ws1", "nope", true)
+	_, err = s.SetPinned(context.Background(), "ws1", "nope", "u1", true)
 	require.Error(t, err)
 	assert.Equal(t, "E_NOT_FOUND", errCode(t, err))
 	assert.Len(t, repo.pinSet, 2, "missing session must not touch the repo again")
@@ -95,7 +95,7 @@ func TestDeleteSession_EmitsDeletedFrame(t *testing.T) {
 		frames = append(frames, struct{ event, ws, sid string }{event, ws, sid})
 	})
 
-	require.NoError(t, s.DeleteSession(context.Background(), "ws1", "sess1"))
+	require.NoError(t, s.DeleteSession(context.Background(), "ws1", "sess1", "u1"))
 	_, exists := repo.sessions["ws1/sess1"]
 	assert.False(t, exists, "session row should be deleted")
 	require.Len(t, frames, 1, "exactly one frame")
@@ -109,11 +109,11 @@ func TestDeleteSession_NotFoundAndNilSink(t *testing.T) {
 	repo.sessions["ws1/sess1"] = activeSession("ws1", "u1")
 	s := NewChatService(repo, nil)
 
-	err := s.DeleteSession(context.Background(), "ws1", "nope")
+	err := s.DeleteSession(context.Background(), "ws1", "nope", "u1")
 	require.Error(t, err)
 	assert.Equal(t, "E_NOT_FOUND", errCode(t, err))
 
-	require.NoError(t, s.DeleteSession(context.Background(), "ws1", "sess1"), "nil port does not block deletion")
+	require.NoError(t, s.DeleteSession(context.Background(), "ws1", "sess1", "u1"), "nil port does not block deletion")
 }
 
 func TestSessionInUseError_Code(t *testing.T) {

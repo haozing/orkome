@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"orkome/internal/contract/apierr"
 	contractevents "orkome/internal/contract/events"
 	"orkome/internal/conversation/domain"
 )
@@ -45,6 +46,10 @@ type Message struct {
 
 type Repo interface {
 	Within(ctx context.Context, fn func(ctx context.Context) error) error
+	// AgentAvailability agent 存在性与归档态（FP-14 P1-1/P1-2）：CreateSession
+	// 前置校验，不存在→400、已归档→409（此前 FK 23503 裸 500 / 归档 agent
+	// 可建会话后首条消息必 500 丢输入）。
+	AgentAvailability(ctx context.Context, workspaceID, agentID string) (exists bool, archived bool, err error)
 	CreateSession(ctx context.Context, s Session) (Session, error)
 	GetSession(ctx context.Context, workspaceID, id string) (Session, bool, error)
 	ListSessions(ctx context.Context, workspaceID, userID string) ([]Session, error)
@@ -69,7 +74,13 @@ type Repo interface {
 
 	ClearResumePointer(ctx context.Context, sessionID string) error
 	SetUnread(ctx context.Context, sessionID string, since time.Time) error
-	MarkRead(ctx context.Context, sessionID string) error
+	// MarkRead 会话归属 fence（FP-14 P1-3）：workspace + creator 双条件，
+	// 返回是否命中；跨区/不存在的会话由 service 层映射 404（此前任意 UUID
+	// 一律 200，跨工作区可标他人会话已读）。口径取 creator——与该域
+	// mustOwnSession（history/thread/draft 读面 creator-only）一致的严格者：
+	// 会话是 creator 单主模型（无参与者表），且 unread_since/last_read_at 是
+	// 会话级单列，非 creator 翻转只会污染他人的未读指示。
+	MarkRead(ctx context.Context, workspaceID, sessionID, userID string) (bool, error)
 
 	AppendMessageContent(ctx context.Context, messageID, appendage, dedupMarker string) (appended bool, err error)
 
@@ -157,7 +168,22 @@ type ChatService struct {
 	agentStarters AgentStartersFunc
 
 	emitSession func(ctx context.Context, event, workspaceID, sessionID string)
+
+	// frames chat:done 用户定向帧端口（W2-1 creator 私有口径）。cancel 终态
+	// 的收尾帧由本域发射（queued 直取消不过 orchestration 事件，TaskCancelled
+	// 漏斗也终结在 Finalize）；completed/failed 由 orchestration 结算侧发射。
+	frames UserFrames
 }
+
+// UserFrames 用户定向 WS 帧发送端口（notification 域 UserFrames 同构；cmd
+// 侧 notifUserFrames 满足该接口，直接适配 hub.SendToUser）。
+type UserFrames interface {
+	Push(ctx context.Context, userID, frameType string, payload map[string]any)
+}
+
+// SetUserFrames 接线 chat:done 帧投递；不调用时 cancel 终态无 WS 帧（REST
+// 语义不受影响）。
+func (s *ChatService) SetUserFrames(f UserFrames) { s.frames = f }
 
 func NewChatService(repo Repo, enq ChatEnqueuer) *ChatService {
 	return &ChatService{repo: repo, enq: enq}
@@ -228,6 +254,19 @@ func (s *ChatService) MaterializeMedia(ctx context.Context, messageID string, re
 }
 
 func (s *ChatService) CreateSession(ctx context.Context, workspaceID, agentID, userID, title string) (*Session, error) {
+	// FP-14 P1-1/P1-2：agent 存在性 + 归档前置校验——不存在的 agent 此前
+	// FK 23503 裸 500；已归档 agent 此前可建会话，用户发首条消息必 500
+	// 且输入丢失。口径：不存在→400、已归档→409（与 EnqueueChatInTx 一致）。
+	exists, archived, err := s.repo.AgentAvailability(ctx, workspaceID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errValidation("agent not found in this workspace")
+	}
+	if archived {
+		return nil, apierr.New(apierr.Conflict, "agent archived")
+	}
 	if title == "" {
 		title = "new session"
 	}
@@ -245,12 +284,26 @@ func (s *ChatService) ListSessions(ctx context.Context, workspaceID, userID stri
 	return s.repo.ListSessions(ctx, workspaceID, userID)
 }
 
-func (s *ChatService) GetSession(ctx context.Context, workspaceID, sessionID string) (*Session, error) {
-	sess, ok, err := s.repo.GetSession(ctx, workspaceID, sessionID)
-	if err != nil || !ok {
-		return nil, errNotFound("session not found")
+func (s *ChatService) GetSession(ctx context.Context, workspaceID, sessionID, userID string) (*Session, error) {
+	sess, err := s.ownedSession(ctx, workspaceID, sessionID, userID)
+	if err != nil {
+		return nil, err
 	}
 	return &sess, nil
+}
+
+// ownedSession W2-1 creator 私有口径的统一会话取用：非 creator 与不存在
+// 同响应（404，不泄露存在性），DB 故障独立成 500（不再与未命中合并吞成
+// 404，FP-14 P2-12）。全域读/写面一律经此或 mustOwnSession 取会话。
+func (s *ChatService) ownedSession(ctx context.Context, workspaceID, sessionID, userID string) (Session, error) {
+	sess, ok, err := s.repo.GetSession(ctx, workspaceID, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok || sess.CreatorID != userID {
+		return Session{}, errNotFound("session not found")
+	}
+	return sess, nil
 }
 
 func (s *ChatService) ListMessages(ctx context.Context, sessionID string, limit int, beforeSeq int64) ([]Message, error) {
@@ -346,17 +399,25 @@ func transcriptPage(sessionID string, msgs []Message, limit int) *HistoryPage {
 	return page
 }
 
-func (s *ChatService) Archive(ctx context.Context, workspaceID, sessionID string, archived bool) error {
+func (s *ChatService) Archive(ctx context.Context, workspaceID, sessionID, userID string, archived bool) error {
+	// W2-1：归档此前仅工作区成员门，同区他人可归档他人会话——统一 creator 私有。
+	if err := s.mustOwnSession(ctx, workspaceID, sessionID, userID); err != nil {
+		return err
+	}
 	return s.repo.ArchiveSession(ctx, workspaceID, sessionID, archived)
 }
 
-func (s *ChatService) UpdateSession(ctx context.Context, workspaceID, sessionID string, title *string) (*Session, error) {
+func (s *ChatService) UpdateSession(ctx context.Context, workspaceID, sessionID, userID string, title *string) (*Session, error) {
 	if title == nil {
-		return s.GetSession(ctx, workspaceID, sessionID)
+		return s.GetSession(ctx, workspaceID, sessionID, userID)
 	}
 	t := strings.TrimSpace(*title)
 	if t == "" || len([]rune(t)) > MaxSessionTitleRunes {
 		return nil, errValidation("title required, ≤200 runes")
+	}
+	// W2-1：改名此前仅工作区成员门——统一 creator 私有。
+	if err := s.mustOwnSession(ctx, workspaceID, sessionID, userID); err != nil {
+		return nil, err
 	}
 	out, ok, err := s.repo.UpdateSessionTitle(ctx, workspaceID, sessionID, t)
 	if err != nil {
@@ -368,7 +429,11 @@ func (s *ChatService) UpdateSession(ctx context.Context, workspaceID, sessionID 
 	return &out, nil
 }
 
-func (s *ChatService) SetPinned(ctx context.Context, workspaceID, sessionID string, pinned bool) (*Session, error) {
+func (s *ChatService) SetPinned(ctx context.Context, workspaceID, sessionID, userID string, pinned bool) (*Session, error) {
+	// W2-1：置顶此前仅工作区成员门——统一 creator 私有。
+	if err := s.mustOwnSession(ctx, workspaceID, sessionID, userID); err != nil {
+		return nil, err
+	}
 	out, ok, err := s.repo.SetSessionPin(ctx, workspaceID, sessionID, pinned)
 	if err != nil {
 		return nil, err
@@ -379,7 +444,11 @@ func (s *ChatService) SetPinned(ctx context.Context, workspaceID, sessionID stri
 	return &out, nil
 }
 
-func (s *ChatService) DeleteSession(ctx context.Context, workspaceID, sessionID string) error {
+func (s *ChatService) DeleteSession(ctx context.Context, workspaceID, sessionID, userID string) error {
+	// W2-1：删除此前仅工作区成员门——统一 creator 私有。
+	if err := s.mustOwnSession(ctx, workspaceID, sessionID, userID); err != nil {
+		return err
+	}
 	ok, err := s.repo.DeleteSessionCascade(ctx, workspaceID, sessionID)
 	if err != nil {
 		return err
@@ -393,8 +462,15 @@ func (s *ChatService) DeleteSession(ctx context.Context, workspaceID, sessionID 
 	return nil
 }
 
-func (s *ChatService) MarkRead(ctx context.Context, sessionID string) error {
-	return s.repo.MarkRead(ctx, sessionID)
+func (s *ChatService) MarkRead(ctx context.Context, workspaceID, sessionID, userID string) error {
+	ok, err := s.repo.MarkRead(ctx, workspaceID, sessionID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errNotFound("session not found")
+	}
+	return nil
 }
 
 func (s *ChatService) DiscardDraft(ctx context.Context, workspaceID, sessionID, userID string) error {
@@ -409,9 +485,9 @@ func (s *ChatService) SendMessage(ctx context.Context, workspaceID, sessionID, u
 	if content == "" || len([]rune(content)) > 50000 {
 		return nil, "", errValidation("invalid content")
 	}
-	sess, ok, err := s.repo.GetSession(ctx, workspaceID, sessionID)
-	if err != nil || !ok {
-		return nil, "", errNotFound("session not found")
+	sess, err := s.ownedSession(ctx, workspaceID, sessionID, userID)
+	if err != nil {
+		return nil, "", err
 	}
 	if sess.Status != "active" {
 		return nil, "", errValidation("session not active")
@@ -565,6 +641,11 @@ func (s *ChatService) insertAgentIntro(ctx context.Context, sessionID, content s
 }
 
 func (s *ChatService) Cancel(ctx context.Context, workspaceID, sessionID, userID string, tc TaskCanceller) (outcome string, err error) {
+	// W2-1：取消此前无会话归属校验，同区任何成员可取消他人的会话任务——
+	// 统一 creator 私有。
+	if err := s.mustOwnSession(ctx, workspaceID, sessionID, userID); err != nil {
+		return "", err
+	}
 	status, taskID, ok, err := tc.CancelChatTask(ctx, workspaceID, sessionID)
 	if err != nil || !ok {
 		if err == nil && !ok {
@@ -610,6 +691,7 @@ func (s *ChatService) Finalize(ctx context.Context, workspaceID, sessionID, user
 			}
 		}
 
+		s.pushChatDoneCancelled(ctx, userID, sessionID, taskID)
 		return domain.OutcomeRestored, nil
 	}
 
@@ -631,7 +713,26 @@ func (s *ChatService) Finalize(ctx context.Context, workspaceID, sessionID, user
 		}
 	}
 	_ = s.repo.FinalizeDraft(ctx, sessionID, "discarded")
+	s.pushChatDoneCancelled(ctx, userID, sessionID, taskID)
 	return domain.OutcomeStopped, nil
+}
+
+// pushChatDoneCancelled W2-1：cancel 终态的 chat:done 收尾帧。restored 与
+// stopped 两种裁决都发（对前端而言轮次已终结，裁决差异经 draft/messages
+// 重取可见）；帧形状与 completed 帧一致、status=cancelled（终态语义字段，
+// 设计见 docs/fix-wave2-chat-2026-10-12.md）。restored/stopped 下助手均无
+// 回复落库，kind 沿用 completed 帧的空内容规则取 no_response、content 空。
+// userID 即 creator：cancel 两入口（REST Cancel / HandleChatTaskTerminal）
+// 在 creator 私有口径下携带的都是会话归属者。
+func (s *ChatService) pushChatDoneCancelled(ctx context.Context, userID, sessionID, taskID string) {
+	if s.frames == nil || userID == "" {
+		return
+	}
+	s.frames.Push(ctx, userID, contractevents.ChatDoneFrameType, map[string]any{
+		"session_id": sessionID, "task_id": taskID, "role": "assistant",
+		"kind": domain.KindNoResponse, "status": domain.TaskTerminalCancelled,
+		"content": "",
+	})
 }
 
 func (s *ChatService) HandleChatTaskTerminal(ctx context.Context, workspaceID, sessionID, initiatorUserID, taskID, terminalStatus string) (outcome string, err error) {
@@ -663,14 +764,8 @@ func (s *ChatService) RestoreDraft(ctx context.Context, workspaceID, sessionID, 
 }
 
 func (s *ChatService) mustOwnSession(ctx context.Context, workspaceID, sessionID, userID string) error {
-	sess, ok, err := s.repo.GetSession(ctx, workspaceID, sessionID)
-	if err != nil {
-		return err
-	}
-	if !ok || sess.CreatorID != userID {
-		return errNotFound("session not found")
-	}
-	return nil
+	_, err := s.ownedSession(ctx, workspaceID, sessionID, userID)
+	return err
 }
 
 func (s *ChatService) ListPendingTasks(ctx context.Context, workspaceID, userID string) ([]PendingChatTask, error) {

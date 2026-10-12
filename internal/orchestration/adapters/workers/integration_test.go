@@ -401,8 +401,8 @@ func TestM3_Invariant_I2_SettlementCAS(t *testing.T) {
 	require.NoError(t, err)
 
 	u := orchapp.UsageReport{Provider: "fake", Model: "m", PromptTokens: 1, CompletionTokens: 1}
-	require.NoError(t, e.repo.CompleteRun(ctx0(), task.ID, "r1", "", "", u))
-	err = e.repo.CompleteRun(ctx0(), task.ID, "r2", "", "", u)
+	require.NoError(t, e.repo.CompleteRun(ctx0(), task.ID, "r1", "", "", "", u))
+	err = e.repo.CompleteRun(ctx0(), task.ID, "r2", "", "", "", u)
 	assert.Error(t, err, "I2: second CAS should affect 0 rows (idempotent rejection)")
 
 	var result string
@@ -477,7 +477,7 @@ func TestM3_FailRun_RetryChildSameTx(t *testing.T) {
 	_, err = e.repo.StartTask(ctx0(), task.ID, "", "")
 	require.NoError(t, err)
 
-	retried, err := e.repo.FailRun(ctx0(), task.ID, "agent_provider.network", "dial tcp: refused")
+	retried, err := e.repo.FailRun(ctx0(), task.ID, "agent_provider.network", "dial tcp: refused", "")
 	require.NoError(t, err)
 	assert.True(t, retried, "allowlisted reasons should create a retry subtask")
 
@@ -497,7 +497,7 @@ SELECT id, attempt, retry_of_task_id FROM agent_task_queue WHERE retry_of_task_i
 	assert.Equal(t, child.ID, childTask.ID, "retry subtask with NULL fire_at claimable immediately")
 	_, err = e.repo.StartTask(ctx0(), childTask.ID, "", "")
 	require.NoError(t, err)
-	retried2nd, err := e.repo.FailRun(ctx0(), childTask.ID, "agent_provider.network", "dial tcp: refused again")
+	retried2nd, err := e.repo.FailRun(ctx0(), childTask.ID, "agent_provider.network", "dial tcp: refused again", "")
 	require.NoError(t, err)
 	assert.True(t, retried2nd, "provider family relaxed to 3 (internal archive 05 §2.8): attempt=2 still retryable")
 	var grandchildID string
@@ -525,7 +525,7 @@ SELECT id, attempt, fire_at FROM agent_task_queue WHERE retry_of_task_id=$1`, ch
 	_, ok, _ = e.repo.ClaimNext(ctx0(), a.ID, 6)
 	require.True(t, ok)
 	_, _ = e.repo.StartTask(ctx0(), t2.ID, "", "")
-	retried2, err := e.repo.FailRun(ctx0(), t2.ID, "interrupt_timeout", "24h due")
+	retried2, err := e.repo.FailRun(ctx0(), t2.ID, "interrupt_timeout", "24h due", "")
 	require.NoError(t, err)
 	assert.False(t, retried2, "interrupt_timeout never retries (internal archive 09 §10.4)")
 }

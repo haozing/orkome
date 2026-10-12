@@ -48,6 +48,17 @@ func (t *updateWorkItemStatusTool) InvokableRun(ctx context.Context, args string
 	return fmt.Sprintf("Work item status changed to %s.", in.Status), nil
 }
 
+// ---- C1 契约元数据（ContractTool 可选接口实现，行为不变，仅注册表侧声明）------
+
+// updateWorkItemStatusTool 改工单状态（有副作用，走平台状态机），成功输出
+// 是含状态名的模板文本（状态值由模型给、状态机校验，schema 只锚定形状）。
+func (t *updateWorkItemStatusTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// updateWorkItemStatusTool 有副作用，不并行。
+func (t *updateWorkItemStatusTool) ConcurrencySafe() bool { return false }
+
 type checkinWakeupTool struct {
 	checkiner orchapp.WakeupCheckiner
 	task      orchapp.Task
@@ -74,3 +85,12 @@ func (t *checkinWakeupTool) InvokableRun(ctx context.Context, args string, _ ...
 	}
 	return "Check-in recorded.", nil
 }
+
+// checkinWakeupTool 签到唤醒规则（有副作用；幂等键 = 每任务一次），
+// 输出是文本（成功常量 / 拒绝原因 / toolFail 串），契约锚定字符串形状。
+func (t *checkinWakeupTool) OutputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"string"}`)
+}
+
+// checkinWakeupTool 有副作用，不并行。
+func (t *checkinWakeupTool) ConcurrencySafe() bool { return false }

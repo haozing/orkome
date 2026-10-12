@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,14 +42,25 @@ type Deps struct {
 
 	PackUIEntries *orchapp.PackUIEntryService
 
+	// PackToolSchemas 是 pack 工具输出 schema 存档（迁移 1035，B1）的服务面：
+	// provision 写、C1/前端读。接口冻结见 docs/interfaces-job-handle-2026-10-11.md。
+	PackToolSchemas *orchapp.PackToolSchemaService
+
 	MintRuntimeCredential func(ctx context.Context, workspaceID, agentID, name string) (string, error)
 
 	RoleOf func(ctx context.Context, workspaceID, userID string) (string, error)
 }
 
+// writeErr 兼容旧签名（无请求上下文）；新调用方请用 writeErrReq 以便日志带路径。
 func writeErr(w http.ResponseWriter, err error) {
+	writeErrReq(nil, w, err)
+}
+
+func writeErrReq(r *http.Request, w http.ResponseWriter, err error) {
 	var ae *apierr.Error
 	if !errors.As(err, &ae) {
+		// 非 apierr 一律压成 500 且响应无细节，根因必须留服务端日志（否则 500 零痕）。
+		slog.Error("orchestration http: internal error", "path", reqPath(r), "err", err.Error())
 		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "internal error", nil)
 		return
 	}
@@ -60,6 +72,13 @@ func writeErr(w http.ResponseWriter, err error) {
 		status = 500
 	}
 	webx.WriteError(w, status, ae.Code, ae.Message, ae.Details)
+}
+
+func reqPath(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	return r.Method + " " + r.URL.Path
 }
 
 func decode[T any](w http.ResponseWriter, r *http.Request) (*T, bool) {
@@ -117,6 +136,12 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 		reg("GET /api/ui-entries", d.handleUIEntryList)
 		reg("PUT /api/ui-entries/{pack}", d.handleUIEntryUpsert)
 		reg("DELETE /api/ui-entries/{pack}", d.handleUIEntryDelete)
+	}
+
+	if d.PackToolSchemas != nil {
+		reg("GET /api/pack-tool-schemas", d.handlePackToolSchemaList)
+		reg("PUT /api/pack-tool-schemas/{pack}", d.handlePackToolSchemaReplace)
+		reg("DELETE /api/pack-tool-schemas/{pack}", d.handlePackToolSchemaDelete)
 	}
 
 	if d.Agents == nil {
@@ -221,7 +246,7 @@ func (d Deps) ws(r *http.Request) string { return webx.PrincipalFrom(r.Context()
 func (d Deps) handleAgentList(w http.ResponseWriter, r *http.Request) {
 	list, err := d.Agents.List(r.Context(), d.ws(r))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if list == nil {
@@ -242,7 +267,7 @@ func (d Deps) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	in.OwnerUserID = ownerFallback(in.OwnerUserID, webx.PrincipalFrom(r.Context()).UserID)
 	a, err := d.Agents.Create(r.Context(), *in)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, a.Sanitized())
@@ -251,7 +276,7 @@ func (d Deps) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleAgentGet(w http.ResponseWriter, r *http.Request) {
 	a, err := d.Agents.Get(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if d.Repo == nil {
@@ -260,7 +285,7 @@ func (d Deps) handleAgentGet(w http.ResponseWriter, r *http.Request) {
 	}
 	targets, err := d.Repo.GetInvocationTargets(r.Context(), d.ws(r), a.ID)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if targets == nil {
@@ -279,7 +304,7 @@ func (d Deps) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	in.WorkspaceID = d.ws(r)
 	a, err := d.Agents.Update(r.Context(), *in)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, a.Sanitized())
@@ -288,7 +313,7 @@ func (d Deps) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleAgentArchive(archived bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := d.Agents.Archive(r.Context(), d.ws(r), r.PathValue("agentId"), archived); err != nil {
-			writeErr(w, err)
+			writeErrReq(r, w, err)
 			return
 		}
 		webx.WriteJSON(w, http.StatusOK, map[string]string{"result": map[bool]string{true: "archived", false: "restored"}[archived]})
@@ -298,7 +323,7 @@ func (d Deps) handleAgentArchive(archived bool) http.HandlerFunc {
 func (d Deps) handleAgentCancelTasks(w http.ResponseWriter, r *http.Request) {
 	n, err := d.Agents.CancelTasks(r.Context(), d.ws(r), r.PathValue("agentId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusOK, map[string]any{"cancelled": n})
@@ -338,7 +363,7 @@ func (d Deps) handleTaskMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	msgs, err := d.TaskMessages(r.Context(), ws, r.PathValue("taskId"), q)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if msgs == nil {
@@ -371,7 +396,7 @@ func (d Deps) handleApprove(approved bool) http.HandlerFunc {
 			return
 		}
 		if err := d.Settle.Approve(r.Context(), ws, r.PathValue("taskId"), p.UserID, approved, in.Note); err != nil {
-			writeErr(w, err)
+			writeErrReq(r, w, err)
 			return
 		}
 		webx.WriteJSON(w, http.StatusOK, map[string]any{"result": map[bool]string{true: "approved", false: "denied"}[approved]})
@@ -391,7 +416,7 @@ func (d Deps) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 
 	t, ok, err := d.Repo.GetTaskAwaiting(r.Context(), ws, r.PathValue("taskId"))
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if !ok {
@@ -419,143 +444,6 @@ func (d Deps) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (d Deps) handleMCPList(w http.ResponseWriter, r *http.Request) {
-	list, err := d.MCP.List(r.Context(), d.ws(r))
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if list == nil {
-		list = []orchapp.WorkspaceMCP{}
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"servers": list})
-}
-
-func (d Deps) handleMCPCreate(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[mcpWire](w, r)
-	if !ok {
-		return
-	}
-	m := in.toModel(d.ws(r))
-	created, err := d.MCP.Create(r.Context(), m)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, created)
-}
-
-func (d Deps) handleMCPUpdate(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[mcpWire](w, r)
-	if !ok {
-		return
-	}
-	m := in.toModel(d.ws(r))
-	m.ID = r.PathValue("serverId")
-	updated, err := d.MCP.Update(r.Context(), m)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, updated)
-}
-
-type mcpWire struct {
-	Name        string         `json:"name"`
-	Transport   string         `json:"transport"`
-	URL         string         `json:"url"`
-	Credentials map[string]any `json:"credentials"`
-}
-
-func (x mcpWire) toModel(ws string) orchapp.WorkspaceMCP {
-	return orchapp.WorkspaceMCP{WorkspaceID: ws, Name: x.Name, Transport: x.Transport,
-		URL: x.URL, Credentials: x.Credentials}
-}
-
-func (d Deps) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.MCP.Delete(r.Context(), d.ws(r), r.PathValue("serverId")); err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]string{"result": "deleted"})
-}
-
-func (d Deps) handleAgentMCP(w http.ResponseWriter, r *http.Request) {
-	ws := d.ws(r)
-	agentID := r.PathValue("agentId")
-	if r.URL.Query().Get("resolved") == "1" {
-		list, err := d.MCP.Resolved(r.Context(), ws, agentID)
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		webx.WriteJSON(w, http.StatusOK, map[string]any{"servers": list})
-		return
-	}
-	list, err := d.MCP.AgentMCP(r.Context(), ws, agentID)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if list == nil {
-		list = []orchapp.AgentMCP{}
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"servers": list})
-}
-
-type agentMCPWire struct {
-	Name        string         `json:"name"`
-	Transport   string         `json:"transport"`
-	URL         string         `json:"url"`
-	Enabled     *bool          `json:"enabled"`
-	Credentials map[string]any `json:"credentials"`
-}
-
-func (x agentMCPWire) toModel(ws, agentID, id string) orchapp.AgentMCP {
-	enabled := true
-	if x.Enabled != nil {
-		enabled = *x.Enabled
-	}
-	return orchapp.AgentMCP{ID: id, WorkspaceID: ws, AgentID: agentID, Name: x.Name,
-		Transport: x.Transport, URL: x.URL, Enabled: enabled, Credentials: x.Credentials}
-}
-
-func (d Deps) handleAgentMCPCreate(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[agentMCPWire](w, r)
-	if !ok {
-		return
-	}
-	m := in.toModel(d.ws(r), r.PathValue("agentId"), "")
-	created, err := d.MCP.CreateAgentMCP(r.Context(), m)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusCreated, created)
-}
-
-func (d Deps) handleAgentMCPUpdate(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[agentMCPWire](w, r)
-	if !ok {
-		return
-	}
-	m := in.toModel(d.ws(r), r.PathValue("agentId"), r.PathValue("serverId"))
-	updated, err := d.MCP.UpdateAgentMCP(r.Context(), m)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, updated)
-}
-
-func (d Deps) handleAgentMCPDelete(w http.ResponseWriter, r *http.Request) {
-	if err := d.MCP.DeleteAgentMCP(r.Context(), d.ws(r), r.PathValue("agentId"), r.PathValue("serverId")); err != nil {
-		writeErr(w, err)
-		return
-	}
-	webx.WriteJSON(w, http.StatusOK, map[string]string{"result": "deleted"})
-}
-
 func (d Deps) handleRetrySourceContext(w http.ResponseWriter, r *http.Request) {
 	ws := r.Header.Get("X-Workspace-Id")
 	if ws == "" {
@@ -564,7 +452,7 @@ func (d Deps) handleRetrySourceContext(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := d.RetrySourceContext(r.Context(), ws, r.PathValue("taskId"), webx.PrincipalFrom(r.Context()).UserID)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, out)
@@ -573,7 +461,7 @@ func (d Deps) handleRetrySourceContext(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleBuilderList(w http.ResponseWriter, r *http.Request) {
 	list, err := d.Builder.List(r.Context(), d.ws(r), webx.PrincipalFrom(r.Context()).UserID)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	if list == nil {
@@ -591,7 +479,7 @@ func (d Deps) handleBuilderCreate(w http.ResponseWriter, r *http.Request) {
 	in.UserID = webx.PrincipalFrom(r.Context()).UserID
 	sess, err := d.Builder.Create(r.Context(), *in)
 	if err != nil {
-		writeErr(w, err)
+		writeErrReq(r, w, err)
 		return
 	}
 	webx.WriteJSON(w, http.StatusCreated, sess)
@@ -603,7 +491,7 @@ func (d Deps) handleBuilderDraft(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		sess, err := d.Builder.Get(r.Context(), d.ws(r), id)
 		if err != nil {
-			writeErr(w, err)
+			writeErrReq(r, w, err)
 			return
 		}
 		webx.WriteJSON(w, http.StatusOK, sess)
@@ -617,7 +505,7 @@ func (d Deps) handleBuilderDraft(w http.ResponseWriter, r *http.Request) {
 		in.UserID = webx.PrincipalFrom(r.Context()).UserID
 		sess, err := d.Builder.UpsertDraft(r.Context(), *in)
 		if err != nil {
-			writeErr(w, err)
+			writeErrReq(r, w, err)
 			return
 		}
 		webx.WriteJSON(w, http.StatusOK, sess)

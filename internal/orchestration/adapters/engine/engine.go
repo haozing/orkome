@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -42,7 +43,25 @@ type EinoEngine struct {
 
 	SquadLoader func(ctx context.Context, workspaceID, squadID string) (orchapp.SquadInfo, bool, error)
 
+	// SkillSource 技能注入（可选）。
 	Skills SkillSource
+
+	// PackToolSchemas 是 B1 存档（pack_tool_schema，迁移 1035）的读取端口
+	// （C1）：桥接组装期一次拉全 workspace 存档，为协议未自描述 outputSchema
+	// 的 MCP 工具补输出契约（优先级：协议自描述 → 本存档 → 结构化探测）。
+	// nil = 未接线（无存档可用，回落探测；可测桩注入）。构造方式见
+	// docs/handoff-b1-job-gate-2026-10-11.md §3（勿走 HTTP）。
+	PackToolSchemas interface {
+		ListPackToolSchemas(ctx context.Context, ws string) ([]orchapp.PackToolSchema, error)
+	}
+
+	// TaskContextPatcher 是 task.context 的回写端口（C1）：引擎组装完统一
+	// 注册表后，把全量工具清单（新键 tools）与 MCP 桥接的细化态服务器
+	// 状态（mcp_servers，ok/ssrf/connect_failed——取代派发期 resolved 态
+	// 粗快照）写回任务上下文，供前端/审计读取。nil = 未接线（跳过回写，
+	// 行为与 C1 之前一致）。语义冻结见 docs/interfaces-tool-registry
+	// -2026-10-11.md §3。
+	TaskContextPatcher orchapp.TaskContextPatcher
 
 	InterimPush func(workspaceID, taskID, kind, content string)
 
@@ -63,6 +82,13 @@ type EinoEngine struct {
 	MCPResolver orchapp.MCPResolver
 
 	Egress *egressx.Guard
+
+	// OutputValidator 校验 MCP 工具输出契约（A1）；nil 时用默认两级实现
+	// （协议自描述 schema 优先 → 结构化探测回落）。
+	OutputValidator OutputValidator
+
+	// AuditLog 输出契约违规审计日志（结构化，含原文全文）；nil 用 slog 默认。
+	AuditLog *slog.Logger
 
 	RetryBackoffFunc func(ctx context.Context, attempt int) time.Duration
 
@@ -217,41 +243,18 @@ func (e *EinoEngine) run(ctx context.Context, task orchapp.Task, agent orchapp.A
 		handlers = append(handlers, mw)
 	}
 
-	approval := &approvalTool{}
-	cfgTools := adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{}}
-	toolList := []tool.BaseTool{approval}
-	if e.WorkspaceSearch != nil {
-		toolList = append(toolList, &searchWorkspaceTool{search: e.WorkspaceSearch, task: task})
-	}
-	if e.WorkBench != nil && task.WorkItemID != "" {
-		toolList = append(toolList,
-			&postCommentTool{wb: e.WorkBench, task: task, agentID: agent.ID},
-			&getWorkItemTool{wb: e.WorkBench, task: task})
-	}
-
-	if e.StatusUpdate != nil && task.WorkItemID != "" {
-		toolList = append(toolList, &updateWorkItemStatusTool{update: e.StatusUpdate, task: task, agent: agent})
-	}
-	if e.Checkiner != nil && task.WorkItemID != "" {
-		if wid, _ := task.Context["wakeup_id"].(string); wid != "" {
-			toolList = append(toolList, &checkinWakeupTool{checkiner: e.Checkiner, task: task, wakeupID: wid})
-		}
-	}
-
-	if task.IsLeaderTask && task.SquadID != "" && !squadChoreo {
-		if e.LeaderDispatch != nil {
-			toolList = append(toolList,
-				&dispatchToMemberTool{dispatch: e.LeaderDispatch, task: task, agent: agent, members: squadMembers})
-		}
-		if e.ChildItems != nil {
-			toolList = append(toolList, &createChildWorkItemTool{children: e.ChildItems, task: task, agent: agent})
-		}
-		if e.SquadEvals != nil {
-			toolList = append(toolList, &recordEvaluationTool{recorder: e.SquadEvals, task: task, agent: agent})
-		}
-	}
-
+	// C1：统一注册表装配——内置工具（buildBuiltinTools，纯搬移自本函数
+	// 原装配段）与 MCP 桥接工具同一注册表；输出校验 middleware（同一
+	// OutputValidator，A1 红利对内置工具闭环）+ ConcurrencySafe fail-closed
+	// 并发闸走 eino 原生 ChatModelAgentMiddleware 协议，与上方
+	// steer/skill 及下方 toolsearch 同构共存。
+	reg := newToolRegistry()
+	toolList := e.buildBuiltinTools(ctx, task, agent, reg, squadMembers, squadChoreo)
 	bridge := e.buildMCPTools(ctx, task, agent)
+	registerMCPBridge(ctx, reg, bridge, e.archivedToolSchemas(ctx, task))
+	handlers = append(handlers, newToolContractMiddleware(reg, e.OutputValidator, e.AuditLog))
+	e.patchToolSnapshot(ctx, task, reg, bridge)
+
 	pack := e.buildToolPack(ctx, task, agent, toolList, memberTools, bridge)
 	if pack.searchMW != nil {
 		handlers = append(handlers, pack.searchMW)
@@ -259,6 +262,7 @@ func (e *EinoEngine) run(ctx context.Context, task orchapp.Task, agent orchapp.A
 	toolList = pack.static
 
 	staticList := toolList
+	cfgTools := adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{}}
 	cfgTools.ToolsNodeConfig.UnknownToolsHandler = unknownToolsHandler(func() []string {
 		return toolNamesOf(context.Background(), staticList)
 	})

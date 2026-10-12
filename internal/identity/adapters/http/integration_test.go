@@ -26,6 +26,7 @@ import (
 	"orkome/internal/identity/adapters/pgrepo"
 	"orkome/internal/identity/app"
 	"orkome/migrations"
+	workpgrepo "orkome/internal/work/adapters/pgrepo"
 )
 
 // ---- stubs for the framework auth surface ----
@@ -109,17 +110,25 @@ func newHarness(t *testing.T) *harness {
 	_, err = m.Up(ctx, 0)
 	require.NoError(t, err)
 
-	_, err = pool.Exec(ctx, `TRUNCATE pinned_item, ui_token, member, workspace, "user" RESTART IDENTITY CASCADE`)
+	_, err = pool.Exec(ctx, `TRUNCATE pinned_item, ui_token, work_item, member, workspace, "user" RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 
 	repo := pgrepo.New(pg.WrapPool(pool))
 	sessions := &stubSessions{tokens: map[string]*webx.Principal{}}
 	minter := &stubMinter{}
 
+	// 绑定归属校验用真 work 仓储（workspace 作用域的既有 GetWorkItem——FP-15
+	// P1-2 与生产 wiring 同构）。
+	wrepo := workpgrepo.Repo{DB: pg.WrapPool(pool)}
+	loc := app.WorkItemLocatorFunc(func(ctx context.Context, ws, wi string) (bool, error) {
+		_, ok, err := wrepo.GetWorkItem(ctx, ws, wi)
+		return ok, err
+	})
+
 	deps := Deps{
 		Repo:     repo,
 		Pins:     app.NewPinService(repo),
-		UITokens: app.NewUITokenService(repo, []byte("integration-ui-secret-0123456789"), time.Now),
+		UITokens: app.NewUITokenService(repo, []byte("integration-ui-secret-0123456789"), time.Now).WithWorkItemLocator(loc),
 		Tokens:   minter,
 	}
 	mux := http.NewServeMux()
@@ -338,7 +347,12 @@ func TestUITokens_MintConsumeLifecycle(t *testing.T) {
 	aliceCk := h.client("alice", alice)
 	bobCk := h.client("bob", bob)
 
-	rec := h.do(bobCk, http.MethodPost, "/api/ui-tokens",
+	// 匿名铸票仍是 401——会话门只从 consume 摘除（FP-15 P1-1）。
+	rec := h.do("", http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws}, nil)
+	assert.Equal(t, 401, rec.Code, "anonymous mint should stay 401")
+
+	rec = h.do(bobCk, http.MethodPost, "/api/ui-tokens",
 		map[string]string{"plugin": "fakeblog", "workspace_id": ws}, nil)
 	assert.Equal(t, 403, rec.Code, "non-member mint should be 403")
 
@@ -357,26 +371,105 @@ func TestUITokens_MintConsumeLifecycle(t *testing.T) {
 	assert.NotEmpty(t, minted.Token)
 	assert.Equal(t, 60, minted.ExpiresIn)
 
-	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens/consume",
+	// consume 四态（反转锚）：①匿名 + 有效票 = 200——票即凭证（单次 jti +
+	// 60s TTL + DB 原子消费），pack 侧无会话无 PAT 也能进（FP-15 P1-1）。
+	rec = h.do("", http.MethodPost, "/api/ui-tokens/consume",
 		map[string]string{"token": minted.Token}, nil)
-	require.Equal(t, 200, rec.Code, "consume: "+rec.Body.String())
+	require.Equal(t, 200, rec.Code, "anonymous consume with a valid ticket must be 200: "+rec.Body.String())
 	var claims struct {
 		UserID      string `json:"user_id"`
 		WorkspaceID string `json:"workspace_id"`
 		Plugin      string `json:"plugin"`
+		WorkItemID  string `json:"work_item_id"`
 	}
 	jsonOf(t, rec, &claims)
 	assert.Equal(t, alice, claims.UserID)
 	assert.Equal(t, ws, claims.WorkspaceID)
 	assert.Equal(t, "fakeblog", claims.Plugin)
+	assert.Empty(t, claims.WorkItemID, "未绑定票不透出 work_item_id")
 
+	// ②票二次使用 = 401（jti 单次，带不带会话同理）。
 	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens/consume",
 		map[string]string{"token": minted.Token}, nil)
 	assert.Equal(t, 401, rec.Code, "replay should be rejected (single-use jti)")
 
+	// ③过期票 = 401（行级 expires_at 门槛；JWT exp 同向拒绝）。
+	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws}, nil)
+	require.Equal(t, 201, rec.Code)
+	var expTok struct {
+		Token string `json:"token"`
+	}
+	jsonOf(t, rec, &expTok)
+	_, err := h.pool.Exec(context.Background(),
+		`UPDATE ui_token SET expires_at = now() - interval '1 second' WHERE plugin = 'fakeblog'`)
+	require.NoError(t, err)
+	rec = h.do("", http.MethodPost, "/api/ui-tokens/consume",
+		map[string]string{"token": expTok.Token}, nil)
+	assert.Equal(t, 401, rec.Code, "expired ticket should be rejected")
+
+	// ④无票 = 401（伪造/未知票验签即拒）；空 token = 400（形状错误）。
+	rec = h.do("", http.MethodPost, "/api/ui-tokens/consume",
+		map[string]string{"token": "uit_forged"}, nil)
+	assert.Equal(t, 401, rec.Code, "forged ticket should be 401")
+	rec = h.do("", http.MethodPost, "/api/ui-tokens/consume", map[string]string{"token": ""}, nil)
+	assert.Equal(t, 400, rec.Code, "empty token body should be 400")
+}
+
+func TestUITokens_WorkItemBinding(t *testing.T) {
+	h := newHarness(t)
+	alice := h.seedUser("uitbind-alice@example.com")
+	ws := h.seedWorkspace("BindWs", "uit-bind-ws", alice)
+	otherWS := h.seedWorkspace("OtherWs", "uit-bind-other", alice)
+	h.seedMember(ws, alice, "owner")
+	aliceCk := h.client("alice", alice)
+
+	seedWI := func(wsID string, number int) string {
+		h.t.Helper()
+		var id string
+		require.NoError(h.t, h.pool.QueryRow(context.Background(),
+			`INSERT INTO work_item (workspace_id, number, title, status_key, creator_id)
+			 VALUES ($1, $2, 'binding fixture', 'todo', $3) RETURNING id`, wsID, number, alice).Scan(&id))
+		return id
+	}
+	wiMine := seedWI(ws, 1)
+	wiOther := seedWI(otherWS, 1)
+
+	// 合法工单：铸票 201，consume 响应透出 work_item_id（pack 侧比对原语）。
+	rec := h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws, "work_item_id": wiMine}, nil)
+	require.Equal(t, 201, rec.Code, "bound mint: "+rec.Body.String())
+	var minted struct {
+		Token string `json:"token"`
+	}
+	jsonOf(t, rec, &minted)
 	rec = h.do("", http.MethodPost, "/api/ui-tokens/consume",
 		map[string]string{"token": minted.Token}, nil)
-	assert.Equal(t, 401, rec.Code, "anonymous consume should be 401")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var claims struct {
+		WorkItemID string `json:"work_item_id"`
+	}
+	jsonOf(t, rec, &claims)
+	assert.Equal(t, wiMine, claims.WorkItemID, "绑定工单进 claims 并在 consume 响应透出")
+
+	// 跨区工单（存在但属于另一工作区）= 400——归属校验在铸票时刻收口。
+	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws, "work_item_id": wiOther}, nil)
+	assert.Equal(t, 400, rec.Code, "cross-workspace work item should be 400: "+rec.Body.String())
+
+	// 不存在的工单 = 400；非 UUID = 400（先于 locator，避免 PG cast 炸 500）。
+	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws,
+			"work_item_id": "99999999-9999-9999-9999-999999999999"}, nil)
+	assert.Equal(t, 400, rec.Code, "unknown work item should be 400")
+	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws, "work_item_id": "not-a-uuid"}, nil)
+	assert.Equal(t, 400, rec.Code, "non-uuid work_item_id should be 400")
+
+	// 不带 work_item_id 的铸票照常（可选字段向后兼容 v0 调用方）。
+	rec = h.do(aliceCk, http.MethodPost, "/api/ui-tokens",
+		map[string]string{"plugin": "fakeblog", "workspace_id": ws}, nil)
+	require.Equal(t, 201, rec.Code)
 }
 
 func TestCLIToken_ExchangesSessionForPAT(t *testing.T) {

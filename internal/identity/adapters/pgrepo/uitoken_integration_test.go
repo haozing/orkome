@@ -71,7 +71,7 @@ func TestUITokenMintConsumeReplay(t *testing.T) {
 	svc := app.NewUITokenService(repo, uitSecret, time.Now)
 	ctx := context.Background()
 
-	token, err := svc.Mint(ctx, ws, user, "fakeblog")
+	token, err := svc.Mint(ctx, ws, user, "fakeblog", "")
 	require.NoError(t, err)
 
 	claims, err := svc.Consume(ctx, token)
@@ -94,7 +94,7 @@ func TestUITokenExpiry(t *testing.T) {
 	clock := &fakeClock{t: now}
 	svc := app.NewUITokenService(repo, uitSecret, clock.Now)
 
-	token, err := svc.Mint(ctx, ws, user, "fakeblog")
+	token, err := svc.Mint(ctx, ws, user, "fakeblog", "")
 	require.NoError(t, err)
 
 	clock.t = now.Add(61 * time.Second)
@@ -108,7 +108,7 @@ func TestUITokenWrongSecretRejected(t *testing.T) {
 	minter := app.NewUITokenService(repo, uitSecret, time.Now)
 	verifier := app.NewUITokenService(repo, []byte("another-secret-entirely-1234"), time.Now)
 
-	token, err := minter.Mint(ctx, ws, user, "fakeblog")
+	token, err := minter.Mint(ctx, ws, user, "fakeblog", "")
 	require.NoError(t, err)
 	_, err = verifier.Consume(ctx, token)
 	require.Error(t, err, "tickets signed by a different key must not verify")

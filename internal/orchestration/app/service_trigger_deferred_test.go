@@ -68,11 +68,14 @@ func (f *fakeTriggerRepo) PromoteDeferred(_ context.Context) ([]Task, error) {
 	}
 	return f.promoted, nil
 }
-func (f *fakeTriggerRepo) CompleteRun(_ context.Context, _, _, _, _ string, _ UsageReport) error {
+func (f *fakeTriggerRepo) CompleteRun(_ context.Context, _, _, _, _, _ string, _ UsageReport) error {
 	return nil
 }
-func (f *fakeTriggerRepo) FailRun(_ context.Context, _, _, _ string) (bool, error) {
+func (f *fakeTriggerRepo) FailRun(_ context.Context, _, _, _, _ string) (bool, error) {
 	return false, nil
+}
+func (f *fakeTriggerRepo) LastTaskText(_ context.Context, _ string) (string, error) {
+	return "", nil
 }
 func (f *fakeTriggerRepo) SettlePendingSupplements(_ context.Context, _ string) error {
 	return nil

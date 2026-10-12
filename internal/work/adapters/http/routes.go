@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/haozing/ploykit/platform/webx"
@@ -30,6 +31,10 @@ type Deps struct {
 func writeErr(w http.ResponseWriter, err error) {
 	var ae *apierr.Error
 	if !errors.As(err, &ae) {
+		// 非 apierr 一律 500 且不打日志是"三无"模式根源（batch1 根因 D）：
+		// 用户看到 internal error、服务端无根因痕迹。补日志后底层错误
+		//（如 pgx 约束违规）可追溯。
+		slog.Error("work: unclassified error on write path", "err", err)
 		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "internal error", nil)
 		return
 	}

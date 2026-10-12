@@ -2,9 +2,11 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,6 +56,18 @@ func (d Deps) handleGet(w http.ResponseWriter, r *http.Request) {
 	webx.WriteJSON(w, http.StatusOK, wi)
 }
 
+// writeListPage renders a list-page envelope. An exhausted page (empty cursor)
+// omits next_cursor entirely instead of sending "" — a "" survives the
+// frontend's `?? undefined` guard and makes infinite queries re-fetch page 1
+// forever (FP-11 P1-1). Non-exhausted pages keep the same shape as before.
+func writeListPage(w http.ResponseWriter, items any, next string) {
+	resp := map[string]any{"items": items}
+	if next != "" {
+		resp["next_cursor"] = next
+	}
+	webx.WriteJSON(w, http.StatusOK, resp)
+}
+
 func (d Deps) handleList(w http.ResponseWriter, r *http.Request) {
 	q := urlQuery(r)
 	items, next, err := d.WorkItems.List(r.Context(), q)
@@ -61,7 +75,7 @@ func (d Deps) handleList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
+	writeListPage(w, items, next)
 }
 
 func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +138,33 @@ func (d Deps) handleMove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// batchPatchKeys is the whitelist of patch fields batch-update supports
+// (kept in sync with mapToPatch below).
+var batchPatchKeys = map[string]bool{
+	"title": true, "status": true, "priority": true,
+	"assignee_id": true, "assignee_type": true, "properties": true,
+}
+
+type batchFailure struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+func batchFailReason(err error) string {
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.Error()
+	}
+	return "E_INTERNAL: update failed"
+}
+
+func batchFailedList(failed []batchFailure) []batchFailure {
+	if failed == nil {
+		return []batchFailure{}
+	}
+	return failed
+}
+
 func (d Deps) handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	in, ok := decode[struct {
 		IDs   []string       `json:"ids"`
@@ -132,19 +173,39 @@ func (d Deps) handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	patch := mapToPatch(in.Patch)
+	patch, rejected := mapToPatch(in.Patch)
+	if len(rejected) > 0 {
+		details := make([]apierr.FieldError, 0, len(rejected))
+		for _, k := range rejected {
+			details = append(details, apierr.FieldError{Field: "patch." + k, Problem: "unsupported field for batch update"})
+		}
+		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "patch contains unsupported fields", details)
+		return
+	}
+	if batchPatchEmpty(patch) {
+		// An empty patch would still bump revision/updated_at on every id with
+		// zero content change (the ghost-revision jump), so fail fast with no
+		// side effects instead of pretending success.
+		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "patch is empty",
+			[]apierr.FieldError{{Field: "patch", Problem: "at least one of title/status/priority/assignee_id/assignee_type/properties is required"}})
+		return
+	}
 
 	if err := d.WorkItems.CheckBatchTriageLock(r.Context(), wsID(r), in.IDs, patch); err != nil {
 		writeErr(w, err)
 		return
 	}
 	updated := 0
+	var failed []batchFailure
 	for _, id := range in.IDs {
-		if _, err := d.WorkItems.Update(r.Context(), wsID(r), id, patch, 0, principal(r).UserID); err == nil {
-			updated++
+		if _, err := d.WorkItems.Update(r.Context(), wsID(r), id, patch, 0, principal(r).UserID); err != nil {
+			failed = append(failed, batchFailure{ID: id, Reason: batchFailReason(err)})
+			continue
 		}
+		updated++
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"updated": updated})
+	resp := map[string]any{"updated": updated, "failed": batchFailedList(failed)}
+	webx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (d Deps) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
@@ -155,12 +216,16 @@ func (d Deps) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deleted := 0
+	var failed []batchFailure
 	for _, id := range in.IDs {
-		if err := d.WorkItems.Delete(r.Context(), wsID(r), id, principal(r).UserID); err == nil {
-			deleted++
+		if err := d.WorkItems.Delete(r.Context(), wsID(r), id, principal(r).UserID); err != nil {
+			failed = append(failed, batchFailure{ID: id, Reason: batchFailReason(err)})
+			continue
 		}
+		deleted++
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+	resp := map[string]any{"deleted": deleted, "failed": batchFailedList(failed)}
+	webx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (d Deps) handleChildren(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +242,7 @@ func (d Deps) handleChildren(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	webx.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
+	writeListPage(w, items, next)
 }
 
 func (d Deps) handleChildProgress(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +589,24 @@ func (d Deps) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
 	webx.WriteJSON(w, http.StatusCreated, l)
 }
 
-func (d Deps) handleUpsertLabel(w http.ResponseWriter, r *http.Request) { d.handleCreateLabel(w, r) }
+// handleUpsertLabel serves PUT /api/labels/{labelId}: update the label
+// addressed by the path id (FP-18 D-02 — the path parameter used to be ignored
+// and the request upserted by name, so a rename created a phantom label).
+func (d Deps) handleUpsertLabel(w http.ResponseWriter, r *http.Request) {
+	in, ok := decode[struct {
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	l, err := d.Catalog.UpdateLabel(r.Context(), wsID(r), r.PathValue("labelId"), in.Name, in.Color)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	webx.WriteJSON(w, http.StatusOK, l)
+}
 
 func (d Deps) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 	if err := d.Catalog.DeleteLabel(r.Context(), wsID(r), r.PathValue("labelId")); err != nil {
@@ -677,12 +759,64 @@ func filtersFromQuery(r *http.Request) workapp.QueryFilters {
 	}
 }
 
+// knownFilterKeys is the exhaustive set of QueryFilters keys the query/table
+// endpoints actually execute. Anything else is a 400 — struct decoding used to
+// drop unknown keys silently, so filters were echoed back as "parsed" while
+// never being applied (FP-18 D-04 contract fraud).
+var knownFilterKeys = map[string]bool{
+	"status": true, "assignee": true, "labels": true, "project": true,
+	"priority_min": true, "search": true, "involves": true, "props": true,
+}
+
+func decodeFilters(w http.ResponseWriter, raw json.RawMessage) (workapp.QueryFilters, bool) {
+	var f workapp.QueryFilters
+	if len(raw) == 0 || string(raw) == "null" {
+		return f, true
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid filters object", nil)
+		return f, false
+	}
+	var unknown []string
+	for k := range keys {
+		if !knownFilterKeys[k] {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		details := make([]apierr.FieldError, 0, len(unknown))
+		for _, k := range unknown {
+			details = append(details, apierr.FieldError{Field: "filters." + k, Problem: "unsupported filter"})
+		}
+		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "unsupported filters", details)
+		return f, false
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "invalid filters object", nil)
+		return f, false
+	}
+	return f, true
+}
+
 func (d Deps) handleQuery(w http.ResponseWriter, r *http.Request) {
-	in, ok := decode[workapp.CompileRequest](w, r)
+	in, ok := decode[struct {
+		Filters json.RawMessage `json:"filters"`
+		GroupBy string          `json:"group_by"`
+		Sort    []string        `json:"sort"`
+		Limit   int             `json:"limit"`
+	}](w, r)
 	if !ok {
 		return
 	}
-	out, err := d.Views.Compile(r.Context(), wsID(r), *in)
+	filters, fok := decodeFilters(w, in.Filters)
+	if !fok {
+		return
+	}
+	out, err := d.Views.Compile(r.Context(), wsID(r), workapp.CompileRequest{
+		Filters: filters, GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit,
+	})
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -692,14 +826,18 @@ func (d Deps) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleRows(w http.ResponseWriter, r *http.Request) {
 	in, ok := decode[struct {
-		Filters workapp.QueryFilters `json:"filters"`
-		Cursor  string               `json:"cursor"`
-		Limit   int                  `json:"limit"`
+		Filters json.RawMessage `json:"filters"`
+		Cursor  string          `json:"cursor"`
+		Limit   int             `json:"limit"`
 	}](w, r)
 	if !ok {
 		return
 	}
-	out, err := d.Views.Rows(r.Context(), wsID(r), in.Filters, in.Cursor, in.Limit)
+	filters, fok := decodeFilters(w, in.Filters)
+	if !fok {
+		return
+	}
+	out, err := d.Views.Rows(r.Context(), wsID(r), filters, in.Cursor, in.Limit)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -709,13 +847,17 @@ func (d Deps) handleRows(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleGroups(w http.ResponseWriter, r *http.Request) {
 	in, ok := decode[struct {
-		GroupBy string               `json:"group_by"`
-		Filters workapp.QueryFilters `json:"filters"`
+		GroupBy string          `json:"group_by"`
+		Filters json.RawMessage `json:"filters"`
 	}](w, r)
 	if !ok {
 		return
 	}
-	rows, err := d.Views.Groups(r.Context(), wsID(r), in.GroupBy, in.Filters)
+	filters, fok := decodeFilters(w, in.Filters)
+	if !fok {
+		return
+	}
+	rows, err := d.Views.Groups(r.Context(), wsID(r), in.GroupBy, filters)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -725,12 +867,16 @@ func (d Deps) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 func (d Deps) handleFacets(w http.ResponseWriter, r *http.Request) {
 	in, ok := decode[struct {
-		Filters workapp.QueryFilters `json:"filters"`
+		Filters json.RawMessage `json:"filters"`
 	}](w, r)
 	if !ok {
 		return
 	}
-	out, err := d.Views.Facets(r.Context(), wsID(r), in.Filters)
+	filters, fok := decodeFilters(w, in.Filters)
+	if !fok {
+		return
+	}
+	out, err := d.Views.Facets(r.Context(), wsID(r), filters)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -956,8 +1102,20 @@ func propQueryParams(q url.Values) map[string]string {
 	return props
 }
 
-func mapToPatch(m map[string]any) workapp.WorkItemPatch {
+// mapToPatch maps a batch patch body onto WorkItemPatch and returns the sorted
+// list of keys it rejected (anything outside batchPatchKeys). Callers must turn
+// a non-empty reject list into a 400 — silently dropping fields is what made
+// batch-update a lying contract (FP-18 D-03: "batch update description" was a
+// no-op that still bumped revision).
+func mapToPatch(m map[string]any) (workapp.WorkItemPatch, []string) {
 	var p workapp.WorkItemPatch
+	var rejected []string
+	for k := range m {
+		if !batchPatchKeys[k] {
+			rejected = append(rejected, k)
+		}
+	}
+	sort.Strings(rejected)
 	if v, ok := m["title"].(string); ok {
 		p.Title = &v
 	}
@@ -970,12 +1128,17 @@ func mapToPatch(m map[string]any) workapp.WorkItemPatch {
 	}
 	if v, ok := m["assignee_id"].(string); ok {
 		p.AssigneeID = &v
-		if t, ok := m["assignee_type"].(string); ok {
-			p.AssigneeType = &t
-		}
+	}
+	if v, ok := m["assignee_type"].(string); ok {
+		p.AssigneeType = &v
 	}
 	if v, ok := m["properties"].(map[string]any); ok {
 		p.Properties = v
 	}
-	return p
+	return p, rejected
+}
+
+func batchPatchEmpty(p workapp.WorkItemPatch) bool {
+	return p.Title == nil && p.StatusKey == nil && p.Priority == nil &&
+		p.AssigneeID == nil && p.AssigneeType == nil && p.Properties == nil
 }

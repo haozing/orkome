@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -42,9 +43,72 @@ func TestE2E_G1_BrowserGolden(t *testing.T) {
 	rec = s.do("alice", http.MethodGet, "/api/work-items/"+wi+"/timeline", nil, nil)
 	require.Equal(t, 200, rec.Code)
 
-	rec = s.do("alice", http.MethodPost, "/api/work-items/table/rows",
-		map[string]any{"filters": map[string]any{"status": []string{"todo"}}}, nil)
+	// FP-18 D-01 regression: table/rows must return string ids with named
+	// columns and a self-produced cursor that replays — the audit found the
+	// page-2 replay 500'd and the old e2e only asserted the first page was 200.
+	// Page totals are deliberately not assumed (other suites may leave rows in
+	// this database when a DROP DATABASE races); the walk itself is the proof.
+	for i := 0; i < 3; i++ {
+		s.createWorkItem(t, "alice", fmt.Sprintf("goldens rows %02d", i))
+	}
+	rowsBody := func(cursor string) map[string]any {
+		body := map[string]any{
+			"filters": map[string]any{"status": []string{"todo"}},
+			"limit":   2,
+		}
+		if cursor != "" {
+			body["cursor"] = cursor
+		}
+		return body
+	}
+	var page struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	rec = s.do("alice", http.MethodPost, "/api/work-items/table/rows", rowsBody(""), nil)
 	require.Equal(t, 200, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+	require.Len(t, page.Items, 2, "page 1 is limit-sized")
+	require.NotEmpty(t, page.NextCursor, "page 1 must carry a replayable cursor")
+	seen := map[string]bool{}
+	for _, it := range page.Items {
+		id, isStr := it["id"].(string)
+		require.True(t, isStr, "id must be a JSON string, got %T (%v)", it["id"], it["id"])
+		_, hasCoalesce := it["coalesce"]
+		assert.False(t, hasCoalesce, "expression-named fields must not leak (old \"coalesce\" column)")
+		require.Contains(t, it, "assignee_id", "assignee_id must be an explicitly named column")
+		seen[id] = true
+	}
+
+	// walk every remaining page — the first replay is the exact call that was
+	// a 500 E_INTERNAL before the fix. Fresh struct per iteration: an absent
+	// next_cursor (exhausted page) must not retain the previous page's value.
+	cursor := page.NextCursor
+	pages := 1
+	for cursor != "" && pages < 50 {
+		rec = s.do("alice", http.MethodPost, "/api/work-items/table/rows", rowsBody(cursor), nil)
+		require.Equal(t, 200, rec.Code, "self-produced cursor must replay: "+rec.Body.String())
+		var next struct {
+			Items      []map[string]any `json:"items"`
+			NextCursor string           `json:"next_cursor"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &next))
+		require.LessOrEqual(t, len(next.Items), 2)
+		for _, it := range next.Items {
+			id, _ := it["id"].(string)
+			assert.False(t, seen[id], "no row may repeat across pages")
+			seen[id] = true
+		}
+		cursor = next.NextCursor
+		pages++
+	}
+	assert.Empty(t, cursor, "pagination must terminate")
+	assert.GreaterOrEqual(t, pages, 2, "page-2 replay must have happened (the old P0)")
+
+	// garbage cursors are 400, never 500
+	rec = s.do("alice", http.MethodPost, "/api/work-items/table/rows",
+		map[string]any{"filters": map[string]any{}, "cursor": "a|b"}, nil)
+	assert.Equal(t, 400, rec.Code, "garbage cursor must be a 400")
 }
 
 func TestE2E_G2_AgentExecutionGolden(t *testing.T) {

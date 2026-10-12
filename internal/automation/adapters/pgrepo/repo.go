@@ -420,6 +420,9 @@ func (r *Repo) ListSystemWakeupsByWorkItem(ctx context.Context, ws, wi string) (
 }
 
 func (r *Repo) EnsureSystemWakeup(ctx context.Context, w app.Wakeup) (app.Wakeup, error) {
+	// W2-2 归属裁决：created_by 有意不写入（保持 NULL）——system wakeup 由平台
+	// 播种、系统发起无主，不存在"创建人"；fire 侧据此走 unattributed 分支
+	// （wiring_automation.go 已去 orZeroUUID 补零），而非撞 originator FK。
 	row := r.q(ctx).QueryRow(ctx, `
 INSERT INTO work_item_wakeup (workspace_id, work_item_id, agent_id, kind, instruction,
   system_rule, condition, condition_state, enabled)
@@ -585,12 +588,13 @@ SELECT autopilot_id, workspace_id, name, created_by, runs, failed FROM paused`,
 func (r *Repo) DeleteAutopilot(ctx context.Context, ws, id string) (app.DeleteOutcome, error) {
 	var out app.DeleteOutcome
 	err := r.q(ctx).QueryRow(ctx, `
-WITH target AS (
-  SELECT a.id,
-    EXISTS (SELECT 1 FROM autopilot_trigger t WHERE t.autopilot_id = a.id AND t.enabled) AS has_enabled_triggers,
-    EXISTS (SELECT 1 FROM autopilot_run r WHERE r.autopilot_id = a.id AND r.status IN ('pending','running')) AS has_active_runs
-  FROM autopilot a WHERE a.workspace_id = $1::uuid AND a.id = $2::uuid
-), guard AS (
+	WITH target AS (
+	  SELECT a.id,
+	    EXISTS (SELECT 1 FROM autopilot_trigger t WHERE t.autopilot_id = a.id AND t.enabled
+	      AND (t.kind = 'webhook' OR (t.kind = 'schedule' AND coalesce(t.cron_expression,'') <> ''))) AS has_enabled_triggers,
+	    EXISTS (SELECT 1 FROM autopilot_run r WHERE r.autopilot_id = a.id AND r.status IN ('pending','running')) AS has_active_runs
+	  FROM autopilot a WHERE a.workspace_id = $1::uuid AND a.id = $2::uuid
+	), guard AS (
   SELECT id FROM target WHERE NOT has_enabled_triggers AND NOT has_active_runs
 ), del_runs AS (
   DELETE FROM autopilot_run r USING guard g WHERE r.autopilot_id = g.id
@@ -771,7 +775,7 @@ WHERE a.workspace_id=$1 AND r.id=$2::uuid`, ws, runID))
 func (r *Repo) InsertRun(ctx context.Context, run app.Run) (app.Run, error) {
 	err := r.q(ctx).QueryRow(ctx, `
 INSERT INTO autopilot_run (autopilot_id, trigger_id, source, status, planned_at, reason_code, quota_reservation_id)
-VALUES ($1,$2,$3,$4,$5,nullif($6,''),nullif($7,'')::uuid) RETURNING id`,
+VALUES ($1,nullif($2,'')::uuid,$3,$4,$5,nullif($6,''),nullif($7,'')::uuid) RETURNING id`,
 		run.AutopilotID, run.TriggerID, run.Source, run.Status, run.PlannedAt, run.ReasonCode, run.QuotaReservationID).Scan(&run.ID)
 	return run, err
 }

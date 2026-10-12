@@ -29,6 +29,26 @@ func (r *Repo) Within(ctx context.Context, fn func(ctx context.Context) error) e
 const sessCols = `id, workspace_id, agent_id, creator_id, title, coalesce(session_ref,''), status,
 (pinned_at IS NOT NULL) AS pinned, created_at, updated_at`
 
+// AgentAvailability agent 存在性 + 归档态（FP-14 P1-1/P1-2）。非法 uuid
+// 输入归"不存在"（由 service 层映射 400，此前裸 500）。
+func (r *Repo) AgentAvailability(ctx context.Context, wsID, agentID string) (bool, bool, error) {
+	var archived bool
+	err := r.q(ctx).QueryRow(ctx,
+		`SELECT archived_at IS NOT NULL FROM agent WHERE id=$2::uuid AND workspace_id=$1`,
+		wsID, agentID).Scan(&archived)
+	if noRow(err) {
+		return false, false, nil
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return false, false, nil
+		}
+		return false, false, err
+	}
+	return true, archived, nil
+}
+
 func (r *Repo) CreateSession(ctx context.Context, s app.Session) (app.Session, error) {
 	err := r.q(ctx).QueryRow(ctx, `
 INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, status, explicitly_created_at)
@@ -250,9 +270,16 @@ func (r *Repo) SetUnread(ctx context.Context, sessionID string, _ time.Time) err
 	return err
 }
 
-func (r *Repo) MarkRead(ctx context.Context, sessionID string) error {
-	_, err := r.q(ctx).Exec(ctx, `UPDATE chat_session SET unread_since=NULL, last_read_at=now() WHERE id=$1`, sessionID)
-	return err
+// MarkRead 归属 fence（FP-14 P1-3）：workspace + creator 双条件，creator
+// 口径与 mustOwnSession 一致（严格者）；未命中返回 false → service 404。
+func (r *Repo) MarkRead(ctx context.Context, wsID, sessionID, userID string) (bool, error) {
+	tag, err := r.q(ctx).Exec(ctx,
+		`UPDATE chat_session SET unread_since=NULL, last_read_at=now()
+		 WHERE workspace_id=$1 AND id=$2 AND creator_id=$3`, wsID, sessionID, userID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (r *Repo) AppendMessageContent(ctx context.Context, messageID, appendage, dedupMarker string) (bool, error) {

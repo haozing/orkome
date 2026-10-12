@@ -285,7 +285,9 @@ func foldCommentRows(rows []Comment) []Comment {
 
 func (s *CommentService) Update(ctx context.Context, workspaceID, id, content, actorID string, expectedRevision int64) (*Comment, error) {
 	c, ok, err := s.repo.GetComment(ctx, id)
-	if err != nil || !ok || c.Deleted {
+	// 写面工作区 fence（FP-06 P1-2）：GetComment 只按 id 查，这里必须比对
+	// 归属工作区，跨区写返回 404 不泄露存在性——与 commentVisible 同口径。
+	if err != nil || !ok || c.Deleted || c.WorkspaceID != workspaceID {
 		return nil, apierr.New(apierr.NotFound, "comment not found")
 	}
 	content = trimSpace(content)
@@ -322,7 +324,8 @@ func (s *CommentService) Update(ctx context.Context, workspaceID, id, content, a
 
 func (s *CommentService) Delete(ctx context.Context, workspaceID, id, actorID string) error {
 	c, ok, err := s.repo.GetComment(ctx, id)
-	if err != nil || !ok {
+	// 写面工作区 fence（FP-06 P1-2）：跨区删除返回 404，不泄露存在性。
+	if err != nil || !ok || c.WorkspaceID != workspaceID {
 		return apierr.New(apierr.NotFound, "comment not found")
 	}
 	if c.AuthorType == "user" && c.AuthorID != actorID {
@@ -345,7 +348,8 @@ func (s *CommentService) Delete(ctx context.Context, workspaceID, id, actorID st
 
 func (s *CommentService) SetResolve(ctx context.Context, workspaceID, id string, resolved bool, actorType, actorID string) error {
 	c, ok, err := s.repo.GetComment(ctx, id)
-	if err != nil || !ok || c.Deleted {
+	// 写面工作区 fence（FP-06 P1-2）：跨区解决/解除返回 404，不泄露存在性。
+	if err != nil || !ok || c.Deleted || c.WorkspaceID != workspaceID {
 		return apierr.New(apierr.NotFound, "comment not found")
 	}
 	if c.ParentID != "" {

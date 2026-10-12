@@ -79,7 +79,7 @@ func TestListTasksByWorkItemNewestFirst(t *testing.T) {
 		require.NoError(t, err)
 		_, err = r.StartTask(ctx, task.ID, "m2-test", "eino")
 		require.NoError(t, err)
-		require.NoError(t, r.CompleteRun(ctx, task.ID, fmt.Sprintf("conclusion %d", i), "", "eino", app.UsageReport{}))
+		require.NoError(t, r.CompleteRun(ctx, task.ID, fmt.Sprintf("conclusion %d", i), "", "eino", "", app.UsageReport{}))
 	}
 	asc, err := r.ListTasksByWorkItem(ctx, wi, false)
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestWorkspaceTaskListCarriesSummary(t *testing.T) {
 	id := seedRunningTask(t, r, ws, ag)
 	_, err := r.AppendTaskMessage(ctx, ws, id, "text", "", "summary-level conclusion", false)
 	require.NoError(t, err)
-	require.NoError(t, r.CompleteRun(ctx, id, "full-text result…", "", "eino", app.UsageReport{}))
+	require.NoError(t, r.CompleteRun(ctx, id, "full-text result…", "", "eino", "", app.UsageReport{}))
 
 	rows, next, err := r.ListWorkspaceTasks(ctx, ws, app.TaskListFilter{})
 	require.NoError(t, err)

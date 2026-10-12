@@ -44,6 +44,10 @@ type fakeChatRepo struct {
 	getMessage     []string
 	archivedByUser []struct{ ws, uid string }
 
+	// FP-14：agent 可用性注册表（ws/agentID → archived）与已读标记记录
+	agentStates map[string]bool
+	readMarks   []string
+
 	txActive     bool
 	rolledBack   bool
 	withinOpened int
@@ -51,7 +55,8 @@ type fakeChatRepo struct {
 
 func newFakeChatRepo() *fakeChatRepo {
 	return &fakeChatRepo{sessions: map[string]Session{}, draftUpserted: map[string]string{},
-		cancelPending: map[string]string{}, stoppedByTaskID: map[string]bool{}}
+		cancelPending: map[string]string{}, stoppedByTaskID: map[string]bool{},
+		agentStates: map[string]bool{}}
 }
 
 func (f *fakeChatRepo) Within(_ context.Context, fn func(ctx context.Context) error) error {
@@ -170,7 +175,17 @@ func (f *fakeChatRepo) SetUnread(_ context.Context, _ string, _ time.Time) error
 	f.unreadSet = true
 	return nil
 }
-func (f *fakeChatRepo) MarkRead(_ context.Context, _ string) error { return nil }
+func (f *fakeChatRepo) AgentAvailability(_ context.Context, wsID, agentID string) (bool, bool, error) {
+	// 显式注册过（含 archived=false）才视为存在；未注册 = 不存在
+	a, ok := f.agentStates[wsID+"/"+agentID]
+	return ok, a, nil
+}
+
+func (f *fakeChatRepo) MarkRead(_ context.Context, wsID, sessionID, userID string) (bool, error) {
+	f.readMarks = append(f.readMarks, wsID+"/"+sessionID+"/"+userID)
+	s, ok := f.sessions[wsID+"/"+sessionID]
+	return ok && s.CreatorID == userID, nil
+}
 
 func (f *fakeChatRepo) MarkCancelPending(_ context.Context, _, taskID, userID string) error {
 	if taskID == "" {

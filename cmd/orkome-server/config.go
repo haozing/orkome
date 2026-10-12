@@ -25,6 +25,12 @@ type Config struct {
 	AllowedDomains []string `env:"ALLOWED_EMAIL_DOMAINS" envSeparator:","`
 	DevCode        string   `env:"ORKOME_DEV_VERIFICATION_CODE"`
 
+	// AccountLinkBaseURL 是找回密码/邮箱验证邮件链接的前端基地址：框架
+	// AccountService 拼 `LinkBaseURL + /reset-password?email=..&token=..`
+	// 与 `/verify-email?...`（fwapp/service_account.go:90,150）。缺省为空时
+	// 链接是相对路径，仅 DevLog 通道可辨识；生产必须配置前端绝对地址。
+	AccountLinkBaseURL string `env:"ORKOME_ACCOUNT_LINK_BASE_URL"`
+
 	RedisURL string `env:"REDIS_URL"`
 
 	WSOrigins []string `env:"WS_ALLOWED_ORIGINS" envSeparator:","`
@@ -52,6 +58,12 @@ type Config struct {
 
 	EvalSampleRate float64 `env:"ENGINE_EVAL_SAMPLE_RATE" envDefault:"0.1"`
 	EvalDailyQuota int     `env:"ENGINE_EVAL_DAILY_QUOTA" envDefault:"100"`
+
+	// SummaryLLMEnabled 打开任务结算 summary 的 LLM 七段 checkpoint
+	// （A2：dsh 提示词搬运）。默认关——关闭时 summary 走纯 500 字截断，
+	// 与历史行为 byte-identical；打开后经 Engine.Generate 做独立 aux 小
+	// 调用，失败 fail-open 回落纯截断。
+	SummaryLLMEnabled bool `env:"ORKOME_SUMMARY_LLM_ENABLED" envDefault:"false"`
 
 	EgressExtraAllowCIDRs []string `env:"ENGINE_EGRESS_EXTRA_ALLOW_CIDRS" envSeparator:","`
 

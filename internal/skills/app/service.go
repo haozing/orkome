@@ -66,10 +66,11 @@ type Repo interface {
 	DeleteFile(ctx context.Context, ws, skillID, fileID string) error
 	ListFiles(ctx context.Context, ws, skillID string) ([]SkillFile, error)
 	GetSkillByName(ctx context.Context, ws, name string) (Skill, bool, error)
-	SetAgentSkills(ctx context.Context, agentID string, skillIDs []string, enabled bool) error
-	AddAgentSkill(ctx context.Context, agentID, skillID string) error
-	SetAgentSkillEnabled(ctx context.Context, agentID, skillID string, en bool) error
-	RemoveAgentSkill(ctx context.Context, agentID, skillID string) error
+	SetAgentSkills(ctx context.Context, ws, agentID string, skillIDs []string, enabled bool) error
+	AddAgentSkill(ctx context.Context, ws, agentID, skillID string) error
+	SetAgentSkillEnabled(ctx context.Context, ws, agentID, skillID string, en bool) error
+	RemoveAgentSkill(ctx context.Context, ws, agentID, skillID string) error
+	AgentInWorkspace(ctx context.Context, ws, agentID string) (bool, error)
 	ListAgentSkills(ctx context.Context, ws, agentID string) ([]AgentSkill, error)
 
 	ListSkillAgents(ctx context.Context, ws, skillID string) ([]SkillAgent, error)
@@ -655,20 +656,64 @@ func toManifest(files []SkillFile) []domain.ManifestFile {
 	return mf
 }
 
+// ---- agent-skill 绑定面（FP-08 P1-4）----
+// 五个绑定方法此前收 ws 不用，repo 写面无 ag.workspace_id 限定：A 区成员
+// 持 B 区 agent uuid 即可为他区 agent 增删/启停技能（跨区越权写）。
+// 现在统一先做工作区归属校验（agent ∈ ws、skill ∈ ws），再调用带 ws 限定
+// 的 repo 写——跨区一律 404，不泄露存在性（对照 squads GetAgent 同款链）。
+
+func (s *SkillService) requireWsAgent(ctx context.Context, ws, agentID string) error {
+	ok, err := s.repo.AgentInWorkspace(ctx, ws, agentID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return apierr.New(apierr.NotFound, "agent not found in this workspace")
+	}
+	return nil
+}
+
 func (s *SkillService) SetAgentSkills(ctx context.Context, ws, agentID string, ids []string) error {
-	return s.repo.SetAgentSkills(ctx, agentID, ids, true)
+	if err := s.requireWsAgent(ctx, ws, agentID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		// 外来 skill uuid 此前靠 FK 放行（只查存在性），这里一并校验归属。
+		if _, err := s.Get(ctx, ws, id); err != nil {
+			return err
+		}
+	}
+	return s.repo.SetAgentSkills(ctx, ws, agentID, ids, true)
 }
 
 func (s *SkillService) AddAgentSkill(ctx context.Context, ws, agentID, skillID string) error {
-	return s.repo.AddAgentSkill(ctx, agentID, skillID)
+	if err := s.requireWsAgent(ctx, ws, agentID); err != nil {
+		return err
+	}
+	if _, err := s.Get(ctx, ws, skillID); err != nil {
+		return err
+	}
+	return s.repo.AddAgentSkill(ctx, ws, agentID, skillID)
 }
 
 func (s *SkillService) SetAgentSkillEnabled(ctx context.Context, ws, agentID, skillID string, en bool) error {
-	return s.repo.SetAgentSkillEnabled(ctx, agentID, skillID, en)
+	if err := s.requireWsAgent(ctx, ws, agentID); err != nil {
+		return err
+	}
+	if _, err := s.Get(ctx, ws, skillID); err != nil {
+		return err
+	}
+	return s.repo.SetAgentSkillEnabled(ctx, ws, agentID, skillID, en)
 }
 
 func (s *SkillService) RemoveAgentSkill(ctx context.Context, ws, agentID, skillID string) error {
-	return s.repo.RemoveAgentSkill(ctx, agentID, skillID)
+	if err := s.requireWsAgent(ctx, ws, agentID); err != nil {
+		return err
+	}
+	if _, err := s.Get(ctx, ws, skillID); err != nil {
+		return err
+	}
+	return s.repo.RemoveAgentSkill(ctx, ws, agentID, skillID)
 }
 
 func (s *SkillService) ListAgentSkills(ctx context.Context, ws, agentID string) ([]AgentSkill, error) {
