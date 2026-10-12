@@ -72,6 +72,9 @@ type postCommentTool struct {
 func (t *postCommentTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "post_comment", Desc: "post a comment on the current work item as yourself",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"content": {Type: schema.String, Desc: "comment text (plain text)", Required: true},
+		}),
 	}, nil
 }
 
@@ -154,7 +157,10 @@ func (t *searchWorkspaceTool) ConcurrencySafe() bool { return true }
 func (t *searchWorkspaceTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "search_workspace",
-		Desc: "search work items in the workspace (fused across title/body/comments); input {\"query\":\"keywords\"}",
+		Desc: "search work items in the workspace (fused across title/body/comments)",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"query": {Type: schema.String, Desc: "keywords to search for", Required: true},
+		}),
 	}, nil
 }
 

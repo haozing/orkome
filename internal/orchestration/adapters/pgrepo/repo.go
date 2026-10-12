@@ -41,6 +41,11 @@ func (r *Repo) CreateAgent(ctx context.Context, a orchapp.Agent) (orchapp.Agent,
 	if a.ConversationStarters == nil {
 		a.ConversationStarters = []orchapp.ConversationStarter{}
 	}
+	// FP-07：runtime_config 为 NOT NULL jsonb——nil map 直插 500；external agent
+	// 合法地不带 runtime_config，缺省空对象。
+	if a.RuntimeConfig == nil {
+		a.RuntimeConfig = map[string]any{}
+	}
 	row := r.q(ctx).QueryRow(ctx, `
 INSERT INTO agent (workspace_id, name, description, runtime_config, max_concurrent_tasks, visibility, owner_user_id, conversation_starters, runtime_kind)
 VALUES ($1,$2,$3,$4,$5,$6,nullif($7,'')::uuid,$8,coalesce(nullif($9,''),'engine'))

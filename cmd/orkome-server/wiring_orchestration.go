@@ -248,6 +248,18 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 	d := &workers.Dispatcher{
 		Repo: repo, Agents: agents, Claim: orchapp.NewClaimService(repo),
 		Settle: settle, Engine: eng, Log: log, Emit: bus,
+		// 凭证解析（真模型密钥链）：agent.runtime_config.credential_id → 密封库解封。
+		// 审计后真模型 E2E 发现此线从未接通（dispatcher 空 Bearer 打 LLM 401）。
+		CredFn: func(ctx context.Context, ws, credID string) (string, error) {
+			_, secret, ok, err := repo.GetCredential(ctx, ws, credID)
+			if err != nil {
+				return "", err
+			}
+			if !ok {
+				return "", apierr.New(apierr.NotFound, "credential not found")
+			}
+			return secret, nil
+		},
 		PollEvery: 500 * time.Millisecond, Semaphore: 4, Timeout: 30 * time.Minute,
 		InstanceID: instanceID, HeartbeatEvery: 15 * time.Second,
 
