@@ -141,7 +141,10 @@ func (s *UITokenService) Consume(ctx context.Context, token string) (*UITokenCla
 
 func (s *UITokenService) verifyUIToken(token string) (*UITokenClaims, error) {
 	parsed, err := jwt.Parse(token, func(*jwt.Token) (any, error) { return s.secret, nil },
-		jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
+		jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(),
+		// exp 校验与 DB 消费检查同钟（s.now）：固定时钟的测试夹具才能自洽
+		//（真实时钟会让写死 uitNow 的夹具在第二天全部"过期"）。
+		jwt.WithTimeFunc(s.now))
 	if err != nil || !parsed.Valid {
 		return nil, errors.New("invalid ui token")
 	}

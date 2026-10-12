@@ -61,7 +61,9 @@ func newConsumeRouteHarness(t *testing.T) *consumeRouteHarness {
 	return h
 }
 
-var uitNow = time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+// uitNow 固定夹具时钟：取真实时间截到分钟——固定历史日期会让 JWT exp
+// （now+60s）在第二天被真实校验路径判过期（时间炸弹），相对时钟永不过期。
+var uitNow = time.Now().UTC().Truncate(time.Minute)
 
 func uitService(repo *uitFakeTokenRepo, now func() time.Time) *app.UITokenService {
 	return app.NewUITokenService(repo, []byte("uit-route-secret-0123456789"), now)

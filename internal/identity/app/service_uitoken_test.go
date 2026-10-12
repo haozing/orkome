@@ -77,7 +77,9 @@ func uitFixture(now time.Time) (*fakeUITokenRepo, *UITokenService) {
 // ---- consume 四态（FP-15 P1-1 语义锚：凭证=票本身，与调用方会话无关） ----
 
 func TestUITokenConsume_FourStates(t *testing.T) {
-	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	// 相对真实时间（截秒）：JWT exp 校验在 s.now 同钟化后虽以夹具时钟为准，
+	// 但固定历史日期是隐患（任何走真实时钟的路径都会判过期）。
+	now := time.Now().UTC().Truncate(time.Second)
 	repo, svc := uitFixture(now)
 	ctx := context.Background()
 
@@ -139,7 +141,7 @@ func jtiOf(t *testing.T, svc *UITokenService, token string) string {
 // ---- work_item_id 绑定（FP-15 P1-2） ----
 
 func TestUITokenMint_WorkItemBinding(t *testing.T) {
-	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	_, svc := uitFixture(now)
 	loc := &fakeLocator{wsItems: map[string][]string{
 		"ws-1": {"11111111-1111-1111-1111-111111111111"},
