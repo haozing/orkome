@@ -1,0 +1,382 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PackagePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  createWorkspaceMcp,
+  deleteWorkspaceMcp,
+  listPackEntries,
+  listWorkspaceMcp,
+  updateWorkspaceMcp,
+  type PackUIEntry,
+  type WorkspaceMCPInput,
+  type WorkspaceMCPServer,
+} from '@/api/packs'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+
+// Packs 与集成页的组件拆分（docs/pack-frontend-design-2026-10-11.md §3.1）：
+// 第 1 段 PacksInstalledSection —— 只读列表（pack 名 + entry label + installed_at）；
+//     v0 明确不做：健康列 / 版本号 / 工具数 / 订阅数（数据源不存在，审计确认）。
+// 第 2 段 WorkspaceMcpSection —— 工作区级 MCP 服务器注册表（新写，非平移；
+//     agent 级管理 UI 在 agent 详情页 MCP tab，两者并存不搬动）。
+// 两段拆成独立组件以便组件级测试（三态 / 增删交互）。
+
+export function PacksInstalledSection({ className }: { className?: string }) {
+  const { t, i18n } = useTranslation()
+  const entries = useQuery({
+    queryKey: ['pack-ui-entries-page'],
+    queryFn: listPackEntries,
+  })
+  const fmtDate = (iso: string): string =>
+    new Date(iso).toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  return (
+    <section className={cn('space-y-3', className)} aria-labelledby="packs-installed-title">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 id="packs-installed-title" className="text-sm font-semibold">
+            {t('packs.installedTitle')}
+          </h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t('packs.installedDesc')}
+          </p>
+        </div>
+      </div>
+      {entries.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {entries.isError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {entries.error instanceof Error
+            ? entries.error.message
+            : t('common.requestFailed')}
+        </p>
+      )}
+      {entries.data && entries.data.length === 0 && (
+        <div
+          className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-zinc-300 px-4 py-8 text-center dark:border-zinc-700"
+          data-testid="packs-empty"
+        >
+          <PackagePlus className="size-5 text-zinc-400" aria-hidden="true" />
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t('packs.emptyTitle')}</p>
+          <p className="max-w-md text-xs text-zinc-400 dark:text-zinc-500">
+            {t('packs.emptyDesc')}
+          </p>
+        </div>
+      )}
+      {entries.data && entries.data.length > 0 && (
+        <ul
+          className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+          data-testid="packs-list"
+        >
+          {entries.data.map((e: PackUIEntry) => (
+            <li key={e.id} className="flex items-center gap-3 px-3 py-2.5" data-testid="packs-row">
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <span className="font-mono">{e.pack}</span>
+                  <span className="text-zinc-400" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="truncate">{e.label}</span>
+                </p>
+              </div>
+              <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                {t('packs.installedAt', { date: fmtDate(e.installed_at) })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+interface ServerFormState {
+  name: string
+  url: string
+  transport: string
+  apiKey: string
+}
+
+const TRANSPORTS = ['http', 'sse'] as const
+
+export function WorkspaceMcpSection({
+  workspaceId,
+  className,
+}: {
+  workspaceId: string | null
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [editing, setEditing] = useState<WorkspaceMCPServer | 'new' | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const servers = useQuery({
+    queryKey: ['workspace-mcp', workspaceId],
+    queryFn: () => listWorkspaceMcp(workspaceId as string),
+    enabled: !!workspaceId,
+  })
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ['workspace-mcp', workspaceId] })
+  const remove = useMutation({
+    mutationFn: (serverId: string) => deleteWorkspaceMcp(workspaceId as string, serverId),
+    onSuccess: () => {
+      setRemovingId(null)
+      void invalidate()
+    },
+  })
+  return (
+    <section className={cn('space-y-3', className)} aria-labelledby="ws-mcp-title">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 id="ws-mcp-title" className="text-sm font-semibold">
+            {t('packs.wsMcpTitle')}
+          </h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('packs.wsMcpDesc')}</p>
+        </div>
+        <Button size="sm" onClick={() => setEditing('new')} disabled={!workspaceId}>
+          <Plus className="size-3.5" aria-hidden="true" />
+          {t('packs.addServer')}
+        </Button>
+      </div>
+
+      {servers.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {servers.isError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {servers.error instanceof Error ? servers.error.message : t('common.requestFailed')}
+        </p>
+      )}
+      {servers.data && servers.data.length === 0 && (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400" data-testid="ws-mcp-empty">
+          {t('packs.noServers')}
+        </p>
+      )}
+      {servers.data && servers.data.length > 0 && (
+        <ul
+          className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+          data-testid="ws-mcp-list"
+        >
+          {servers.data.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center gap-3 px-3 py-2.5"
+              data-testid="ws-mcp-row"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  {s.name}
+                  <Badge variant="neutral">{s.transport}</Badge>
+                  {s.has_credentials && <Badge variant="success">{t('packs.storedCred')}</Badge>}
+                </p>
+                <p className="truncate font-mono text-xs text-zinc-400">{s.url}</p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
+                <Pencil className="size-3.5" aria-hidden="true" />
+                {t('common.edit')}
+              </Button>
+              {removingId === s.id ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(s.id)}
+                  >
+                    {t('packs.confirmDelete')}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
+                    {t('common.cancel')}
+                  </Button>
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-red-600 dark:text-red-400"
+                  aria-label={t('packs.deleteServer', { name: s.name })}
+                  onClick={() => setRemovingId(s.id)}
+                >
+                  <Trash2 className="size-3.5" aria-hidden="true" />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editing && (
+        <WorkspaceMcpDialog
+          workspaceId={workspaceId as string}
+          server={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => void invalidate()}
+        />
+      )}
+    </section>
+  )
+}
+
+function WorkspaceMcpDialog({
+  workspaceId,
+  server,
+  onClose,
+  onSaved,
+}: {
+  workspaceId: string
+  server: WorkspaceMCPServer | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { t } = useTranslation()
+  const [form, setForm] = useState<ServerFormState>({
+    name: server?.name ?? '',
+    url: server?.url ?? '',
+    transport: server?.transport ?? 'http',
+    apiKey: '',
+  })
+  const [clearCreds, setClearCreds] = useState(false)
+  const set = <K extends keyof ServerFormState>(key: K, value: ServerFormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }))
+  const save = useMutation({
+    mutationFn: () => {
+      // 三态凭证（W2-3 / FP-09 P1-4，与 agent 级统一）：
+      //   编辑留空 = 不传字段（保留库中现值）；勾选清除 = 显式 null（清空）；
+      //   输入新值 = 覆盖（凭证形状与 pack-provision/main.go 对齐：
+      //   Authorization: Bearer <key>，后端 sealx 加密落库）。
+      // 序列化前显式不设置键，而不是传 undefined 占位——语义即"字段缺失"。
+      const key = form.apiKey.trim()
+      const input: WorkspaceMCPInput = {
+        name: form.name.trim(),
+        url: form.url.trim(),
+        transport: form.transport,
+      }
+      if (key) {
+        input.credentials = { headers: { Authorization: `Bearer ${key}` } }
+      } else if (clearCreds) {
+        input.credentials = null
+      }
+      return server
+        ? updateWorkspaceMcp(workspaceId, server.id, input)
+        : createWorkspaceMcp(workspaceId, input)
+    },
+    onSuccess: () => {
+      onSaved()
+      onClose()
+    },
+  })
+  const submit = () => {
+    if (form.name.trim() && form.url.trim() && !save.isPending) save.mutate()
+  }
+  return (
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{server ? t('packs.editServer') : t('packs.addServer')}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            submit()
+          }}
+        >
+          <div>
+            <label htmlFor="ws-mcp-name" className="mb-1 block text-xs text-zinc-500">
+              {t('packs.serverNameLabel')}
+            </label>
+            <Input
+              id="ws-mcp-name"
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              autoFocus
+              placeholder="web-search"
+            />
+          </div>
+          <div>
+            <label htmlFor="ws-mcp-url" className="mb-1 block text-xs text-zinc-500">
+              {t('packs.serverUrlLabel')}
+            </label>
+            <Input
+              id="ws-mcp-url"
+              value={form.url}
+              onChange={(e) => set('url', e.target.value)}
+              placeholder="https://mcp.example.com/mcp"
+            />
+          </div>
+          <div>
+            <label htmlFor="ws-mcp-transport" className="mb-1 block text-xs text-zinc-500">
+              {t('packs.transportLabel')}
+            </label>
+            <select
+              id="ws-mcp-transport"
+              value={form.transport}
+              onChange={(e) => set('transport', e.target.value)}
+              className="h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              {TRANSPORTS.map((tr) => (
+                <option key={tr} value={tr}>
+                  {tr}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="ws-mcp-key" className="mb-1 block text-xs text-zinc-500">
+              {server ? t('packs.apiKeyKeepLabel') : t('packs.apiKeyLabel')}
+            </label>
+            <Input
+              id="ws-mcp-key"
+              type="password"
+              value={form.apiKey}
+              onChange={(e) => {
+                set('apiKey', e.target.value)
+                if (e.target.value) setClearCreds(false)
+              }}
+              placeholder="sk-…"
+            />
+            {server && server.has_credentials && !form.apiKey.trim() && (
+              <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={clearCreds}
+                  onChange={(e) => setClearCreds(e.target.checked)}
+                  className="size-3 accent-zinc-700"
+                />
+                {t('packs.apiKeyClearToggle')}
+              </label>
+            )}
+            {clearCreds && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                {t('packs.apiKeyClearWarning')}
+              </p>
+            )}
+          </div>
+          {save.error && (
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {save.error.message}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={!form.name.trim() || !form.url.trim() || save.isPending}>
+              {save.isPending ? t('common.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

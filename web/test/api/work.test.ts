@@ -63,4 +63,14 @@ describe('work API', () => {
     expect(opts.getNextPageParam?.(page(null), [page(null)], 'page-2', [''])).toBeUndefined()
     expect(opts.initialPageParam).toBe('')
   })
+  it('workItemsInfiniteQuery: exhausted empty-string cursor "" → undefined (FP-11 P1-1)', async () => {
+    // 后端 keyset 耗尽时返回 next_cursor:""（pgrepo/repo.go）。`??` 拦不住
+    // 空串 → TanStack v5 判 hasNextPage = getNextPageParam() != null 恒真，
+    // “加载更多”永不消失且点击后 cursor: ""||undefined 重取第一页（重复
+    // 整页）。回归钉子：空串必须归为“无更多页”。
+    const opts = workItemsInfiniteQuery()
+    const page = (next_cursor: string | null) =>
+      ({ items: [], next_cursor }) as Awaited<ReturnType<typeof listWorkItems>>
+    expect(opts.getNextPageParam?.(page(''), [page('')], '', [''])).toBeUndefined()
+  })
 })

@@ -1,7 +1,30 @@
+import { useMemo } from 'react'
 import type { TaskMessage } from '@/api/orchestration'
 import { Markdown } from '@/components/markdown'
+import { ToolResultRenderer } from '@/components/task-tool-renderers'
 import { useTranslation } from 'react-i18next'
-export function TaskMessageRow({ message }: { message: TaskMessage }) {
+
+// TaskMessage 无工具名字段：工具名只出现在配对 tool_use 消息 content 的首 token
+// （后端 emit `name + " " + args`）。tool_result 靠 call_id 回溯配对；这里的
+// map 由 TaskMessageList 一次性构建后按 call_id 下发给各 Row。
+function toolNameByCallId(messages: TaskMessage[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const m of messages) {
+    if (m.kind !== 'tool_use' || !m.call_id) continue
+    const name = m.content.trim().split(/\s+/, 1)[0]
+    if (name) map.set(m.call_id, name)
+  }
+  return map
+}
+
+export function TaskMessageRow({
+  message,
+  toolName,
+}: {
+  message: TaskMessage
+  /** 配对 tool_use 的工具名（含 pack 前缀）；仅深链按钮用，形状卡不依赖它 */
+  toolName?: string
+}) {
   const { t } = useTranslation()
   if (message.kind === 'text') {
     return (
@@ -32,18 +55,20 @@ export function TaskMessageRow({ message }: { message: TaskMessage }) {
         {label}
         {message.call_id ? ` · ${message.call_id.slice(0, 8)}…` : ''}
       </p>
-      <pre className="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap">
-        {message.content}
-      </pre>
-      {message.truncated && <p className="text-xs opacity-60">{t('taskMsg.truncated')}</p>}
+      <ToolResultRenderer message={message} toolName={toolName} />
     </li>
   )
 }
 export function TaskMessageList({ messages }: { messages: TaskMessage[] }) {
+  const toolNames = useMemo(() => toolNameByCallId(messages), [messages])
   return (
     <ol className="space-y-2">
       {messages.map((m) => (
-        <TaskMessageRow key={m.id} message={m} />
+        <TaskMessageRow
+          key={m.id}
+          message={m}
+          toolName={m.call_id ? toolNames.get(m.call_id) : undefined}
+        />
       ))}
     </ol>
   )

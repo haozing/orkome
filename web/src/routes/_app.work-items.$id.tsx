@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { getWorkItem } from '@/api/work'
 import { PageError, PageLoading } from '@/components/ui/states'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PackSlotFrame } from '@/components/pack-slot-frame'
+import { usePackSlots } from '@/components/use-pack-slots'
 import { DescriptionEditor } from '@/components/work-item/description-editor'
 import { LabelsBlock } from '@/components/work-item/label-chips'
 import { InfoPanel } from '@/components/work-item/info-panel'
@@ -15,8 +17,13 @@ import { SubWorkItemsList } from '@/components/work-item/sub-work-items'
 import { TaskPanel } from '@/components/work-item/task-panel'
 import { TimelineList } from '@/components/work-item/timeline-list'
 import { useTranslation } from 'react-i18next'
+
+// 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
+// validateSearch 失败即丢弃整个 search——pack:* 值必须被 schema 显式放行，
+// 否则用户停在 slot tab 时任何 search 更新都会把 tab 洗掉。
+const STATIC_TABS = ['detail', 'sub', 'tasks', 'timeline'] as const
 const searchSchema = z.object({
-  tab: z.enum(['detail', 'sub', 'tasks', 'timeline']).optional(),
+  tab: z.enum(STATIC_TABS).or(z.string().regex(/^pack:/)).optional(),
   task: z.string().optional(),
 })
 type DetailTab = z.infer<typeof searchSchema>['tab']
@@ -27,7 +34,7 @@ export const Route = createFileRoute('/_app/work-items/$id')({
   },
   component: WorkItemDetailPage,
 })
-function WorkItemDetailPage() {
+export function WorkItemDetailPage() {
   const { t } = useTranslation()
   const { id } = Route.useParams()
   const search = Route.useSearch()
@@ -36,6 +43,8 @@ function WorkItemDetailPage() {
     queryKey: ['work-item', id],
     queryFn: () => getWorkItem(id),
   })
+  // 动态 slot tab 数据源：GET /api/ui-entries 的 slots 随行（无 slots 的 pack 不出 tab）。
+  const slots = usePackSlots(id)
   if (item.isPending) return <PageLoading label={t('work.loadingDetail')} />
   if (item.isError) {
     return (
@@ -51,6 +60,12 @@ function WorkItemDetailPage() {
   const expandedTaskId = search.task ?? null
   const toggleTask = (taskId: string) =>
     patchSearch({ task: expandedTaskId === taskId ? undefined : taskId, tab: 'tasks' })
+  const slotTabs = slots.data ?? []
+  const activeSlot = slotTabs.find((s) => s.key === search.tab)
+  // 内容区兜底：tab 值不属于任何已知 tab（如 pack 已卸载后 URL 残留 pack:ghost）
+  // 时按 detail 呈现——与 zod 丢弃 garbage 后回 detail 的语义一致。
+  const knownStatic = STATIC_TABS.includes(search.tab as (typeof STATIC_TABS)[number])
+  const showDetail = !search.tab || search.tab === 'detail' || (!knownStatic && !activeSlot)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-1 pb-3 dark:border-zinc-800">
@@ -82,11 +97,16 @@ function WorkItemDetailPage() {
                   {t(label)}
                 </TabsTrigger>
               ))}
+              {slotTabs.map((s) => (
+                <TabsTrigger key={s.key} value={s.key} className="px-3">
+                  {s.slot.label}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
 
           <div className="pt-4">
-            {(!search.tab || search.tab === 'detail') && <DescriptionEditor item={wi} />}
+            {showDetail && <DescriptionEditor item={wi} />}
             {search.tab === 'sub' && <SubWorkItemsList workItemId={id} />}
             {search.tab === 'tasks' && (
               <TaskPanel
@@ -96,6 +116,9 @@ function WorkItemDetailPage() {
               />
             )}
             {search.tab === 'timeline' && <TimelineList workItemId={id} />}
+            {activeSlot && (
+              <PackSlotFrame pack={activeSlot.pack} slot={activeSlot.slot} workItemId={id} />
+            )}
           </div>
 
           <div className="mt-5 flex items-center gap-2">

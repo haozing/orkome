@@ -1,4 +1,3 @@
-import { Dialog } from '@base-ui/react/dialog'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -6,15 +5,13 @@ import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import {
   listAgents,
-  listTaskMessages,
   listWorkspaceTasks,
   type WorkspaceTaskRow,
 } from '@/api/orchestration'
-import { TaskMessageList } from '@/components/task-messages'
-import { TaskStatusBadge, agentDisplayName, useAgentNameMap } from '@/components/task-status-badge'
+import { TaskTranscriptDrawer } from '@/components/run-logs/task-transcript-drawer'
+import { TaskStatusBadge } from '@/components/task-status-badge'
 import { Button } from '@/components/ui/button'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
-import { cn } from '@/lib/utils'
 const searchSchema = z.object({
   status: z.enum(['active', 'failed', 'completed', 'all']).optional(),
   agent: z.string().optional(),
@@ -61,10 +58,17 @@ function RunLogsPage() {
         cursor: pageParam || undefined,
       }),
     initialPageParam: '',
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // 与 work.ts 同款：空串游标归为“无更多页”（本端点耗尽时返回 null，
+    // 这里兜底防 FixE 之外的形状回归）。
+    getNextPageParam: (last) => last.next_cursor || undefined,
   })
   const rows = list.data?.pages.flatMap((p) => p.tasks) ?? []
   const hasMore = list.hasNextPage
+  // wave3 P1（FP-12 P2-5）：审批后 workspace-tasks 列表经失效链刷新，抽屉
+  // 不能继续拿打开那一刻的快照——按 id 用最新列表行覆盖，状态徽章/审批操作
+  // 区即时翻转；行掉出当前筛选（如完成后掉出 active tab）时回退快照，避免
+  // 抽屉闪关。
+  const openTaskRow = openTask ? (rows.find((r) => r.id === openTask.id) ?? openTask) : null
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -161,7 +165,7 @@ function RunLogsPage() {
         </div>
       )}
 
-      {openTask && <TaskTranscriptDrawer task={openTask} onClose={() => setOpenTask(null)} />}
+      {openTaskRow && <TaskTranscriptDrawer task={openTaskRow} onClose={() => setOpenTask(null)} />}
     </div>
   )
 }
@@ -222,85 +226,5 @@ function TaskRowView({ task, onOpen }: { task: WorkspaceTaskRow; onOpen: () => v
         </Link>
       )}
     </div>
-  )
-}
-function TaskTranscriptDrawer({ task, onClose }: { task: WorkspaceTaskRow; onClose: () => void }) {
-  const { t, i18n } = useTranslation()
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  const agentNames = useAgentNameMap()
-  const messages = useQuery({
-    queryKey: ['task', task.id, 'messages'],
-    queryFn: () => listTaskMessages(task.id),
-  })
-  return (
-    <Dialog.Root open onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Popup className="fixed top-0 right-0 z-50 h-full w-full max-w-lg overflow-y-auto border-l border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <Dialog.Title className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold">
-            <TaskStatusBadge status={task.status} />
-            <span>{agentDisplayName(agentNames, task.agent_id)}</span>
-            <span className="text-xs font-normal text-zinc-400">{formatTime(task.created_at)}</span>
-            <Dialog.Close className="ml-auto rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300">
-              {t('common.close')}
-            </Dialog.Close>
-          </Dialog.Title>
-
-          {task.work_item_id && (
-            <Link
-              to="/work-items/$id"
-              params={{ id: task.work_item_id }}
-              className="mb-3 block truncate text-xs text-zinc-500 underline-offset-2 outline-none hover:text-zinc-700 hover:underline dark:text-zinc-400"
-            >
-              {t('runLogs.workItemLink', {
-                title: task.work_item_title || task.work_item_id,
-              })}
-            </Link>
-          )}
-
-          {(task.failure_reason || task.error) && (
-            <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/40">
-              {task.failure_reason && (
-                <p className="font-mono text-xs font-medium text-red-700 dark:text-red-300">
-                  {task.failure_reason}
-                </p>
-              )}
-              {task.error && (
-                <pre className="mt-1 font-mono text-xs break-all whitespace-pre-wrap text-red-600 dark:text-red-400">
-                  {task.error}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {task.result && (
-            <div className="mb-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-              <p className="mb-1 text-xs font-medium text-zinc-400">{t('runLogs.result')}</p>
-              <pre className={cn('max-h-40 overflow-auto font-mono text-xs whitespace-pre-wrap')}>
-                {task.result}
-              </pre>
-            </div>
-          )}
-
-          <p className="mb-2 text-xs font-medium text-zinc-400">{t('runLogs.transcript')}</p>
-          {messages.isPending && (
-            <p className="text-xs text-zinc-400">{t('runLogs.loadingMessages')}</p>
-          )}
-          {messages.isError && (
-            <p className="text-xs text-red-600 dark:text-red-400">{t('runLogs.messagesFailed')}</p>
-          )}
-          {messages.data && messages.data.length === 0 && (
-            <p className="text-xs text-zinc-400">{t('runLogs.noMessages')}</p>
-          )}
-          <TaskMessageList messages={messages.data ?? []} />
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
   )
 }

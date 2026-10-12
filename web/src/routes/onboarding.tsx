@@ -1,18 +1,34 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
-import { createWorkspace, joinByShareCode, meQueryOptions } from '@/api/identity'
+import { logout, createWorkspace, joinByShareCode, meQueryOptions } from '@/api/identity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@ploykit/client'
+import { wsClient } from '@/realtime/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 export const Route = createFileRoute('/onboarding')({
+  // Escape hatch for the login/onboarding redirect loop: without a session,
+  // /login bounces authed users here and this page had no way back out
+  // (audit FP-17 P1-1). Unauthenticated visitors go to /login instead of
+  // hitting a bare 401 on submit.
+  beforeLoad: async ({ context }) => {
+    try {
+      await context.queryClient.ensureQueryData(meQueryOptions)
+    } catch {
+      throw redirect({ to: '/login' })
+    }
+  },
   component: OnboardingPage,
 })
-const slugRegex = /^[a-z0-9-]{4,40}$/
+// Aligned with the backend rule (ploykit domain/rules.go):
+// ^[a-z0-9][a-z0-9-]{2,38}[a-z0-9]$ — 4-40 chars, no leading/trailing hyphen
+// (audit FP-02 P1-3: the old /^[a-z0-9-]{4,40}$/ let "-abcd"/"abcd-" through
+// only for the backend to reject them with an English 400).
+const slugRegex = /^[a-z0-9][a-z0-9-]{2,38}[a-z0-9]$/
 const createSchema = (t: (k: string) => string) =>
   z.object({
     name: z.string().trim().min(1, t('onboarding.required')).max(100, t('onboarding.max100')),
@@ -60,12 +76,26 @@ function OnboardingPage() {
   })
   const join = useMutation({
     mutationFn: (v: { code: string }) => joinByShareCode(v.code),
-    onSuccess: async (member) => {
-      setCurrent(member.workspace_id)
+    // The redeem endpoint answers a Workspace; switching to the joined
+    // workspace means using its `id` (there is no workspace_id field —
+    // audit FP-02 P0-3: undefined id made multi-workspace users land in
+    // the wrong workspace).
+    onSuccess: async (ws) => {
+      setCurrent(ws.id)
       await queryClient.refetchQueries({ queryKey: meQueryOptions.queryKey, type: 'all' })
       void navigate({ to: '/work-items' })
     },
   })
+  // Second way out of the login<->onboarding ping-pong (typo'd email => JIT
+  // account with zero workspaces): log out and return to /login
+  // (audit FP-17 P1-1).
+  const signOut = async () => {
+    await logout()
+    useWorkspaceStore.getState().setCurrent(null)
+    queryClient.clear()
+    wsClient.close()
+    void navigate({ to: '/login' })
+  }
   const fieldError = (msg?: string) =>
     msg && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{msg}</p>
   const mutationError = (err: unknown) =>
@@ -142,6 +172,9 @@ function OnboardingPage() {
           </form>
         </section>
       </div>
+      <Button variant="ghost" size="sm" className="mt-6" onClick={() => void signOut()}>
+        {t('onboarding.useAnotherAccount')}
+      </Button>
     </div>
   )
 }

@@ -1,3 +1,9 @@
+import {
+  infiniteQueryOptions,
+  type InfiniteData,
+  type QueryFunctionContext,
+  type UseInfiniteQueryOptions,
+} from '@tanstack/react-query'
 import { api } from '@ploykit/client'
 export interface Task {
   id: string
@@ -30,6 +36,38 @@ export interface TaskMessage {
   content: string
   truncated: boolean
   created_at: string
+}
+/**
+ * job-handle 协议（docs/pack-tool-contract-design-2026-10-11.md §2.1）：
+ * `<pack>_submit_*` 类工具秒回的句柄，形状固定为 `{job_id}`。
+ * 字段名是唯一权威来源，勿增改。
+ */
+export interface JobHandle {
+  job_id: string
+}
+/**
+ * JobStatus 固定 schema（docs/pack-tool-contract-design-2026-10-11.md §2.1）。
+ * `state` 五态 / `result{url,summary}` / `metrics`（pack 自定义键值对）/
+ * `error{code,retryable,stage_failed}`——失败时 stage_failed 标记副作用落点：
+ * pre_publish 幂等可重试，post_publish 已对外生效禁自动重试。
+ */
+export type JobState = 'queued' | 'running' | 'awaiting_review' | 'published' | 'failed'
+export interface JobStatusResult {
+  url?: string
+  summary?: string
+}
+export interface JobStatusError {
+  code: string
+  retryable: boolean
+  stage_failed: 'pre_publish' | 'post_publish' | null
+}
+export interface JobStatus extends JobHandle {
+  job_id: string
+  state: JobState
+  stage: string
+  result?: JobStatusResult
+  metrics?: Record<string, unknown>
+  error?: JobStatusError
 }
 export interface AgentRuntimeConfig {
   provider?: string
@@ -149,17 +187,25 @@ export async function resolvedAgentMcp(agentId: string): Promise<ResolvedMCPServ
   }>(`/api/agents/${agentId}/mcp-servers?resolved=1`)
   return res.servers ?? []
 }
-export function upsertAgentMcp(
+/**
+ * POST /api/agents/{agentId}/mcp-servers（创建语义，W2-3 起重名返回 409，
+ * 不再静默覆盖既有条目——FP-07 P1-4）。credentials 缺省 = 空凭证。
+ */
+export function createAgentMcp(
   agentId: string,
   input: {
     name: string
     url: string
     enabled?: boolean
-    credentials?: Record<string, string>
+    credentials?: Record<string, string> | null
   },
 ) {
   return api.post<AgentMCPServer>(`/api/agents/${agentId}/mcp-servers`, input)
 }
+/**
+ * PUT /api/agents/{agentId}/mcp-servers/{serverId}（W2-3 三态，与 ws 级统一）：
+ * credentials 不传（键不存在）= 保留已存凭证；null/{} = 清空；值 = 覆盖。
+ */
 export function updateAgentMcp(
   agentId: string,
   serverId: string,
@@ -167,7 +213,7 @@ export function updateAgentMcp(
     name: string
     url: string
     enabled: boolean
-    credentials?: Record<string, string>
+    credentials?: Record<string, string> | null
   },
 ) {
   return api.put<AgentMCPServer>(`/api/agents/${agentId}/mcp-servers/${serverId}`, input)
@@ -213,11 +259,73 @@ export async function listWorkItemTasks(workItemId: string): Promise<Task[]> {
   }>(`/api/work-items/${workItemId}/tasks`)
   return res.tasks ?? []
 }
-export async function listTaskMessages(taskId: string, limit = 200): Promise<TaskMessage[]> {
+/**
+ * messages 端点一页（FP-05 P1-1）。始终以 order=desc 拉取（最新一页），
+ * 返回前已反转为 seq 升序；`next_before_seq` 是更早一页的游标（后端仅在
+ * “desc 且满页”时携带，缺失/空即历史耗尽）。
+ */
+export interface TaskMessagePage {
+  messages: TaskMessage[]
+  next_before_seq: number | null
+}
+export async function listTaskMessagesPage(
+  taskId: string,
+  opts: { limit?: number; beforeSeq?: number } = {},
+): Promise<TaskMessagePage> {
+  const limit = opts.limit ?? 200
+  const params = new URLSearchParams({ limit: String(limit), order: 'desc' })
+  if (opts.beforeSeq) params.set('before_seq', String(opts.beforeSeq))
   const res = await api.get<{
     messages: TaskMessage[] | null
-  }>(`/api/tasks/${taskId}/messages?limit=${limit}`)
-  return res.messages ?? []
+    next_before_seq?: number
+  }>(`/api/tasks/${taskId}/messages?${params.toString()}`)
+  const desc = res.messages ?? []
+  return { messages: [...desc].reverse(), next_before_seq: res.next_before_seq ?? null }
+}
+export async function listTaskMessages(taskId: string, limit = 200): Promise<TaskMessage[]> {
+  // FP-05 P1-1：原实现不带 order，默认拉最旧 200 条——长任务尾段（含最终
+  // tool_result）在工单面板与 run-logs 抽屉均不可见（摘要服务读的是最新
+  // 200，同一数据两个窗口）。改为 order=desc 拉最新 200 后反转为升序返回，
+  // 消费方（useQuery / TaskMessageList）无需感知方向。向上翻历史走
+  // taskMessagesInfiniteQuery（next_before_seq 游标）。
+  const page = await listTaskMessagesPage(taskId, { limit })
+  return page.messages
+}
+// Explicit UseInfiniteQueryOptions annotation — TS2742 (same as work.ts).
+export const taskMessagesInfiniteQuery = (
+  taskId: string,
+  limit = 200,
+): UseInfiniteQueryOptions<
+  TaskMessagePage,
+  Error,
+  InfiniteData<TaskMessagePage, number>,
+  readonly ['task', string, 'messages', 'paged'],
+  number
+> =>
+  infiniteQueryOptions({
+    // 键刻意与 task-panel 的普通 useQuery（['task', id, 'messages']，数组形）
+    // 不同尾段：两者缓存形状不同（pages vs 数组），共享同键会互相覆写
+    // queryFn 导致形状串台。WS 失效链走 ['task'] 前缀，两个键都命中。
+    queryKey: ['task', taskId, 'messages', 'paged'] as const,
+    queryFn: ({
+      pageParam,
+    }: QueryFunctionContext<readonly ['task', string, 'messages', 'paged'], number>) =>
+      listTaskMessagesPage(taskId, { limit, beforeSeq: pageParam || undefined }),
+    initialPageParam: 0,
+    // 后端仅在 desc 且满页时返回 next_before_seq；缺省即更早历史耗尽。
+    getNextPageParam: (lastPage) => lastPage.next_before_seq ?? undefined,
+  })
+/**
+ * 已加载页（新→旧）拼成 seq 全局升序的完整列表：倒序遍历页、页内本就
+ * 升序，旧页天然接在新页前面，无需再排序。
+ */
+export function taskMessagesAscending(
+  data: InfiniteData<TaskMessagePage, number> | undefined,
+): TaskMessage[] {
+  if (!data) return []
+  const out: TaskMessage[] = []
+  for (let i = data.pages.length - 1; i >= 0; i--) out.push(...data.pages[i]!.messages)
+  return out
 }
 export function settleTask(taskId: string, approved: boolean, note?: string) {
   return api.post<unknown>(`/api/tasks/${taskId}/${approved ? 'approve' : 'deny'}`, { note })

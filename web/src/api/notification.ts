@@ -72,3 +72,54 @@ export function archiveAllReadNotifications(): Promise<{
     archived: number
   }>('/api/notifications/archive-all-read')
 }
+
+// ---- mute-group preferences (migration 1034, the 'mute' sentinel row) ----
+
+/** Product notification types a user can mute from the settings page. */
+export const MUTABLE_NOTIFICATION_TYPES = [
+  'task.completed',
+  'task.failed',
+  'comment.created',
+  'approval_request',
+  'eval_report',
+] as const
+
+interface RawPreferences {
+  muted_types: string[] | null
+  muted_work_item_ids: string[] | null
+  muted_conversation_ids: string[] | null
+}
+
+export interface NotificationPreferences {
+  muted_types: string[]
+  muted_work_item_ids: string[]
+  muted_conversation_ids: string[]
+}
+
+// Empty groups arrive as null in the raw envelope (pgrepo splitMutedTypes
+// returns nil for empty input) — normalize to [] so the UI renders backend
+// defaults ("nothing muted") uniformly.
+function normalizePreferences(raw: RawPreferences): NotificationPreferences {
+  return {
+    muted_types: raw.muted_types ?? [],
+    muted_work_item_ids: raw.muted_work_item_ids ?? [],
+    muted_conversation_ids: raw.muted_conversation_ids ?? [],
+  }
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  return normalizePreferences(await api.get<RawPreferences>('/api/notification-preferences'))
+}
+
+/**
+ * PATCH /api/notification-preferences — partial update: only the provided
+ * keys change, the server merges them over the current row, validates the
+ * merged preference and returns it (verified live 2026-10-12). Validation:
+ * ≤50 muted_types / ≤200 per ID group, and the `session:` prefix is
+ * reserved inside muted_types (E_VALIDATION 400).
+ */
+export async function patchNotificationPreferences(
+  patch: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  return normalizePreferences(await api.patch<RawPreferences>('/api/notification-preferences', patch))
+}

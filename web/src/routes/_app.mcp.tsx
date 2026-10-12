@@ -10,12 +10,13 @@ import {
   type PatSecret,
   type PatToken,
 } from '@/api/identity'
+import { PacksInstalledSection, WorkspaceMcpSection } from '@/components/packs-sections'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
+import { useWorkspaceStore } from '@/stores/workspace'
 export const Route = createFileRoute('/_app/mcp')({
-  component: McpPage,
+  component: PacksAndIntegrationsPage,
 })
 const MCP_ENDPOINT = `${window.location.origin}/mcp`
 const MCP_TOOLS = [
@@ -78,8 +79,9 @@ const TTL_OPTIONS = [
   { value: 90 * 86400, key: 'mcp.ttl90' },
   { value: 180 * 86400, key: 'mcp.ttl180' },
 ] as const
-function McpPage() {
+function PacksAndIntegrationsPage() {
   const { t, i18n } = useTranslation()
+  const workspaceId = useWorkspaceStore((s) => s.currentId)
   const fmtTime = (iso?: string): string => {
     if (!iso) return '—'
     return new Date(iso).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', {
@@ -120,26 +122,19 @@ function McpPage() {
     create.mutate()
   }
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-lg font-semibold">MCP</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('mcp.intro')}</p>
+        <h1 className="text-lg font-semibold">{t('packs.pageTitle')}</h1>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('packs.pageIntro')}</p>
       </div>
 
-      <section className={CARD_CLASS}>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className={CARD_TITLE_CLASS}>{t('mcp.endpointTitle')}</h2>
-          <Badge variant="warning">{t('mcp.comingSoon')}</Badge>
-        </div>
-        <p className={cn(CARD_DESC_CLASS, 'mb-2')}>{t('mcp.endpointDesc')}</p>
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-xs dark:bg-zinc-900">
-            {MCP_ENDPOINT}
-          </code>
-          <CopyButton text={MCP_ENDPOINT} />
-        </div>
-      </section>
+      {/* 第 1 段：Packs（已安装，只读；安装走 pack-provision CLI，前端不做向导） */}
+      <PacksInstalledSection />
 
+      {/* 第 2 段：工作区级 MCP 服务器注册表（agent 级管理在 agent 详情页 MCP tab，两者并存） */}
+      <WorkspaceMcpSection workspaceId={workspaceId} />
+
+      {/* 第 3 段：客户端接入（原 MCP 客户端接入内容，保持不动） */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">{t('mcp.connectTitle')}</h2>

@@ -138,10 +138,13 @@ function MyWorkPage() {
       : groupMode === 'status'
         ? groupByStatuses(items, statuses.data ?? [], (key) => t(statusMetaOf(key).labelKey))
         : []
-  const flatItems =
-    groupMode === 'time'
-      ? [...items].sort((a, b) => b.last_activity_at.localeCompare(a.last_activity_at))
-      : items
+  // FP-11 P1-2a：“按时间”分组不再在客户端按 last_activity_at 重排——服务端
+  // 以 created_at,id keyset DESC 出页，窗口内重排会让“加载更多”接出的条目
+  // 插到页首，且排序键不在服务端游标里，30 条窗口外的活跃项本就不可见。
+  // 展示以服务端序为准。
+  // 接口约定：后端（FixE）随后把本端点排序/游标切到 last_activity_at 并补
+  // UpdateWorkItem 的 bump 语义；切换后本页继续跟随服务端序，无需前端再改。
+  const flatItems = items
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">{t('nav.myWork')}</h1>

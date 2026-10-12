@@ -225,7 +225,10 @@ export const workItemsInfiniteQuery = (
     }: QueryFunctionContext<readonly ['work-items', WorkItemListFilters], string>) =>
       listWorkItems({ limit, cursor: pageParam || undefined, ...filters }),
     initialPageParam: '',
-    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    // 后端耗尽时返回 next_cursor:""（pgrepo keyset）；FP-11 P1-1：?? 拦不住
+    // 空串 → hasNextPage 恒真 + 点击后重复整页。空串必须归为“无更多页”。
+    // （FixE 会把耗尽时的 cursor 置空为省略字段，此处兜底保留双保险。）
+    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
   })
 export interface Project {
   id: string

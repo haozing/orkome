@@ -19,10 +19,10 @@ export interface Workspace {
   created_at: string
 }
 export interface Member {
-  id: string
-  workspace_id: string
   user_id: string
   role: 'owner' | 'admin' | 'member'
+  email: string
+  display_name: string
   created_at: string
 }
 export interface ServerConfig {
@@ -57,20 +57,17 @@ export function createWorkspace(name: string, slug: string) {
   return api.post<Workspace>('/api/workspaces', { name, slug })
 }
 export function joinByShareCode(code: string) {
-  return api.post<Member>('/api/share-links/join', { code })
-}
-export interface Member {
-  id: string
-  workspace_id: string
-  user_id: string
-  role: 'owner' | 'admin' | 'member'
-  email: string
-  display_name: string
-  created_at: string
+  // POST /api/share-links/redeem returns a Workspace ({id,slug,name,...}) —
+  // NOT a Member and without workspace_id (audit FP-02 P0-2/P0-3).
+  return api.post<Workspace>('/api/share-links/redeem', { code })
 }
 export async function listMembers(workspaceId: string): Promise<Member[]> {
-  const items = await api.get<Member[] | null>(`/api/workspaces/${workspaceId}/members`)
-  return items ?? []
+  // GET /api/workspaces/{id}/members is the ploykit app.Page envelope
+  // ({items, total}); it is never a bare array (audit batch1 root cause A).
+  const page = await api.get<{ items: Member[] | null; total?: number }>(
+    `/api/workspaces/${workspaceId}/members`,
+  )
+  return page.items ?? []
 }
 export interface PatToken {
   id: string
@@ -91,8 +88,15 @@ export async function listTokens(): Promise<PatToken[]> {
   const items = await api.get<PatToken[] | null>('/api/tokens')
   return items ?? []
 }
-export function createToken(name: string, ttlSeconds = 0) {
-  return api.post<PatSecret>('/api/tokens', { name, ttl_seconds: ttlSeconds })
+export async function createToken(name: string, ttlSeconds = 0): Promise<PatSecret> {
+  // The backend takes ttl_hours only (unknown request fields are rejected via
+  // DisallowUnknownFields) and answers nested {pat: {...}, token} — not a
+  // flat PatSecret (audit FP-09 P0-1).
+  const res = await api.post<{ pat: Omit<PatSecret, 'token'>; token: string }>('/api/tokens', {
+    name,
+    ttl_hours: Math.round(ttlSeconds / 3600),
+  })
+  return { ...res.pat, token: res.token }
 }
 export function revokeToken(id: string) {
   return api.delete<void>(`/api/tokens/${id}`)

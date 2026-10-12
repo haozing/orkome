@@ -8,6 +8,7 @@ import { z } from 'zod'
 import {
   archiveAgent,
   cancelAgentTasks,
+  createAgentMcp,
   deleteAgentMcp,
   getAgent,
   getAgentEnv,
@@ -17,7 +18,6 @@ import {
   resolvedAgentMcp,
   updateAgent,
   updateAgentMcp,
-  upsertAgentMcp,
   type Agent,
   type AgentMCPServer,
   type InvocationTarget,
@@ -923,17 +923,25 @@ function McpServerDialog({
   const [url, setUrl] = useState(server?.url ?? '')
   const [enabled, setEnabled] = useState(server?.enabled ?? true)
   const [apiKey, setApiKey] = useState('')
+  const [clearCreds, setClearCreds] = useState(false)
   const save = useMutation({
     mutationFn: () => {
-      const credentials = apiKey.trim() ? { api_key: apiKey.trim() } : undefined
+      // 三态凭证（W2-3 / FP-09 P1-4，与 ws 级统一）：
+      //   留空 = 不传字段（保留库中现值）；勾选清除 = 显式 null（清空）；
+      //   输入新值 = 覆盖（后端 sealx 加密落库）。
+      // 创建语义（POST）起重名返回 409，不再静默覆盖（FP-07 P1-4）。
+      const key = apiKey.trim()
+      const credentials = key ? { api_key: key } : clearCreds ? null : undefined
+      const payload: {
+        name: string
+        url: string
+        enabled?: boolean
+        credentials?: Record<string, string> | null
+      } = { name: name.trim(), url: url.trim() }
+      if (credentials !== undefined) payload.credentials = credentials
       return server
-        ? updateAgentMcp(agentId, server.id, {
-            name: name.trim(),
-            url: url.trim(),
-            enabled,
-            credentials,
-          })
-        : upsertAgentMcp(agentId, { name: name.trim(), url: url.trim(), enabled, credentials })
+        ? updateAgentMcp(agentId, server.id, { ...payload, enabled })
+        : createAgentMcp(agentId, { ...payload, enabled })
     },
     onSuccess: () => {
       onSaved()
@@ -986,9 +994,28 @@ function McpServerDialog({
                 id="mcp-key"
                 type="password"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => {
+                  setApiKey(e.target.value)
+                  if (e.target.value) setClearCreds(false)
+                }}
                 placeholder="sk-…"
               />
+              {server && server.has_credentials && !apiKey.trim() && (
+                <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={clearCreds}
+                    onChange={(e) => setClearCreds(e.target.checked)}
+                    className="size-3 accent-zinc-700"
+                  />
+                  {t('agents.apiKeyClearToggle')}
+                </label>
+              )}
+              {clearCreds && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  {t('agents.apiKeyClearWarning')}
+                </p>
+              )}
             </div>
             <label className="flex cursor-pointer items-center gap-1.5 text-sm">
               <input
