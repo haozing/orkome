@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -64,6 +65,13 @@ func (v *validatingInvokableTool) InvokableRun(ctx context.Context, argumentsInJ
 	if err != nil {
 		// 工具自身失败（含 eino-ext 对 isError:true 的报错路径）：
 		// 失败本身已是模型可见的明确结果，不走输出契约校验。
+		// 真模型 E2E 实证：eino-ext 把 MCP 的 isError:true 以 error 抛回，
+		// ToolsNode 视 error 为整任务失败——一次业务级失败（如 pack 某工具
+		// 未接线）就杀死任务。按 A1 设计"模型看到明确的失败"，业务级失败
+		// 降级为模型可见字符串（模型可自纠绕行）；传输级错误仍 fatal。
+		if strings.Contains(err.Error(), "mcp server return error:") {
+			return err.Error(), nil
+		}
 		return out, err
 	}
 	doc, rawText, verr := unwrapCallToolResultDocument(out)

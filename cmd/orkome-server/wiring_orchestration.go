@@ -159,6 +159,10 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 
 	egressGuard := egressGuardOf(cfg)
 	engine.SetEgressGuard(egressGuard)
+	// 第三处接线缺口（真模型 E2E 实证）：SetEgressGuard 只设置模型工厂的
+	// 包级 guard；MCP 桥接（buildMCPTools）读的是 EinoEngine.Egress 字段，
+	// 不赋值则恒为 DefaultGuard——loopback/内网 MCP pack 全部 ssrf_rejected。
+	eng.Egress = egressGuard
 	agents := orchapp.NewAgentService(repo, bus)
 	agents.Egress = egressGuard
 	enq := orchapp.NewEnqueueService(repo, bus)

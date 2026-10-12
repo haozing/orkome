@@ -83,7 +83,9 @@ func (t *postCommentTool) InvokableRun(ctx context.Context, args string, _ ...to
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal([]byte(args), &in); err != nil || in.Content == "" {
-		return "", apierr.NewValidation("content required")
+		// fail-soft：参数校验失败回给模型（可自纠重试），不作 fatal（真模型
+		// E2E 实证：fatal 会让整任务死在一次可自纠的坏参数上）
+		return toolFail("post_comment", apierr.NewValidation("content required"))
 	}
 	t.calls++
 	if err := t.wb.PostAgentComment(ctx, t.task.WorkspaceID, t.task.WorkItemID, t.agentID, in.Content); err != nil {
@@ -105,7 +107,7 @@ func (t *getWorkItemTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 func (t *getWorkItemTool) InvokableRun(ctx context.Context, _ string, _ ...tool.Option) (string, error) {
 	title, desc, err := t.wb.GetWorkItemBrief(ctx, t.task.WorkspaceID, t.task.WorkItemID)
 	if err != nil {
-		return "", err
+		return toolFail("get_work_item", err)
 	}
 	return fmt.Sprintf("Title: %s\nDescription: %s", title, desc), nil
 }
@@ -169,7 +171,7 @@ func (t *searchWorkspaceTool) InvokableRun(ctx context.Context, args string, _ .
 		Query string `json:"query"`
 	}
 	if err := json.Unmarshal([]byte(args), &in); err != nil || in.Query == "" {
-		return "", apierr.NewValidation("query required")
+		return toolFail("search_workspace", apierr.NewValidation("query required"))
 	}
 	hits, err := t.search(ctx, t.task.WorkspaceID, in.Query)
 	if err != nil {

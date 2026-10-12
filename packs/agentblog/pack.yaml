@@ -26,7 +26,7 @@ mcp:
     # 挂 /mcp/pack）。provision 现状不做模板替换——url 是安装时写死进注册表的
     # 值；换环境部署时安装前直接改本文件（或装后走 MCP 注册表端点改），
     # 详见同目录 README.md。
-    url: http://localhost:8080/mcp/pack
+    url: http://127.0.0.1:8091/mcp/pack
     credentialRef: AGENTBLOG_CALLBACK_TOKEN
 
 # 事件订阅（D3 归属；本 pack 先声明订阅面）：
@@ -35,15 +35,15 @@ mcp:
 # url 需指向 agentblog 的 webhook 接收端（D3 交付前该端点不存在，安装时
 # 订阅创建会成功但推送将失败重试——README 有说明）。
 events:
-  - url: http://localhost:8080/hooks/orkome
+  - url: http://127.0.0.1:8091/hooks/orkome
     types: ["work_item.updated"]
 
 ui:
   entry:
     label: 内容工厂
-    urlTemplate: http://localhost:8080/console?ws={workspaceId}&t={uiToken}
+    urlTemplate: http://127.0.0.1:8091/console?ws={workspaceId}&t={uiToken}
   slots:
     - slot: workitem.detail.tab
       label: 文章预览
-      urlTemplate: http://localhost:8080/preview?item={workItemId}&t={uiToken}
+      urlTemplate: http://127.0.0.1:8091/preview?item={workItemId}&t={uiToken}
       height: 480

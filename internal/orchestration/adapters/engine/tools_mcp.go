@@ -224,7 +224,15 @@ func (e *EinoEngine) buildMCPTools(ctx context.Context, task orchapp.Task, agent
 func newMCPClient(srv orchapp.ResolvedMCPServer, headers map[string]string) (*mcpclient.Client, error) {
 	switch strings.ToLower(strings.TrimSpace(srv.Transport)) {
 	case "", "http", "streamable_http":
-		return mcpclient.NewStreamableHttpClient(srv.URL, mcptransport.WithHTTPHeaders(headers))
+		// D2 遗留坑的运行期修复：vendored mcp-go v0.43 零值 http.Client 的
+		// 空闲连接池会复用服务端已关闭的 SSE 连接（IdleConnTimeout=90s），
+		// 偶发 list tools 挂到 context deadline（真模型 E2E 间歇实证：
+		// 同 URL 一次 ok tool_count=6、一次 list_failed）。禁用 keep-alive
+		// 根除复用；任务级工具调用量级下无性能影响。
+		hc := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 60 * time.Second}
+		return mcpclient.NewStreamableHttpClient(srv.URL,
+			mcptransport.WithHTTPBasicClient(hc),
+			mcptransport.WithHTTPHeaders(headers))
 	case "sse":
 		return mcpclient.NewSSEMCPClient(srv.URL, mcptransport.WithHeaders(headers))
 	default:
