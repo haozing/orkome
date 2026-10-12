@@ -63,6 +63,11 @@ type Trigger struct {
 	Kind    string
 	AgentID string
 	Reason  string
+	// Squad 小队编排上下文（决策树规则 3：显式 @小队 / 6a 成员评论回 leader）。
+	// 非空时 OnComment 落库必须带 IsLeaderTask=true + SquadID——否则引擎的
+	// squadBrief/成员工具分支不触发，leader 只能单干（真模型 E2E 实证的断裂）。
+	SquadID       string
+	IsLeaderTask  bool
 }
 
 const TriggerKindAgent = "agent"
@@ -134,13 +139,27 @@ func DecisionTree(f CommentFacts, agents []AgentFacts, squads []SquadFacts, invo
 			}
 			d.Triggers = append(d.Triggers, Trigger{Kind: TriggerKindAgent, AgentID: id, Reason: reason})
 		}
+		// emitSquadLeader：小队触发的 leader 任务必须带编排标志——否则引擎
+		// 侧 squadBrief/成员工具不注入，leader 单干（真模型 E2E 实证断裂）。
+		emitSquadLeader := func(sq SquadFacts, reason string) {
+			a, ok := byID[sq.LeaderID]
+			if !ok {
+				return
+			}
+			if ok, why := Eligibility(a, invocable(a)); !ok {
+				d.Suppressions = append(d.Suppressions, Suppression{AgentID: sq.LeaderID, Reason: why})
+				return
+			}
+			d.Triggers = append(d.Triggers, Trigger{Kind: TriggerKindAgent, AgentID: sq.LeaderID,
+				Reason: reason, SquadID: sq.ID, IsLeaderTask: true})
+		}
 		for _, id := range mentionedAgents {
 			emit(id, "3.explicit_mention")
 		}
 		for _, sid := range mentionedSquads {
 			for _, sq := range squads {
 				if sq.ID == sid {
-					emit(sq.LeaderID, "3.explicit_squad_mention")
+					emitSquadLeader(sq, "3.explicit_squad_mention")
 				}
 			}
 		}
@@ -170,7 +189,14 @@ func DecisionTree(f CommentFacts, agents []AgentFacts, squads []SquadFacts, invo
 					for _, sid := range a.MemberOfSquads {
 						for _, sq := range squads {
 							if sq.ID == sid && sq.LeaderID != f.AuthorID {
-								return emitOne(agents, sq.LeaderID, "6a.agent_author_squad_leader", invocable)
+								// 成员回传场景也是编排回合：leader 需要成员工具
+								// 才能继续派发/汇总（同规则 3 的断裂修复）。
+								d2 := emitOne(agents, sq.LeaderID, "6a.agent_author_squad_leader", invocable)
+								for i := range d2.Triggers {
+									d2.Triggers[i].SquadID = sq.ID
+									d2.Triggers[i].IsLeaderTask = true
+								}
+								return d2
 							}
 						}
 					}

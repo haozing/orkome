@@ -249,6 +249,9 @@ func (s *TriggerService) protocol(ctx context.Context, in CommentInput, commentI
 			Context:          triggerContext(commentID, tr.Reason, in.Content, fallback),
 			OriginatorUserID: actorID, AccountableUserID: actorID,
 			OriginatorSource: domain.SrcDirectHuman, TriggerEvidenceKind: domain.EvidenceMemberComment,
+			// 小队编排（真模型 E2E 断裂修复）：Trigger 携带的 squad 上下文
+			// 必须落库，否则引擎 squadBrief/成员工具分支不触发，leader 单干。
+			IsLeaderTask: tr.IsLeaderTask, SquadID: tr.SquadID,
 		})
 		if err != nil {
 			if isUniqueViolation(err) {

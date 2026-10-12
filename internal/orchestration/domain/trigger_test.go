@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var agentA = AgentFacts{ID: "aaaa"}
@@ -160,3 +161,40 @@ func TestClassifyMiss(t *testing.T) {
 }
 
 var _ = strings.TrimSpace
+
+
+// ---- 小队编排标志传播（真模型 E2E 断裂修复的回归锁）----
+
+func squadFactsFixture() (CommentFacts, []AgentFacts, []SquadFacts) {
+	f := CommentFacts{WorkspaceID: "ws", WorkItemID: "wi", AuthorType: "user", AuthorID: "human"}
+	agents := []AgentFacts{
+		{ID: "leader", Name: "队长"},
+		{ID: "member-a", Name: "成员A", MemberOfSquads: []string{"e222"}},
+	}
+	squads := []SquadFacts{{ID: "e222", LeaderID: "leader", MemberIDs: []string{"leader", "member-a"}}}
+	return f, agents, squads
+}
+
+func TestTree_3_ExplicitSquadMention_LeaderCarriesFlags(t *testing.T) {
+	f, agents, squads := squadFactsFixture()
+	f.Content = "[@e2e小队](mention://squad/e222) 开始"
+	d := DecisionTree(f, agents, squads, func(AgentFacts) bool { return true })
+	require.Len(t, d.Triggers, 1)
+	tr := d.Triggers[0]
+	assert.Equal(t, "leader", tr.AgentID)
+	assert.True(t, tr.IsLeaderTask, "leader 任务必须带编排标志")
+	assert.Equal(t, "e222", tr.SquadID)
+}
+
+func TestTree_6a_MemberComment_LeaderCarriesFlags(t *testing.T) {
+	f, agents, squads := squadFactsFixture()
+	f.AuthorType = "agent"
+	f.AuthorID = "member-a"
+	f.Content = "成员汇报：部分完成"
+	d := DecisionTree(f, agents, squads, func(AgentFacts) bool { return true })
+	require.Len(t, d.Triggers, 1)
+	tr := d.Triggers[0]
+	assert.Equal(t, "leader", tr.AgentID)
+	assert.True(t, tr.IsLeaderTask)
+	assert.Equal(t, "e222", tr.SquadID)
+}

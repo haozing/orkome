@@ -23,7 +23,8 @@ func squadBriefing(sq orchapp.SquadInfo) string {
 		fmt.Fprintf(&b, "  - %s（%s）：%s\n", m.Name, m.Role, orDash(m.Description))
 	}
 	if sq.Choreography {
-		b.WriteString("Dispatch: use the consult member tool (runs within the same turn, seconds-level); give a summary conclusion at the end.")
+		b.WriteString("Dispatch: use the consult member tool (runs within the same turn, seconds-level); give a summary conclusion at the end.\n" +
+			"Note: members run WITHOUT tools (consultation only) — you, the leader, hold all squad tools (pack/builtin). Plan accordingly: consult members for opinions/drafts, but execute any tool-requiring steps yourself.")
 		return b.String()
 	}
 
@@ -53,10 +54,17 @@ func (e *EinoEngine) buildMemberTool(ctx context.Context, wsID string, m orchapp
 		return nil, nil, err
 	}
 	counter := &usageCounter{provider: rc.Provider, model: rc.Model}
+	// 成员未填 description 时给默认说明——eino NewAgentTool 要求非空
+	// Description，空值会让整个成员工具构建失败（leader 静默失去该成员，
+	// 真模型 E2E 实证：成员任务挂 "non-empty Description"）。
+	desc := strings.TrimSpace(m.Description)
+	if desc == "" {
+		desc = fmt.Sprintf("小队成员 %s（角色：%s）。未填写描述。", m.Name, orDash(m.Role))
+	}
 	mAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "member-" + m.Name,
-		Description: m.Description,
-		Instruction: m.Description,
+		Description: desc,
+		Instruction: desc,
 		Model:       &countingModel{inner: inner, c: counter},
 	})
 	if err != nil {
