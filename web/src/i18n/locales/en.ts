@@ -766,6 +766,8 @@ const en: Locale = {
     emptyDesc: 'Post the first comment, or dispatch work to an agent directly.',
     user: 'User',
     resolved: 'Resolved',
+    expand: 'Show more',
+    collapse: 'Show less',
   },
   timeline: {
     loading: 'Loading timeline…',

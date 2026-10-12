@@ -175,6 +175,15 @@ export function CommentThread({ workItemId }: { workItemId: string }) {
 }
 function CommentRow({ comment }: { comment: Comment }) {
   const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [overflows, setOverflows] = useState(false)
+  // 长评论（agent 汇报常见 Markdown 表格/多段）默认收起到 ~20 行，点击展开；
+  // 短评论不渲染折叠控件。挂载/内容变化后按实际高度判定是否溢出。
+  useEffect(() => {
+    const el = bodyRef.current
+    if (el) setOverflows(el.scrollHeight > el.clientHeight + 4)
+  }, [comment.content])
   const author =
     comment.author_type === 'user'
       ? t('comment.user')
@@ -193,7 +202,25 @@ function CommentRow({ comment }: { comment: Comment }) {
           <span className="text-emerald-600 dark:text-emerald-400">{t('comment.resolved')}</span>
         )}
       </p>
-      <Markdown>{comment.content}</Markdown>
+      <div
+        ref={bodyRef}
+        className={
+          expanded
+            ? 'max-w-none space-y-2 text-sm leading-relaxed'
+            : 'max-h-[20rem] overflow-hidden'
+        }
+      >
+        <Markdown>{comment.content}</Markdown>
+      </div>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        >
+          {expanded ? t('comment.collapse') : t('comment.expand')}
+        </button>
+      )}
     </div>
   )
 }

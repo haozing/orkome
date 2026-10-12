@@ -743,6 +743,8 @@ const zh: Locale = {
     emptyDesc: '发表第一条评论，或直接派活给 agent。',
     user: '用户',
     resolved: '已解决',
+    expand: '展开全文',
+    collapse: '收起',
   },
   timeline: {
     loading: '加载时间线…',
