@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PackSlotFrame } from '@/components/pack-slot-frame'
 import { usePackSlots } from '@/components/use-pack-slots'
 import { DescriptionEditor } from '@/components/work-item/description-editor'
+import { OutcomeBlock } from '@/components/work-item/outcome-block'
 import { LabelsBlock } from '@/components/work-item/label-chips'
 import { InfoPanel } from '@/components/work-item/info-panel'
 import { MoreMenu } from '@/components/work-item/more-menu'
@@ -107,6 +108,7 @@ export function WorkItemDetailPage() {
 
           <div className="pt-4">
             {showDetail && <DescriptionEditor item={wi} />}
+            {showDetail && <OutcomeBlock item={wi} />}
             {search.tab === 'sub' && <SubWorkItemsList workItemId={id} />}
             {search.tab === 'tasks' && (
               <TaskPanel

@@ -27,6 +27,13 @@ export interface WorkItem {
   created_at: string
   updated_at: string
   last_activity_at: string
+  outcome?: WorkItemOutcome | null
+}
+
+export interface WorkItemOutcome {
+  summary: string
+  task_id?: string
+  completed_at: string
 }
 export interface WorkItemPageInput {
   limit?: number
@@ -109,6 +116,7 @@ export interface WorkItemPatch {
   due_date?: string
   start_date?: string
   parent_work_item_id?: string
+  outcome?: WorkItemOutcome
 }
 export function updateWorkItem(id: string, patch: WorkItemPatch, expectedRevision: number) {
   return api.put<WorkItem>(`/api/work-items/${id}`, {

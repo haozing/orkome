@@ -745,6 +745,16 @@ const zh: Locale = {
     resolved: '已解决',
     expand: '展开全文',
     collapse: '收起',
+    latestReport: '最新汇报',
+  },
+  outcome: {
+    title: '产出',
+    edit: '编辑',
+    save: '保存',
+    cancel: '取消',
+    fromTask: '来自任务 {{task}}',
+    latestWins: '重新派发任务将覆盖此产出',
+    emptyGuide: '工单已完成但尚无结构化产出——派发任务后，agent 的最终结论将沉淀在此。',
   },
   timeline: {
     loading: '加载时间线…',

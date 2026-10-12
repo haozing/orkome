@@ -768,6 +768,16 @@ const en: Locale = {
     resolved: 'Resolved',
     expand: 'Show more',
     collapse: 'Show less',
+    latestReport: 'Latest report',
+  },
+  outcome: {
+    title: 'Outcome',
+    edit: 'Edit',
+    save: 'Save',
+    cancel: 'Cancel',
+    fromTask: 'from task {{task}}',
+    latestWins: 'Re-dispatching a task will overwrite this outcome',
+    emptyGuide: 'Work item is completed but has no structured outcome yet — dispatch a task and the final conclusion will land here.',
   },
   timeline: {
     loading: 'Loading timeline…',

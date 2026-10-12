@@ -93,6 +93,18 @@ export function CommentThread({ workItemId }: { workItemId: string }) {
   const items = comments.data ?? []
   const repliesOf = (id: string) => items.filter((c) => c.parent_id === id && !c.deleted)
   const roots = items.filter((c) => !c.parent_id && !c.deleted)
+  // 置顶最新一条 agent 汇报（评论区回归交流面后的视觉锚点）：只提升排序，
+  // 不改变评论本体（折叠/展开照旧）。工单正式产出沉淀在详情区 Outcome 块。
+  const latestAgentIdx = (() => {
+    for (let i = roots.length - 1; i >= 0; i--) {
+      if (roots[i].author_type === 'agent') return i
+    }
+    return -1
+  })()
+  const orderedRoots =
+    latestAgentIdx > 0
+      ? [roots[latestAgentIdx], ...roots.slice(0, latestAgentIdx), ...roots.slice(latestAgentIdx + 1)]
+      : roots
   const previewTriggers = preview?.result === 'would_trigger' ? (preview.triggers ?? []) : []
   const suppressions = preview?.result === 'blocked' ? (preview.suppressions ?? []) : []
   return (
@@ -157,8 +169,11 @@ export function CommentThread({ workItemId }: { workItemId: string }) {
       )}
 
       <div className="space-y-2">
-        {roots.map((c) => (
+        {orderedRoots.map((c, idx) => (
           <div key={c.id} className="space-y-2">
+            {idx === 0 && latestAgentIdx > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{t('comment.latestReport')}</p>
+            )}
             <CommentRow comment={c} />
             {repliesOf(c.id).length > 0 && (
               <div className="ml-6 space-y-2 border-l-2 border-zinc-100 pl-3 dark:border-zinc-800">
