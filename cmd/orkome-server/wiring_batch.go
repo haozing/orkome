@@ -12,11 +12,14 @@ import (
 )
 
 func wiringBatch(log *slog.Logger, bus *eventbus.Bus, batches *orchapp.BatchService,
-	wake WakeupBatchPort,
+	wake WakeupBatchPort, registry map[string]orchapp.BatchProcessor,
 ) *orchworkers.BatchWorker {
 	batches.SetBatchPorts(batchDoneAdapter{wake: wake}, batchEmitter{bus: bus})
+	if registry == nil {
+		registry = map[string]orchapp.BatchProcessor{}
+	}
 	return &orchworkers.BatchWorker{
-		Svc: batches, Registry: map[string]orchapp.BatchProcessor{}, Log: log,
+		Svc: batches, Registry: registry, Log: log,
 		Every: 2e9, WorkerID: "batch-1",
 	}
 }

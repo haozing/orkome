@@ -59,7 +59,7 @@ func egressGuardOf(cfg *Config) *egressx.Guard {
 
 func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Config,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
-) (*workers.Dispatcher, *workers.LivenessSweeper, orchhttp.Deps, *orchapp.EnqueueService, *engine.EinoEngine, *orchapp.BatchService) {
+) (*workers.Dispatcher, *workers.LivenessSweeper, orchhttp.Deps, *orchapp.EnqueueService, *engine.EinoEngine, *orchapp.BatchService, map[string]orchapp.BatchProcessor) {
 	repo := orchpgrepo.New(db)
 	repo.Seal = credentialSealer(log, cfg)
 	convRepo := convpgrepo.New(db)
@@ -356,7 +356,34 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 
 	batches := orchapp.NewBatchService(&orchpgrepo.BatchRepo{DB: db}, nil)
 
-	return d, sweeper, orchhttp.Deps{
+	// 首个真模型 BatchProcessor（kind=llm_comment）：payload.seed → 工单指派
+	// agent 生成摘要并 post_comment。Batch 执行面此前为插件留白（Registry 空）。
+	batchRegistry := map[string]orchapp.BatchProcessor{
+		"llm_comment": &llmCommentBatchProcessor{
+			engine: eng, wb: bench,
+			resolve: func(ctx context.Context, ws, agentID string) (orchapp.Agent, string, error) {
+				a, ok, err := repo.GetAgent(ctx, ws, agentID)
+				if err != nil {
+					return orchapp.Agent{}, "", err
+				}
+				if !ok {
+					return orchapp.Agent{}, "", fmt.Errorf("agent %s not found", agentID)
+				}
+				secret := ""
+				if id, _ := a.RuntimeConfig["credential_id"].(string); id != "" {
+					_, sec, _, serr := repo.GetCredential(ctx, ws, id)
+					if serr != nil {
+						return orchapp.Agent{}, "", serr
+					}
+					secret = sec
+				}
+				return a, secret, nil
+			},
+			log: log,
+		},
+	}
+
+	deps := orchhttp.Deps{
 		Settle: settle, Agents: agents,
 		Repo:        repo,
 		Trigger:     trig,
@@ -378,7 +405,8 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 		TaskMessages: func(ctx context.Context, ws, taskID string, q orchapp.TaskMessagesQuery) ([]orchapp.TaskMessage, error) {
 			return repo.ListTaskMessages(ctx, ws, taskID, q)
 		},
-	}, enq, eng, batches
+	}
+	return d, sweeper, deps, enq, eng, batches, batchRegistry
 }
 
 func wiringCredentials(repo *orchpgrepo.Repo) *orchapp.CredentialService {

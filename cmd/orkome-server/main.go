@@ -84,7 +84,7 @@ func main() {
 	workersReg := NewWorkers(log)
 	idDeps := wiringIdentity(log, db, redisCli, cfg)
 	workDeps := wiringWork(log, db, bus, workersReg, idMemberCheck(db), cfg.JWTSecret)
-	dispatcher, sweeper, orchHTTPDeps, orchEnq, orchEng, batchSvc := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
+	dispatcher, sweeper, orchHTTPDeps, orchEnq, orchEng, batchSvc, batchRegistry := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
 	sweeper.Metrics = metricsReg
 
 	{
@@ -302,7 +302,7 @@ func main() {
 		})
 	}
 
-	batchW := wiringBatch(log, bus, batchSvc, autoDeps.Wakeups)
+	batchW := wiringBatch(log, bus, batchSvc, autoDeps.Wakeups, batchRegistry)
 	workersReg.AddFunc("batch-worker", batchW.Run)
 
 	contentDeps, intentW, err := wiringContent(log, db, cfg, idMemberCheck(db))
