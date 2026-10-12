@@ -30,6 +30,10 @@ func (f *settleNotifyFakeRepo) CompleteRun(context.Context, string, string, stri
 
 func (f *settleNotifyFakeRepo) SettlePendingSupplements(context.Context, string) error { return nil }
 
+func (f *settleNotifyFakeRepo) FailRun(context.Context, string, string, string, string) (bool, error) {
+	return false, nil
+}
+
 func (f *settleNotifyFakeRepo) PromoteDeferred(context.Context) ([]Task, error) { return nil, nil }
 
 type directWriteRecorder struct{ calls int }
@@ -131,4 +135,116 @@ func TestApprove_TaskCompletedSingleEmit(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, completed, "Approve 路径同样只允许一条 TaskCompleted")
+}
+
+// ---- 工单产出（"需求→产出"一等公民）----
+// completed 结算：outcome 后写覆盖（每次完成都写最新结论）；
+// fail 结算：不写（失败没有产出）；
+// outcome 落库后不再写兜底 agent 评论（同一内容不落两处，评论流回归交流面）。
+
+type fakeOutcomeWriter struct {
+	calls   int
+	lastWS  string
+	lastWI  string
+	lastTask string
+	lastBody string
+	failOn  int // 第 N 次调用返回错误（0 = 永不）
+}
+
+func (f *fakeOutcomeWriter) WriteOutcome(_ context.Context, ws, wi, task, summary string) error {
+	f.calls++
+	if f.failOn > 0 && f.calls == f.failOn {
+		return context.DeadlineExceeded
+	}
+	f.lastWS, f.lastWI, f.lastTask, f.lastBody = ws, wi, task, summary
+	return nil
+}
+
+type commentRecorder struct {
+	writes int
+	has    bool
+}
+
+func (c *commentRecorder) WriteAgentComment(context.Context, string, string, string, string) error {
+	c.writes++
+	return nil
+}
+func (c *commentRecorder) HasAgentComment(context.Context, string) (bool, error) { return c.has, nil }
+
+func TestSettle_CompletedWritesOutcome_LatestWins(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	ow := &fakeOutcomeWriter{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, nil, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetOutcomeWriter(ow)
+
+	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{Output: "final conclusion v1"}, nil))
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{Output: "final conclusion v2"}, nil))
+
+	assert.Equal(t, 2, ow.calls, "后写覆盖：每次 completed 都写")
+	assert.Equal(t, "ws-1", ow.lastWS)
+	assert.Equal(t, "wi-1", ow.lastWI)
+	assert.Equal(t, "task-1", ow.lastTask)
+	assert.Equal(t, "final conclusion v2", ow.lastBody, "后写覆盖：最终展示最新结论")
+}
+
+func TestSettle_FailedDoesNotWriteOutcome(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	ow := &fakeOutcomeWriter{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, nil, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetOutcomeWriter(ow)
+
+	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
+	err := &EngineError{Reason: "agent_error"}
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{}, err))
+
+	assert.Equal(t, 0, ow.calls, "失败没有产出：fail 结算不写 outcome")
+}
+
+func TestSettle_OutcomeWritten_SuppressesFallbackComment(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	ow := &fakeOutcomeWriter{}
+	comments := &commentRecorder{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetOutcomeWriter(ow)
+
+	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{Output: "the deliverable"}, nil))
+
+	assert.Equal(t, 0, comments.writes, "outcome 已落库：同一内容不再写兜底评论")
+}
+
+func TestSettle_OutcomeWriteError_FallsBackToComment(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	ow := &fakeOutcomeWriter{failOn: 1}
+	comments := &commentRecorder{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
+	settle.SetRuntimeInstance("i-1")
+	settle.SetOutcomeWriter(ow)
+
+	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{Output: "deliverable"}, nil))
+
+	assert.Equal(t, 1, comments.writes, "outcome 写入失败：回落评论兜底，产出不丢")
+}
+
+func TestSettle_NoOutcomeWriter_FallsBackToComment(t *testing.T) {
+	repo := &settleNotifyFakeRepo{}
+	comments := &commentRecorder{}
+	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
+	settle.SetRuntimeInstance("i-1")
+
+	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
+	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
+		EngineOutput{Output: "deliverable"}, nil))
+
+	assert.Equal(t, 1, comments.writes, "outcome 未接线（旧行为）：评论兜底照旧")
 }

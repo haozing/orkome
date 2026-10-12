@@ -443,6 +443,13 @@ type CommentWriter interface {
 	HasAgentComment(ctx context.Context, workItemID string) (bool, error)
 }
 
+// OutcomeWriter 工单产出写入端口（"需求→产出"一等公民）：任务结算 completed
+// 时由 SettlementService 调用，后写覆盖。实现归 work 域（wiring 适配器注入），
+// orchestration 不依赖 work 类型（域零）。
+type OutcomeWriter interface {
+	WriteOutcome(ctx context.Context, workspaceID, workItemID, taskID, summary string) error
+}
+
 type WorkItemInfo struct {
 	ID    string
 	Title string

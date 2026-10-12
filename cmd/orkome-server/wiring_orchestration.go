@@ -172,6 +172,8 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 		workCommentWriter{wRepo: wRepo},
 		chatWriter{repo: convRepo},
 	)
+	// 工单产出（"需求→产出"一等公民）：completed 结算后写覆盖 work_item.outcome
+	settle.SetOutcomeWriter(workOutcomeWriter{wRepo: wRepo})
 
 	settle.SetApprovalDeps(approvalNotifier{repo: notification}, eng, func(ctx context.Context, ws, credID string) (string, error) {
 		_, secret, ok, err := repo.GetCredential(ctx, ws, credID)
@@ -487,6 +489,16 @@ type workItemPort struct{ wRepo *workpgrepo.Repo }
 func (p workItemPort) GetWorkItem(ctx context.Context, ws, id string) (orchapp.WorkItemInfo, bool, error) {
 	wi, ok, err := p.wRepo.GetWorkItem(ctx, ws, id)
 	return orchapp.WorkItemInfo{ID: wi.ID, Title: wi.Title, Desc: wi.Description}, ok, err
+}
+
+// workOutcomeWriter orchapp.OutcomeWriter 的 work 域适配器：把结算产出
+// 组装成 work.Outcome 落 work_item.outcome（后写覆盖）。
+type workOutcomeWriter struct{ wRepo *workpgrepo.Repo }
+
+func (w workOutcomeWriter) WriteOutcome(ctx context.Context, wsID, wiID, taskID, summary string) error {
+	return w.wRepo.WriteOutcome(ctx, wsID, wiID, workapp.Outcome{
+		Summary: summary, TaskID: taskID, CompletedAt: time.Now(),
+	})
 }
 
 type workCommentWriter struct{ wRepo *workpgrepo.Repo }

@@ -110,14 +110,14 @@ func (r *Repo) ReorderStatuses(ctx context.Context, wsID string, keys []string) 
 const wiCols = `id, workspace_id, number, title, description, acceptance_criteria, status_key, priority,
 assignee_type, coalesce(assignee_id::text,''), creator_type, creator_id, coalesce(parent_work_item_id::text,''),
 coalesce(project_id::text,''), position, coalesce(due_date::text,''), coalesce(start_date::text,''), metadata, properties, revision,
-triage_state, coalesce(duplicate_of_work_item_id::text,''), created_at, updated_at, last_activity_at`
+triage_state, coalesce(duplicate_of_work_item_id::text,''), created_at, updated_at, last_activity_at, outcome`
 
 func scanWI(row pgx.Row) (app.WorkItem, error) {
 	var w app.WorkItem
 	err := row.Scan(&w.ID, &w.WorkspaceID, &w.Number, &w.Title, &w.Description, &w.AcceptanceCriteria,
 		&w.StatusKey, &w.Priority, &w.AssigneeType, &w.AssigneeID, &w.CreatorType, &w.CreatorID,
 		&w.ParentID, &w.ProjectID, &w.Position, &w.DueDate, &w.StartDate, &w.Metadata, &w.Properties, &w.Revision,
-		&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt)
+		&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt, &w.Outcome)
 	return w, err
 }
 
@@ -150,7 +150,7 @@ RETURNING %s`, wiCols),
 			Scan(&w.ID, &w.WorkspaceID, &w.Number, &w.Title, &w.Description, &w.AcceptanceCriteria,
 				&w.StatusKey, &w.Priority, &w.AssigneeType, &w.AssigneeID, &w.CreatorType, &w.CreatorID,
 				&w.ParentID, &w.ProjectID, &w.Position, &w.DueDate, &w.StartDate, &w.Metadata, &w.Properties, &w.Revision,
-				&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt)
+				&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt, &w.Outcome)
 	})
 	return w, err
 }
@@ -162,6 +162,22 @@ func (r *Repo) GetWorkItem(ctx context.Context, wsID, id string) (app.WorkItem, 
 		return w, false, nil
 	}
 	return w, err == nil, err
+}
+
+// WriteOutcome 后写覆盖工单产出（"需求→产出"一等公民，迁移 1039）。
+// 由任务结算链路调用（orchapp.OutcomeWriter 适配）；工单不存在时返回错误
+// 由调用方裁决（结算侧吞错降级为仅评论兜底）。
+func (r *Repo) WriteOutcome(ctx context.Context, wsID, wiID string, o app.Outcome) error {
+	tag, err := r.q(ctx).Exec(ctx,
+		`UPDATE work_item SET outcome = $3 WHERE workspace_id=$1 AND id=$2`,
+		wsID, wiID, o)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("work item %s not found in workspace %s", wiID, wsID)
+	}
+	return nil
 }
 
 func (r *Repo) UpdateWorkItem(ctx context.Context, wsID, id string, p app.WorkItemPatch, rev int64) (app.WorkItem, error) {
@@ -187,6 +203,9 @@ func (r *Repo) UpdateWorkItem(ctx context.Context, wsID, id string, p app.WorkIt
 	}
 	if p.AssigneeType != nil {
 		add("assignee_type = $%d", *p.AssigneeType)
+	}
+	if p.Outcome != nil {
+		add("outcome = $%d", *p.Outcome)
 	}
 	if p.AssigneeID != nil {
 		add("assignee_id = nullif($%d,'')::uuid", *p.AssigneeID)
@@ -315,7 +334,7 @@ func (r *Repo) ListWorkItems(ctx context.Context, q app.ListQuery) ([]app.WorkIt
 		if err := rows.Scan(&w.ID, &w.WorkspaceID, &w.Number, &w.Title, &w.Description, &w.AcceptanceCriteria,
 			&w.StatusKey, &w.Priority, &w.AssigneeType, &w.AssigneeID, &w.CreatorType, &w.CreatorID,
 			&w.ParentID, &w.ProjectID, &w.Position, &w.DueDate, &w.StartDate, &w.Metadata, &w.Properties, &w.Revision,
-			&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt); err != nil {
+			&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt, &w.Outcome); err != nil {
 			return nil, "", err
 		}
 		out = append(out, w)
@@ -1183,7 +1202,7 @@ func (r *Repo) ListDuplicates(ctx context.Context, wsID, wiID string) ([]app.Wor
 		if err := rows.Scan(&w.ID, &w.WorkspaceID, &w.Number, &w.Title, &w.Description, &w.AcceptanceCriteria,
 			&w.StatusKey, &w.Priority, &w.AssigneeType, &w.AssigneeID, &w.CreatorType, &w.CreatorID,
 			&w.ParentID, &w.ProjectID, &w.Position, &w.DueDate, &w.StartDate, &w.Metadata, &w.Properties, &w.Revision,
-			&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt); err != nil {
+			&w.TriageState, &w.DuplicateOf, &w.CreatedAt, &w.UpdatedAt, &w.LastActivityAt, &w.Outcome); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

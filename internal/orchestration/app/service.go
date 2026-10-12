@@ -613,6 +613,9 @@ type SettlementService struct {
 	// 构造参数保留以兼容既有装配（cmd 侧无需改动）。
 	notification NotificationWriter
 	comments     CommentWriter
+	// outcomes 工单产出写入端口（"需求→产出"一等公民）：completed 结算时
+	// 后写覆盖工单 outcome。nil 时跳过（outcome 不落，行为同旧）。
+	outcomes     OutcomeWriter
 	chats        ChatWriter
 	notifier     ApprovalNotifier
 	engine       Engine
@@ -647,6 +650,10 @@ func (s *SettlementService) SetSummarySummarizer(ss *SummaryService) { s.summari
 // SetChatDonePush 接线 chat:done 帧的 creator 定向投递（W2-1）。不调用时
 // 只发 bus 事件（QuickActionGenerator 仍工作），creator 收不到 WS 帧。
 func (s *SettlementService) SetChatDonePush(p UserFramePusher) { s.chatDonePush = p }
+
+// SetOutcomeWriter 接线工单产出写入（"需求→产出"）。不调用时 completed
+// 结算不落 outcome（评论兜底照旧——产出只活在工作项评论区）。
+func (s *SettlementService) SetOutcomeWriter(w OutcomeWriter) { s.outcomes = w }
 
 // summaryForComplete 生成 completed 结算的 summary；summaries 未接线时
 // 直接走 domain.TaskSummary（与上移前 repo 内行为 byte-identical）。
@@ -750,7 +757,21 @@ func (s *SettlementService) Settle(ctx context.Context, task Task, agent Agent, 
 		_ = s.repo.InsertMemberUsage(ctx, task.ID, mu.AgentID, mu.Label, mu.Usage)
 	}
 
-	if task.WorkItemID != "" && s.comments != nil {
+	// 工单产出（"需求→产出"一等公民）：completed 时后写覆盖 outcome；
+	// outcome 已落库则不再写兜底 agent 评论——同一内容不落两处，评论流
+	// 回归交流面（过程汇报仍由 agent 按需 post_comment，不受影响）。
+	outcomeWritten := false
+	if task.WorkItemID != "" && s.outcomes != nil && strings.TrimSpace(out.Output) != "" {
+		body := out.Output
+		if len([]rune(body)) > 4000 {
+			body = string([]rune(body)[:4000])
+		}
+		if err := s.outcomes.WriteOutcome(ctx, task.WorkspaceID, task.WorkItemID, task.ID, body); err == nil {
+			outcomeWritten = true
+		}
+	}
+
+	if task.WorkItemID != "" && s.comments != nil && !outcomeWritten {
 		has, _ := s.comments.HasAgentComment(ctx, task.WorkItemID)
 		if !has && strings.TrimSpace(out.Output) != "" {
 			body := out.Output

@@ -20,6 +20,14 @@ type PropertyDef struct {
 	Description string   `json:"description,omitempty"`
 }
 
+// Outcome 工单产出（一等公民，"需求→产出"模型的产出侧）。
+// 由任务结算链路（completed）结构化写入，后写覆盖；也可人工经 PUT 编辑覆盖。
+type Outcome struct {
+	Summary     string    `json:"summary"`
+	TaskID      string    `json:"task_id,omitempty"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
 type WorkItem struct {
 	ID                 string `json:"id"`
 	WorkspaceID        string `json:"workspace_id"`
@@ -42,6 +50,7 @@ type WorkItem struct {
 	StartDate      string         `json:"start_date,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
 	Properties     map[string]any `json:"properties,omitempty"`
+	Outcome        *Outcome       `json:"outcome,omitempty"`
 	Revision       int64          `json:"revision"`
 	TriageState    *string        `json:"triage_state,omitempty"`
 	DuplicateOf    *string        `json:"duplicate_of_work_item_id,omitempty"`

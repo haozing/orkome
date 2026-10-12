@@ -208,6 +208,8 @@ type WorkItemPatch struct {
 	Properties   map[string]any
 	TriageState  *string
 	DuplicateOf  *string
+	// Outcome 非 nil 时覆盖工单产出（人工编辑路径）；nil = 不动。
+	Outcome *Outcome
 }
 
 type ListQuery struct {

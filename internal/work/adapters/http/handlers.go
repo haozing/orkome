@@ -94,7 +94,9 @@ func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		Properties   map[string]any `json:"properties"`
 		DuplicateOf  *string        `json:"duplicate_of_work_item_id"`
 		TriageState  *string        `json:"triage_state"`
-		ExpectedRev  int64          `json:"expected_revision"`
+		// outcome 非 nil 时覆盖工单产出（人工编辑路径；summary 空串 = 清除）
+		Outcome      *workapp.Outcome `json:"outcome"`
+		ExpectedRev  int64            `json:"expected_revision"`
 	}](w, r)
 	if !ok {
 		return
@@ -104,7 +106,7 @@ func (d Deps) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		AssigneeType: in.AssigneeType, AssigneeID: in.AssigneeID, ProjectID: in.ProjectID,
 		DueDate: in.DueDate, StartDate: in.StartDate, ParentID: in.ParentID,
 		Properties: in.Properties, DuplicateOf: in.DuplicateOf,
-		TriageState: in.TriageState,
+		TriageState: in.TriageState, Outcome: in.Outcome,
 	}, in.ExpectedRev, p.UserID)
 	if err != nil {
 		writeErr(w, err)

@@ -1,0 +1,21 @@
+-- 工单产出（outcome）一等公民化——"需求 → 产出"干净模型（2026-10-12 裁决）。
+--
+-- 动机：agent 的最终汇报此前只能落在评论流（post_comment 是唯一发声通道），
+-- 工单完成态缺"结论层"：详情区只有创建时的需求描述，越用越像聊天群。
+-- 本列给产出一个正式的家：任务结算（completed）时由结算链路结构化写入，
+-- 详情区渲染"需求（description）→ 产出（outcome）"两段式。
+--
+-- 形状（应用层 JSON 保证，库层不设 CHECK——仿 pack_ui_entry.slots 惯例）：
+--   {"summary": text(≤4000 rune), "task_id": uuid, "completed_at": timestamptz}
+--
+-- 语义裁决（评审请重点看）：
+-- 1. NULL = 尚无完成产出。失败任务不写 outcome——失败没有产出，失败信息由
+--    task summary 与通知承载。
+-- 2. 后写覆盖：同一工单多次派任务（重跑）时，每次 completed 覆盖为最新结论
+--    （工单=活的交付物，永远展示最新结论）。
+-- 3. 无 FK：outcome.task_id 仅作溯源展示，任务行删除不级联、不阻塞
+--    （work_item 是宿主，列随工单行删除）。
+-- 4. 手动路径：PUT /api/work-items/{id} 可直接编辑 outcome（人工覆盖 agent
+--    结论，权限与 description 编辑同门）。
+
+ALTER TABLE work_item ADD COLUMN outcome jsonb;
