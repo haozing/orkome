@@ -10,6 +10,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -39,6 +40,15 @@ func (e *EinoEngine) buildBuiltinTools(ctx context.Context, task orchapp.Task, a
 		if wid, _ := task.Context["wakeup_id"].(string); wid != "" {
 			toolList = append(toolList, &checkinWakeupTool{checkiner: e.Checkiner, task: task, wakeupID: wid})
 		}
+	}
+
+	// 批量任务工具面（batch v2.0）：绑定当前工单的扇出执行通道。
+	// MaterializeFromSource 由 cmd 侧注入（app 层实现，engine 只约定形状）。
+	if e.BatchTools != nil && task.WorkItemID != "" {
+		toolList = append(toolList,
+			&batchCreateTool{batches: e.BatchTools, materialze: e.materializeOf(task, agent), task: task, agent: agent},
+			&batchStatusTool{batches: e.BatchTools, task: task},
+			&batchResultsTool{batches: e.BatchTools, task: task})
 	}
 
 	if task.IsLeaderTask && task.SquadID != "" {
@@ -158,8 +168,55 @@ func (e *EinoEngine) BuildMCPTools(ctx context.Context, task orchapp.Task) *MCPB
 	return &MCPBridgeForTest{br: br}
 }
 
+// BuildMCPToolsForAgent 是 buildMCPTools 的导出版（batch mcp_tool 执行器
+// 用，batch v2.0 设计 §4）：与 D2 门面 BuildMCPTools 同一条组装链
+//（ResolveForEngine 合并 + SSRF 门 + mcpCatalog 缓存 + 输出契约校验），
+// 但透传真实 agentID——agent 级 MCP 配置参与工具面合成（白名单语义：
+// agent 扇不出它看不见的工具）。task 只需 WorkspaceID/ID（批次关联）。
+func (e *EinoEngine) BuildMCPToolsForAgent(ctx context.Context, task orchapp.Task, agentID string) *MCPBridgeForTest {
+	br := e.buildMCPTools(ctx, task, orchapp.Agent{ID: agentID})
+	if br == nil {
+		return nil
+	}
+	return &MCPBridgeForTest{br: br}
+}
+
+// InvokeMCPTool 在桥接工具清单里按 Info().Name() 定位目标工具并以 argsJSON
+// 直调（eino tool.InvokableRun）。找不到 → 明确错误（batch 条目 failed 带
+// 原因，绝不静默换工具）。执行路径与模型调用完全一致（含输出契约校验
+// 装饰器；装饰器把 MCP 业务级失败降级为错误串返回，传输级错误原样抛出）。
+func InvokeMCPTool(ctx context.Context, bridge *MCPBridgeForTest, name, argsJSON string) (string, error) {
+	if bridge == nil || bridge.br == nil {
+		return "", fmt.Errorf("mcp tool %q: bridge not built (no live tool surface)", name)
+	}
+	for _, t := range bridge.br.tools {
+		info, err := t.Info(ctx)
+		if err != nil || info == nil {
+			continue
+		}
+		if info.Name != name {
+			continue
+		}
+		inv, ok := t.(tool.InvokableTool)
+		if !ok {
+			return "", fmt.Errorf("mcp tool %q is not invokable (streaming-only tools unsupported for batch fan-out)", name)
+		}
+		return inv.InvokableRun(ctx, argsJSON)
+	}
+	return "", fmt.Errorf("mcp tool %q not found in resolved tool surface (not in agent/workspace MCP allowlist)", name)
+}
+
 // MCPBridgeForTest 包装 mcpBridge 暴露只读观测面（不复制内部切片语义）。
 type MCPBridgeForTest struct{ br *mcpBridge }
+
+// SnapshotForTest 返回桥接的服务器级状态快照（ok/ssrf/connect_failed/
+// list_failed + note）——诊断空工具面的唯一窗口。
+func (b *MCPBridgeForTest) SnapshotForTest() []orchapp.MCPSnapshotEntry {
+	if b == nil || b.br == nil {
+		return nil
+	}
+	return b.br.snapshot
+}
 
 // ToolsForTest 返回桥接工具清单长度与名字的只读投影。
 func (b *MCPBridgeForTest) ToolsForTest() []string {
@@ -172,10 +229,6 @@ func (b *MCPBridgeForTest) ToolsForTest() []string {
 	return out
 }
 
-// SnapshotForTest 返回桥接快照副本。
-func (b *MCPBridgeForTest) SnapshotForTest() []orchapp.MCPSnapshotEntry {
-	return append([]orchapp.MCPSnapshotEntry(nil), b.br.snapshot...)
-}
 
 // SchemaOf 透传 schemaOf（最终生效输出契约：协议自描述 → B1 存档）。
 func (b *MCPBridgeForTest) SchemaOf(name string) json.RawMessage { return b.br.schemaOf(name) }

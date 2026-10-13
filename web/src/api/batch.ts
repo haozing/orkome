@@ -9,8 +9,9 @@ import { api } from '@ploykit/client'
 // 与 listPackEntries 同机制，不需要手动设）。
 
 /**
- * 批次（app.Batch）。status ∈ pending | running | paused |
+ * 批次（app.Batch）。status ∈ draft | pending | running | paused |
  * completed | failed | cancelled（domain/batch.go 常量）。
+ * draft 为 v2.0 新增：source 通道创建后先物化不开跑，需调 startBatch 转移。
  */
 export interface Batch {
   id: string
@@ -21,7 +22,7 @@ export interface Batch {
   status: string
   params: Record<string, unknown> | null
   source: Record<string, unknown> | null
-  /** 物料总数 = 创建时 payloads 长度 */
+  /** 物料总数 = 创建时 payloads 长度（source 通道 = 物化条目数） */
   total: number
   succeeded: number
   failed: number
@@ -30,6 +31,17 @@ export interface Batch {
   chunk_size: number
   pace_interval_seconds: number
   originator_user_id: string
+  /** v2.0：source 通道时为触发创建的 agent id（handoff 直接关联） */
+  originator_agent_id?: string
+  /**
+   * v2.0：source 物化对账。draft/创建期非空；
+   * source_count=数据源命中数，materialized=实际落条目数，skipped=校验未过跳过数。
+   */
+  source_materialization?: {
+    source_count: number
+    materialized: number
+    skipped: number
+  } | null
   last_error?: string
   created_at: string
   completed_at?: string | null
@@ -49,16 +61,53 @@ export interface BatchItem {
   attempts: number
   max_attempts: number
   error?: string
+  /** v2.0：skipped 条目的跳过原因（如 required 字段校验未过） */
+  skip_reason?: string
 }
 
-/** POST /api/work-items/{workItemId}/batches 请求体（handler decode struct） */
-export interface BatchCreateInput {
+/** 创建请求：通道 A——手动条目（payloads 内联，创建即跑） */
+export interface BatchCreatePayloads {
   kind: string
   params?: Record<string, unknown>
-  source?: Record<string, unknown>
   concurrency?: number
   chunk_size?: number
   payloads: Record<string, unknown>[]
+}
+
+/** 创建请求 source 形态（v2.0 通道 B）：创建即物化但不开跑（status='draft'） */
+export interface BatchCreateSource {
+  source: {
+    /** 数据源工具名（须是该智能体工具面上已注册的工具） */
+    tool: string
+    /** 工具入参（单对象，可选） */
+    args?: Record<string, unknown>
+    /** JSONPath 抽取路径，如 $.attachments[*] */
+    pick?: string
+  }
+  /** 成品入参模板，值可为 JSONPath 引用，如 {"image_ref":"$.file_id","lang":"zh"} */
+  payload_template: Record<string, unknown>
+  /** 成品入参必填字段名列表（缺失 → skipped + skip_reason） */
+  required?: string[]
+  kind: string
+  params?: Record<string, unknown>
+  concurrency?: number
+  chunk_size?: number
+}
+
+/**
+ * POST /api/work-items/{workItemId}/batches 请求体（handler decode struct）。
+ * 联合：payloads 与 source 两形态互斥（后端二选一校验）。
+ */
+export type BatchCreateInput = BatchCreatePayloads | BatchCreateSource
+
+/**
+ * 创建接口的扩展响应（v2.0 source 通道）：Batch + 预览 sample；
+ * 物化对账直接复用 Batch.source_materialization。兼容仅返回 Batch 的
+ * 旧形态（此时前端再 GET 一次批次补拉 source_materialization）。
+ */
+export interface BatchCreateSourceResult extends Batch {
+  /** 前 3 条成品 payload（预览） */
+  sample?: Record<string, unknown>[]
 }
 
 /** GET /api/batches/{batchId} 响应：批次 + 四态计数 */
@@ -78,9 +127,17 @@ export async function listBatches(workItemId: string): Promise<Batch[]> {
   return res.batches ?? []
 }
 
-/** POST /api/work-items/{workItemId}/batches → 201 + Batch */
+/** POST /api/work-items/{workItemId}/batches → 201 + Batch（source 通道或含物化预览字段） */
 export function createBatch(workItemId: string, input: BatchCreateInput) {
-  return api.post<Batch>(`/api/work-items/${workItemId}/batches`, input)
+  return api.post<Batch | BatchCreateSourceResult>(
+    `/api/work-items/${workItemId}/batches`,
+    input,
+  )
+}
+
+/** POST /api/batches/{batchId}/start → { result: "started" }（draft→pending 开跑；非 draft 时 409） */
+export function startBatch(batchId: string) {
+  return api.post<{ result: string }>(`/api/batches/${batchId}/start`)
 }
 
 /** GET /api/batches/{batchId} → { batch, pending, claimed, processing, done } */

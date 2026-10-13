@@ -79,6 +79,11 @@ type EinoEngine struct {
 
 	Checkiner orchapp.WakeupCheckiner
 
+	// BatchTools 批量任务工具面（batch v2.0）：batch_create/status/results
+	// 三工具的后端能力（*orchapp.BatchService 经窄接口注入）。nil = 不注入
+	// （任务工具面无批量工具）。
+	BatchTools orchapp.BatchToolPort
+
 	MCPResolver orchapp.MCPResolver
 
 	Egress *egressx.Guard

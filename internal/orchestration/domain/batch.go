@@ -1,6 +1,7 @@
 package domain
 
 const (
+	BatchDraft     = "draft"
 	BatchPending   = "pending"
 	BatchRunning   = "running"
 	BatchPaused    = "paused"

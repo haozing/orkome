@@ -126,7 +126,9 @@ var routeTable = []struct{ Method, Pattern string }{
 
 	{"POST", "/work-items/{id}/batches"}, {"GET", "/work-items/{id}/batches"},
 	{"GET", "/batches/{id}"}, {"GET", "/batches/{id}/items"},
-	{"POST", "/batches/{id}/pause"}, {"POST", "/batches/{id}/resume"},
+	{"GET", "/batches/{id}/items/page"},
+	{"POST", "/batches/{id}/start"}, {"POST", "/batches/{id}/pause"},
+	{"POST", "/batches/{id}/resume"},
 	{"POST", "/batches/{id}/cancel"}, {"POST", "/batches/{id}/retry-failed"},
 
 	{"GET", "/agents"}, {"POST", "/agents"},

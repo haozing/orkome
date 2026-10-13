@@ -361,6 +361,25 @@ func batchField(cond map[string]any) bool {
 	return f.Field == "batch"
 }
 
+// WakeAgentForBatch 批次终态唤醒创建者 agent（batch v2.0 设计 §2.2）：绕过
+// 条件规则（无 wakeup 行可锁、无规则状态可推进，故不经 fireOneSteps），
+// 直接按 agent 建收割任务。建任务机制复用 TaskEnqueuer——wakeup 同款
+// MergeIntoPending 去重合并 + trigger 上下文注入。agentID 为空（面板/
+// 第三方建的批次无创建者 agent）→ 跳过，交由现有 condition 扫描（
+// NotifyBatchDone），不视为错误。
+func (s *WakeupService) WakeAgentForBatch(ctx context.Context, ws, workItemID, agentID, taskID, evidence string) error {
+	if agentID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, domain.DispatchBudget)
+	defer cancel()
+	if taskID != "" {
+		evidence = "Originator task: " + taskID + "\n" + evidence
+	}
+	_, _, err := s.enq.EnqueueForWakeup(ctx, ws, workItemID, agentID, "", domain.CapEvidence(evidence))
+	return err
+}
+
 func (s *WakeupService) RecordEvent(ctx context.Context, e events.Envelope) {
 	if e.WorkspaceID == "" {
 		return

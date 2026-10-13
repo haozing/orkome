@@ -31,6 +31,9 @@ type Deps struct {
 	RetrySourceContext func(ctx context.Context, workspaceID, taskID, userID string) (any, error)
 
 	Batches *orchapp.BatchService
+	// BatchSourceMater 通道 B 物化入口（cmd 侧注入：MaterializeFromSource
+	// + ToolExec 组合）。nil = 通道 B 不可用（报 validation）。
+	BatchSourceMater func(ctx context.Context, b *orchapp.Batch) (*orchapp.MaterializedSource, error)
 
 	Squads *orchapp.SquadService
 
@@ -118,6 +121,8 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 		reg("GET /api/work-items/{workItemId}/batches", d.handleListBatches)
 		reg("GET /api/batches/{batchId}", d.handleGetBatch)
 		reg("GET /api/batches/{batchId}/items", d.handleBatchItems)
+		reg("GET /api/batches/{batchId}/items/page", d.handleBatchItemsPage)
+		reg("POST /api/batches/{batchId}/start", d.handleBatchStart)
 		reg("POST /api/batches/{batchId}/pause", d.handleBatchPause)
 		reg("POST /api/batches/{batchId}/resume", d.handleBatchResume)
 		reg("POST /api/batches/{batchId}/cancel", d.handleBatchCancel)

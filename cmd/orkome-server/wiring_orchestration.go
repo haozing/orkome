@@ -387,13 +387,21 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 		})
 	}
 
-	batches := orchapp.NewBatchService(&orchpgrepo.BatchRepo{DB: db}, nil)
-	// llm_comment 的 params 自动补全（workspace_id/work_item_id + 工单指派
-	// agent）：用户在批量面板只填 payloads，三个上下文 ID 由 server 从工单
-	// 解析——指派 agent 缺失时拒绝创建（fail-fast，而非条目全败）。
+	seal := credentialSealer(log, cfg)
+	batches := orchapp.NewBatchService(&orchpgrepo.BatchRepo{DB: db, Seal: seal}, nil)
+	// params 自动补全（按 kind 分支）：llm_comment/mcp_tool 都需要
+	// workspace_id/work_item_id + 工单指派 agent——用户在批量面板只填
+	// payloads，上下文 ID 由 server 从工单解析；指派 agent 缺失时拒绝创建
+	//（fail-fast，而非条目全败）。mcp_tool 额外校验 params.tool 非空
+	//（要扇出的 MCP 工具，batch v2.0 设计 §0.3）。
 	batches.ParamsFiller = func(ctx context.Context, b *orchapp.Batch) error {
-		if b.Kind != "llm_comment" {
+		if b.Kind != "llm_comment" && b.Kind != "mcp_tool" {
 			return nil
+		}
+		if b.Kind == "mcp_tool" {
+			if tool, _ := b.Params["tool"].(string); tool == "" {
+				return errors.New("mcp_tool requires params.tool (the MCP tool to fan out)")
+			}
 		}
 		b.Params["workspace_id"] = b.WorkspaceID
 		b.Params["work_item_id"] = b.WorkItemID
@@ -403,15 +411,17 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 				return err
 			}
 			if !ok || wi.AssigneeType != "agent" || wi.AssigneeID == "" {
-				return errors.New("llm_comment requires the work item to be assigned to an agent (assignee_id missing)")
+				return fmt.Errorf("%s requires the work item to be assigned to an agent (assignee_id missing)", b.Kind)
 			}
 			b.Params["agent_id"] = wi.AssigneeID
 		}
 		return nil
 	}
 
-	// 首个真模型 BatchProcessor（kind=llm_comment）：payload.seed → 工单指派
-	// agent 生成摘要并 post_comment。Batch 执行面此前为插件留白（Registry 空）。
+	// 批量任务工具面（batch v2.0）：agent 可扇出/查询/收割绑定工单的批次。
+	eng.BatchTools = batches
+	// BatchProcessor 注册表：llm_comment（首真模型执行面）+ mcp_tool
+	//（batch v2.0 P2：MCP 能力扇出，OCR 场景核心）。
 	batchRegistry := map[string]orchapp.BatchProcessor{
 		"llm_comment": &llmCommentBatchProcessor{
 			engine: eng, wb: bench,
@@ -435,13 +445,18 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 			},
 			log: log,
 		},
+		"mcp_tool": &mcpToolBatchProcessor{engine: eng, log: log},
 	}
 
 	deps := orchhttp.Deps{
 		Settle: settle, Agents: agents,
-		Repo:        repo,
-		Trigger:     trig,
-		Batches:     batches,
+		Repo:    repo,
+		Trigger: trig,
+		Batches: batches,
+		// 通道 B 物化入口：ToolExec 走 MCP 桥（与 mcp_tool 执行器同链）。
+		BatchSourceMater: func(ctx context.Context, b *orchapp.Batch) (*orchapp.MaterializedSource, error) {
+			return orchapp.MaterializeFromSource(ctx, batchToolExec{engine: eng}, b)
+		},
 		AgentLabels: agentLabels,
 		Squads:      orchapp.NewSquadService(repo, nil),
 		MCP: func() *orchapp.MCPServerService {
@@ -580,7 +595,7 @@ func (p workItemPort) GetWorkItem(ctx context.Context, ws, id string) (orchapp.W
 
 // squadLeaderWake orchapp.LeaderWakeHook 的装配适配器：成员任务终态后检查
 // 同工单同小队是否全部成员已收割，是则给 leader 插入一个收割任务
-//（IsLeaderTask=true，instruction 指向 record_evaluation + 最终汇总）。
+// （IsLeaderTask=true，instruction 指向 record_evaluation + 最终汇总）。
 type squadLeaderWake struct {
 	repo    *orchpgrepo.Repo
 	enqueue *orchapp.EnqueueService
@@ -624,7 +639,7 @@ func (w squadLeaderWake) WakeLeaderIfSquadDone(ctx context.Context, memberTask o
 	_, reason, err := w.enqueue.EnqueueSquadHarvest(ctx, orchapp.SquadHarvestInput{
 		WorkspaceID: memberTask.WorkspaceID, WorkItemID: memberTask.WorkItemID,
 		SquadID: squadID, LeaderTaskID: leader.ID, LeaderAgentID: leader.AgentID,
-		Instruction:    instruction,
+		Instruction:      instruction,
 		OriginatorUserID: memberTask.OriginatorUserID, AccountableUserID: memberTask.AccountableUserID,
 	})
 	if err != nil {
