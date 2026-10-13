@@ -10,7 +10,7 @@ import (
 // Returns the account identifier for the specified access key ID.
 //
 // Access keys consist of two parts: an access key ID (for example,
-// eyJhbGciOiJIUzI1NiJ9.eyJzZWNyZXQiOiJsZWFrIn0.c2lnbmF0dXJlLWxlYWstY2hlY2s ) and a secret access key (for example,
+// AKIAIOSFODNN7EXAMPLE ) and a secret access key (for example,
 // wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY ). For more information about access
 // keys, see [Managing Access Keys for IAM Users]in the IAM User Guide.
 //

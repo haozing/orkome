@@ -10,10 +10,12 @@ const stripOrigin: NonNullable<ProxyOptions['configure']> = (proxy) => {
     proxyReq.removeHeader('origin')
   })
 }
-// ploykit v0.4.0 frontend packages, aliased to the Go module cache sources
-// (packages publish ESM relative-import output; the `development` export
-// condition points at src, which is what an alias must consume).
-const ploykitSrc = 'C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages'
+// ploykit v0.6.0 frontend packages, installed via pnpm (dist ESM output).
+// Aliases pin subpath imports to concrete files: package `exports` only
+// exposes ".", so deep imports (client/api, hooks/ws-query-bridge) need
+// explicit mapping.
+const pkPkg = (name: string) =>
+  fileURLToPath(new URL(`./node_modules/@ploykit/${name}`, import.meta.url))
 export default defineConfig({
   plugins: [
     tanstackRouter({
@@ -29,15 +31,11 @@ export default defineConfig({
       // deep import for the test-only CSRF reset (not re-exported by the
       // barrel); MUST precede '@ploykit/client' — alias entries match by
       // prefix, first match wins.
-      '@ploykit/client/api': `${ploykitSrc}/client/src/api.ts`,
-      '@ploykit/client': `${ploykitSrc}/client/src/index.ts`,
-      // The ws-query-bridge leaf has type-only external imports (erased at
-      // build), so it is safe to consume straight from the module cache.
-      // The '@ploykit/hooks' barrel and '@ploykit/hooks/ws' are NOT aliased:
-      // they value-import 'react'/'react-router' (via '@ploykit/runtime'),
-      // unresolvable from the module-cache directory.
-      '@ploykit/hooks/ws-query-bridge': `${ploykitSrc}/hooks/src/lib/ws-query-bridge.ts`,
-      '@ploykit/ui': `${ploykitSrc}/ui/src/index.ts`,
+      '@ploykit/client/api': `${pkPkg('client')}/dist/api.js`,
+      '@ploykit/client': `${pkPkg('client')}/dist/index.js`,
+      '@ploykit/hooks/ws-query-bridge': `${pkPkg('hooks')}/dist/lib/ws-query-bridge.js`,
+      '@ploykit/hooks': `${pkPkg('hooks')}/dist/index.js`,
+      '@ploykit/ui': `${pkPkg('ui')}/dist/index.js`,
     },
   },
   server: {
@@ -55,5 +53,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.{test,spec}.{ts,tsx}'],
+    // ploykit dist 产物内部用无扩展名相对导入（'./api'）。vite dev/build 的
+    // resolve 能补全，vitest 的 node 解析器（pnpm 符号链接布局）不能——内联
+    // 交给 vite 管线转换。
+    server: { deps: { inline: [/@ploykit\//] } },
   },
 })

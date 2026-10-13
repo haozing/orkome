@@ -121,6 +121,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/haozing/ploykit v0.4.1 h1:EhULtQdHngzOincaorsFaps+ZGZWfiCDLNnxdgrJHS8=
 github.com/haozing/ploykit v0.4.1/go.mod h1:jI7u4XI3LLojlNu2MbFIngCdQCsw3I6j2zPdxs/0SH8=
+github.com/haozing/ploykit v0.6.1 h1:jTFJOMKoJGdPJfvN2d0Mg8cYk23j7eR+wI+X1h39/8Y=
+github.com/haozing/ploykit v0.6.1/go.mod h1:QhNx0tuvMZpN6RRsm6xPCFHMKLp34UIQN0mzvdgdeH0=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/invopop/jsonschema v0.13.0 h1:KvpoAJWEjR3uD9Kbm2HWJmqsEaHt8lBUpd0qHcIi21E=
 github.com/invopop/jsonschema v0.13.0/go.mod h1:ffZ5Km5SWWRAIN6wbDXItl95euhFz2uON45H2qjYt+0=

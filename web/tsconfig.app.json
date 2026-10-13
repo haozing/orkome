@@ -22,32 +22,14 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@ploykit/client": [
-        "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/client/src/index.ts"
-      ],
-      "@ploykit/client/api": [
-        "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/client/src/api.ts"
-      ],
+      "@ploykit/client": ["./node_modules/@ploykit/client/dist/index.d.ts"],
+      "@ploykit/client/api": ["./node_modules/@ploykit/client/dist/api.d.ts"],
+      "@ploykit/hooks": ["./node_modules/@ploykit/hooks/dist/index.d.ts"],
       "@ploykit/hooks/ws-query-bridge": [
-        "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/hooks/src/lib/ws-query-bridge.ts"
+        "./node_modules/@ploykit/hooks/dist/lib/ws-query-bridge.d.ts"
       ],
-      "@ploykit/ui": [
-        "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/ui/src/index.ts"
-      ],
-      // The module-cache bridge file type-imports '@tanstack/react-query';
-      // resolution from its own directory finds no node_modules, so pin the
-      // app's copy for it (no-op for app files — same package).
-      "@tanstack/react-query": ["./node_modules/@tanstack/react-query"]
+      "@ploykit/ui": ["./node_modules/@ploykit/ui/dist/index.d.ts"]
     }
   },
-  "include": [
-    "src",
-    "test",
-    "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/client/src",
-    "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/hooks/src/lib/ws-query-bridge.ts"
-  ],
-  "exclude": [
-    "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/client/src/api.test.ts",
-    "C:/Users/bzlih/go/pkg/mod/github.com/haozing/ploykit@v0.4.0/packages/client/src/ws.test.ts"
-  ]
+  "include": ["src", "test"]
 }
