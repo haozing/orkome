@@ -41,7 +41,6 @@ const en: Locale = {
     myWork: 'My Work',
     notifications: 'Notifications',
     allWork: 'All Work',
-    mcp: 'Packs & Integrations',
     automation: 'Automation',
     settings: 'Settings',
     agents: 'Agents',
@@ -49,11 +48,20 @@ const en: Locale = {
     skills: 'Skills',
     runLogs: 'Run Logs',
     aiTeam: 'AI Team',
+    tools: 'Tool Integrations',
+    access: 'Open Access',
+  },
+  tools: {
+    pageTitle: 'Tool Integrations',
+    pageIntro:
+      'Where agent tools come from: installed packs and workspace-level MCP servers; agent-private servers are managed on the agent detail page.',
+  },
+  access: {
+    pageTitle: 'Open Access',
+    pageIntro:
+      'Connect external clients like Codex and Claude Code to your Orkome workspace: create a token, paste the config, and let external AI query work items and post comments directly.',
   },
   packs: {
-    pageTitle: 'Packs & Integrations',
-    pageIntro:
-      'Manage installed packs, workspace-level MCP servers, and MCP client access configuration.',
     installedTitle: 'Packs (installed)',
     installedDesc:
       'Packs installed in this workspace; install and uninstall are done by admins via the pack-provision CLI.',

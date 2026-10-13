@@ -4,13 +4,14 @@ import {
   Bell,
   BookOpen,
   Bot,
+  DoorOpen,
   ListTodo,
   LogOut,
-  Plug,
   ScrollText,
   Settings,
   User,
   Users,
+  Wrench,
   Zap,
 } from 'lucide-react'
 import { useEffect } from 'react'
@@ -55,7 +56,7 @@ const NAV_ITEMS = [
   { to: '/work-items', label: 'nav.allWork', icon: ListTodo },
 ] as const
 const BOTTOM_NAV_ITEMS = [
-  { to: '/mcp', label: 'nav.mcp', icon: Plug },
+  { to: '/access', label: 'nav.access', icon: DoorOpen },
   { to: '/automation', label: 'nav.automation', icon: Zap },
   { to: '/settings', label: 'nav.settings', icon: Settings },
 ] as const
@@ -63,6 +64,7 @@ const AI_TEAM_NAV_ITEMS = [
   { to: '/agents', label: 'nav.agents', icon: Bot },
   { to: '/squads', label: 'nav.squads', icon: Users },
   { to: '/skills', label: 'nav.skills', icon: BookOpen },
+  { to: '/tools', label: 'nav.tools', icon: Wrench },
   { to: '/run-logs', label: 'nav.runLogs', icon: ScrollText },
 ] as const
 const NAV_LINK_CLASS =

@@ -43,7 +43,6 @@ const zh: Locale = {
     myWork: '我的工作',
     notifications: '通知',
     allWork: '全部工作',
-    mcp: 'Packs 与集成',
     automation: '自动化',
     settings: '设置',
     agents: '智能体',
@@ -51,10 +50,20 @@ const zh: Locale = {
     skills: 'Skills',
     runLogs: '运行日志',
     aiTeam: 'AI团队',
+    tools: '工具集成',
+    access: '开放接入',
+  },
+  tools: {
+    pageTitle: '工具集成',
+    pageIntro:
+      '智能体的工具来源：已安装的 pack 与工作区级 MCP 服务器；智能体私有服务器在智能体详情页管理。',
+  },
+  access: {
+    pageTitle: '开放接入',
+    pageIntro:
+      '把 Codex、Claude Code 等外部客户端接入你的 Orkome 工作区：建令牌 → 贴配置 → 让外部 AI 直接查工作项、写评论。',
   },
   packs: {
-    pageTitle: 'Packs 与集成',
-    pageIntro: '管理已安装的 pack、工作区级 MCP 服务器，以及 MCP 客户端接入配置。',
     installedTitle: 'Packs（已安装）',
     installedDesc: '本工作区已安装的 pack；安装与卸载由管理员通过 pack-provision CLI 完成。',
     emptyTitle: '还没有安装任何 pack',
