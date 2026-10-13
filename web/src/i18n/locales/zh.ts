@@ -95,7 +95,7 @@ const zh: Locale = {
   packs2: {
     pageTitle: '能力包',
     pageIntro:
-      '本工作区经 pack-provision 安装的能力包：一个能力包 = MCP 服务器 + 工具契约 + 智能体 + 技能 + 事件订阅 + 界面进驻的打包编排。',
+      '本工作区经 pack-provision 安装的能力包：一个能力包 = MCP 服务器 + 工具契约 + 预置智能体与技能 + 事件订阅 + 界面进驻，安装时一次性装配；预置的智能体和技能装后即归工作区，随时可改。',
     loading: '加载能力包…',
     emptyTitle: '还没有安装任何能力包',
     emptyDesc: '能力包由管理员通过 pack-provision CLI 安装，安装后此处会列出包及其资产概览。',

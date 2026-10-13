@@ -96,7 +96,7 @@ const en: Locale = {
   packs2: {
     pageTitle: 'Packs',
     pageIntro:
-      'Packs installed in this workspace via pack-provision: one pack = MCP servers + tool contracts + agents + skills + event subscriptions + UI entries, bundled as one orchestration.',
+      'Packs installed in this workspace via pack-provision: one pack = MCP servers + tool contracts + bundled agents & skills + event subscriptions + UI entries, provisioned in one shot. Bundled agents and skills belong to the workspace once installed—edit them freely.',
     loading: 'Loading packs…',
     emptyTitle: 'No packs installed yet',
     emptyDesc:
