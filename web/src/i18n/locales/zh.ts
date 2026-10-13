@@ -736,7 +736,6 @@ const zh: Locale = {
     resolved: '已解决',
     expand: '展开全文',
     collapse: '收起',
-    latestReport: '最新汇报',
   },
 
   reports: {

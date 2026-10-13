@@ -757,7 +757,6 @@ const en: Locale = {
     resolved: 'Resolved',
     expand: 'Show more',
     collapse: 'Show less',
-    latestReport: 'Latest report',
   },
 
   reports: {
