@@ -30,10 +30,10 @@ func TestB20_SquadSingleCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 
 	code, out = e.do("PUT", "/api/squads/"+squadID, map[string]any{
-		"name": "b20-  change", "instructions": "new version", "leader_agent_id": leader, "choreography": true})
+		"name": "b20-  change", "instructions": "new version", "leader_agent_id": leader})
 	require.Equal(t, http.StatusOK, code, out)
 	assert.Equal(t, "b20-  change", out["name"])
-	assert.Equal(t, true, out["choreography"])
+	assert.NotContains(t, out, "choreography")
 
 	code, _ = e.do("PUT", "/api/squads/"+squadID, map[string]any{"name": " "})
 	assert.Equal(t, http.StatusBadRequest, code)

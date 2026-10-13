@@ -57,7 +57,6 @@ type SquadUpdateInput struct {
 	Name          string
 	Instructions  string
 	LeaderAgentID string
-	Choreography  bool
 }
 
 type SquadService struct {
@@ -246,7 +245,7 @@ func (s *SquadService) Update(ctx context.Context, ws, squadID string, in SquadU
 		}
 	}
 	out, ok2, err := s.repo.UpdateSquad(ctx, ws, squadID, name, in.Instructions,
-		in.LeaderAgentID, in.Choreography, joinLeader)
+		in.LeaderAgentID, joinLeader)
 	if err != nil {
 		return nil, err
 	}

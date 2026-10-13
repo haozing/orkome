@@ -215,20 +215,20 @@ func (e *EinoEngine) run(ctx context.Context, task orchapp.Task, agent orchapp.A
 	var memberRuns []memberRun
 	squadBrief := ""
 	var squadMembers []orchapp.SquadMember
-	squadChoreo := false
 	if task.IsLeaderTask && task.SquadID != "" && e.SquadLoader != nil {
 		if sq, ok, _ := e.SquadLoader(ctx, task.WorkspaceID, task.SquadID); ok {
 			squadBrief = squadBriefing(sq)
-			squadMembers, squadChoreo = sq.Members, sq.Choreography
-			if sq.Choreography {
-				for _, m := range sq.Members {
-					mt, ctr, err := e.buildMemberTool(ctx, task.WorkspaceID, m)
-					if err != nil {
-						continue
-					}
-					memberTools = append(memberTools, mt)
-					memberRuns = append(memberRuns, memberRun{agentID: m.AgentID, label: m.Name, ctr: ctr})
+			squadMembers = sq.Members
+			// consult 工具对所有小队成员生成（"咨询"= 同轮秒回的进程内子
+			// agent；何时咨询 vs 正式派发由 leader 模型按任务性质现场判断
+			// ——choreography 布尔已退役）。
+			for _, m := range sq.Members {
+				mt, ctr, err := e.buildMemberTool(ctx, task.WorkspaceID, m)
+				if err != nil {
+					continue
 				}
+				memberTools = append(memberTools, mt)
+				memberRuns = append(memberRuns, memberRun{agentID: m.AgentID, label: m.Name, ctr: ctr})
 			}
 		}
 	}
@@ -249,7 +249,7 @@ func (e *EinoEngine) run(ctx context.Context, task orchapp.Task, agent orchapp.A
 	// 并发闸走 eino 原生 ChatModelAgentMiddleware 协议，与上方
 	// steer/skill 及下方 toolsearch 同构共存。
 	reg := newToolRegistry()
-	toolList := e.buildBuiltinTools(ctx, task, agent, reg, squadMembers, squadChoreo)
+	toolList := e.buildBuiltinTools(ctx, task, agent, reg, squadMembers)
 	bridge := e.buildMCPTools(ctx, task, agent)
 	registerMCPBridge(ctx, reg, bridge, e.archivedToolSchemas(ctx, task))
 	handlers = append(handlers, newToolContractMiddleware(reg, e.OutputValidator, e.AuditLog))

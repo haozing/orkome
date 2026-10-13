@@ -372,7 +372,6 @@ func (d Deps) handleCreateSquad(w http.ResponseWriter, r *http.Request) {
 		Name          string `json:"name"`
 		Instructions  string `json:"instructions"`
 		LeaderAgentID string `json:"leader_agent_id"`
-		Choreography  bool   `json:"choreography"`
 	}](w, r)
 	if !ok || in.Name == "" {
 		webx.WriteError(w, http.StatusBadRequest, apierr.Validation, "name required", nil)
@@ -384,7 +383,7 @@ func (d Deps) handleCreateSquad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := d.Repo.CreateSquad(r.Context(), d.ws(r), in.Name, in.Instructions,
-		in.LeaderAgentID, in.Choreography)
+		in.LeaderAgentID)
 	if err != nil {
 		writeErr(w, err)
 		return

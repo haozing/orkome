@@ -16,12 +16,10 @@ import {
   updateSquadMemberRole,
   type Squad,
 } from '@/api/squads'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageError, PageLoading } from '@/components/ui/states'
 import { ApiError } from '@ploykit/client'
-import { cn } from '@/lib/utils'
 export const Route = createFileRoute('/_app/squads/$squadId')({
   component: SquadDetailPage,
 })
@@ -75,9 +73,6 @@ function SquadDetailPage() {
           <ArrowLeft className="size-4" aria-hidden="true" />
         </Link>
         <h1 className="min-w-0 truncate text-lg font-semibold">{sq.name}</h1>
-        <Badge variant={sq.choreography ? 'warning' : 'neutral'}>
-          {sq.choreography ? t('squads.modeB') : t('squads.modeA')}
-        </Badge>
         <div className="ml-auto flex items-center gap-2">
           {confirmingDelete ? (
             <>
@@ -133,7 +128,6 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
   const queryClient = useQueryClient()
   const [name, setName] = useState(squad.name)
   const [instructions, setInstructions] = useState(squad.instructions)
-  const [choreography, setChoreography] = useState(squad.choreography)
   const [leaderId, setLeaderId] = useState(squad.leader_agent_id || '')
   const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
   const activeAgents = (agents.data ?? []).filter((a) => !a.archived)
@@ -143,7 +137,6 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
         name: name.trim(),
         instructions,
         ...(leaderId ? { leader_agent_id: leaderId } : {}),
-        choreography,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['squad', squad.id] })
@@ -153,7 +146,6 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
   const dirty =
     name !== squad.name ||
     instructions !== squad.instructions ||
-    choreography !== squad.choreography ||
     leaderId !== (squad.leader_agent_id || '')
   return (
     <form
@@ -206,56 +198,6 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
           rows={3}
           className="w-full resize-none rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
         />
-      </div>
-
-      <div>
-        <span className={LABEL_CLASS}>{t('squads.modeLabel')}</span>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label
-            className={cn(
-              'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 outline-none',
-              !choreography
-                ? 'border-zinc-400 bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800/60'
-                : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50',
-            )}
-          >
-            <input
-              type="radio"
-              name="squad-mode"
-              checked={!choreography}
-              onChange={() => setChoreography(false)}
-              className="mt-0.5 size-3.5 accent-zinc-700"
-            />
-            <span>
-              <span className="block text-sm font-medium">{t('squads.modeATitle')}</span>
-              <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                {t('squads.modeADesc')}
-              </span>
-            </span>
-          </label>
-          <label
-            className={cn(
-              'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 outline-none',
-              choreography
-                ? 'border-zinc-400 bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800/60'
-                : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50',
-            )}
-          >
-            <input
-              type="radio"
-              name="squad-mode"
-              checked={choreography}
-              onChange={() => setChoreography(true)}
-              className="mt-0.5 size-3.5 accent-zinc-700"
-            />
-            <span>
-              <span className="block text-sm font-medium">{t('squads.modeBTitle')}</span>
-              <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                {t('squads.modeBDesc')}
-              </span>
-            </span>
-          </label>
-        </div>
       </div>
 
       {save.error && (

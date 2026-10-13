@@ -22,15 +22,14 @@ func squadBriefing(sq orchapp.SquadInfo) string {
 	for _, m := range sq.Members {
 		fmt.Fprintf(&b, "  - %s（%s）：%s\n", m.Name, m.Role, orDash(m.Description))
 	}
-	if sq.Choreography {
-		b.WriteString("Dispatch: use the consult member tool (runs within the same turn, seconds-level); give a summary conclusion at the end.\n" +
-			"Note: members run WITHOUT tools (consultation only) — you, the leader, hold all squad tools (pack/builtin). Plan accordingly: consult members for opinions/drafts, but execute any tool-requiring steps yourself.")
-		return b.String()
-	}
-
-	b.WriteString("Dispatch: use the dispatch_to_member tool (do not just @; the tool goes through formal dispatch and attribution).\n" +
-		"Tracking: use create_child_work_item for sub work items (human-visible; completion wakes you automatically).\n" +
-		"Closing duty: you must call record_evaluation before finishing; when no_action, do not substitute with a comment.")
+	// 双持（choreography 布尔退役）：consult 同轮秒回适合轻量征询；
+	// dispatch 正式派发带独立生命周期（全工具/审批/台账）适合长时执行。
+	// 何时用哪种由 leader 按任务性质现场判断。
+	b.WriteString("Dispatch options per member:\n" +
+		"- Consult (member-<name> tools): runs within the same turn, seconds-level, member has NO tools — for quick opinions/drafts.\n" +
+		"- Formal dispatch (dispatch_to_member): member gets an independent task with full tools and own approval/budget — use for real execution.\n" +
+		"Tracking: use create_child_work_item for sub work items (completion wakes you automatically).\n" +
+		"Closing duty: call record_evaluation before finishing for formally dispatched work; when no_action, do not substitute with a comment.")
 	return b.String()
 }
 

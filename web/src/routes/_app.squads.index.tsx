@@ -5,7 +5,6 @@ import { Plus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { listAgents } from '@/api/orchestration'
 import { createSquad, listSquads, type Squad } from '@/api/squads'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
@@ -67,9 +66,6 @@ function SquadsPage() {
                     ? (agentName.get(sq.leader_agent_id) ?? t('squadsList.unnamed'))
                     : t('squadsList.unset')}
                 </span>
-                <Badge variant={sq.choreography ? 'warning' : 'neutral'}>
-                  {sq.choreography ? t('squads.modeB') : t('squads.modeA')}
-                </Badge>
                 <span className="shrink-0 text-xs text-zinc-400">
                   {t('squadsList.membersCount', { n: sq.members?.length ?? 0 })}
                 </span>
@@ -100,15 +96,13 @@ function CreateSquadDialog({
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [instructions, setInstructions] = useState('')
-  const [choreography, setChoreography] = useState(false)
   const create = useMutation({
     mutationFn: () =>
-      createSquad({ name: name.trim(), instructions: instructions.trim(), choreography }),
+      createSquad({ name: name.trim(), instructions: instructions.trim() }),
     onSuccess: (sq) => {
       void queryClient.invalidateQueries({ queryKey: ['squads'] })
       setName('')
       setInstructions('')
-      setChoreography(false)
       onOpenChange(false)
       onCreated(sq)
     },
@@ -152,20 +146,6 @@ function CreateSquadDialog({
                 className="w-full resize-none rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
               />
             </div>
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-200 px-3 py-2.5 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50">
-              <input
-                type="checkbox"
-                checked={choreography}
-                onChange={(e) => setChoreography(e.target.checked)}
-                className="mt-0.5 size-3.5 accent-zinc-700"
-              />
-              <span>
-                <span className="block text-sm font-medium">{t('squadsList.modeBTitle')}</span>
-                <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                  {t('squadsList.modeBDesc')}
-                </span>
-              </span>
-            </label>
             {create.error && (
               <p role="alert" className="text-xs text-red-600 dark:text-red-400">
                 {create.error instanceof ApiError ? create.error.message : t('skills.createFailed')}

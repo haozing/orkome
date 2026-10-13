@@ -25,7 +25,7 @@ func TestB12_SquadModeBChoreography(t *testing.T) {
 	m1 := e.createAgent(t, ws, "reviewer-a")
 	m2 := e.createAgent(t, ws, "reviewer-b")
 	_, err := e.pool.Exec(ctx0(), `
-INSERT INTO squad (workspace_id, name, instructions, leader_agent_id, choreography)
+INSERT INTO squad (workspace_id, name, instructions, leader_agent_id)
 VALUES ($1,'  review squad','review from two perspectives then summarize',$2,true)`, ws, leader.ID)
 	require.NoError(t, err)
 	var squadID string

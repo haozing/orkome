@@ -4,7 +4,6 @@ export interface Squad {
   name: string
   instructions: string
   leader_agent_id: string
-  choreography: boolean
   members: string[] | null
 }
 export interface SquadMemberRow {
@@ -29,7 +28,6 @@ export interface SquadInput {
   name: string
   instructions: string
   leader_agent_id?: string
-  choreography: boolean
 }
 export async function listSquads(): Promise<Squad[]> {
   const res = await api.get<{

@@ -213,8 +213,6 @@ const en: Locale = {
     loading: 'Loading squad…',
     notFound: 'Squad not found or inaccessible',
     backToList: 'Back to squads',
-    modeA: 'Mode A dispatch',
-    modeB: 'Mode B choreography',
     confirmDelete: 'Confirm delete',
     deleteSquad: 'Delete squad',
     deleteHint:
@@ -224,13 +222,6 @@ const en: Locale = {
     leaderUnset: 'Not set (defaults to the first member)',
     instructionsLabel:
       'Choreography instructions (extra system prompt for the leader—how to split and summarize work)',
-    modeLabel: 'Collaboration mode',
-    modeATitle: 'Mode A · Async dispatch',
-    modeADesc:
-      'The leader assigns tasks and members run independently (minutes to days); completing members wake the leader to summarize.',
-    modeBTitle: 'Mode B · Same-turn choreography',
-    modeBDesc:
-      'Members act as the leader tools within the same turn (seconds); usage is recorded per member.',
     statusRunning: 'Running',
     statusQueued: 'Queued',
     statusIdle: 'Idle',
@@ -722,9 +713,6 @@ const en: Locale = {
     namePlaceholder: 'e.g. Morning briefing squad',
     instructionsLabel: 'Choreography instructions (optional; extra system prompt for the leader)',
     instructionsPlaceholder: 'How the leader splits work and summarizes results…',
-    modeBTitle: 'Mode B: same-turn choreography',
-    modeBDesc:
-      'Members collaborate within the same turn (seconds); default Mode A is async dispatch by the leader (minutes)—very different behavior, opt in as needed.',
     createHint: 'After creating, add the leader and members on the detail page.',
   },
   cred: {

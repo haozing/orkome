@@ -250,7 +250,7 @@ func TestIE4_LeaderOnlyByFlags(t *testing.T) {
 	a := e.createAgent(t, ws, "e4-agent")
 	leader := e.createAgent(t, ws, "e4-leader")
 	_, err := e.pool.Exec(ctx0(), `
-INSERT INTO squad (workspace_id, name, instructions, leader_agent_id, choreography)
+INSERT INTO squad (workspace_id, name, instructions, leader_agent_id)
 VALUES ($1,'fake squad','x',$2,true)`, ws, leader.ID)
 	require.NoError(t, err)
 	var squadID string

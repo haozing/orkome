@@ -20,7 +20,7 @@ import (
 
 // buildBuiltinTools 按任务上下文装配内置工具并登记注册表。
 func (e *EinoEngine) buildBuiltinTools(ctx context.Context, task orchapp.Task, agent orchapp.Agent,
-	reg *toolRegistry, squadMembers []orchapp.SquadMember, squadChoreo bool) []tool.BaseTool {
+	reg *toolRegistry, squadMembers []orchapp.SquadMember) []tool.BaseTool {
 
 	toolList := []tool.BaseTool{&approvalTool{}}
 	if e.WorkspaceSearch != nil {
@@ -41,7 +41,7 @@ func (e *EinoEngine) buildBuiltinTools(ctx context.Context, task orchapp.Task, a
 		}
 	}
 
-	if task.IsLeaderTask && task.SquadID != "" && !squadChoreo {
+	if task.IsLeaderTask && task.SquadID != "" {
 		if e.LeaderDispatch != nil {
 			toolList = append(toolList,
 				&dispatchToMemberTool{dispatch: e.LeaderDispatch, task: task, agent: agent, members: squadMembers})

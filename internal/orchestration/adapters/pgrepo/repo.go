@@ -1255,8 +1255,8 @@ WHERE workspace_id=$1 AND agent_label='eval' AND created_at >= date_trunc('day',
 func (r *Repo) GetSquad(ctx context.Context, wsID, squadID string) (orchapp.SquadInfo, bool, error) {
 	var sq orchapp.SquadInfo
 	err := r.q(ctx).QueryRow(ctx, `
-SELECT id::text, name, instructions, choreography FROM squad WHERE workspace_id=$1 AND id=$2`,
-		wsID, squadID).Scan(&sq.ID, &sq.Name, &sq.Instructions, &sq.Choreography)
+SELECT id::text, name, instructions FROM squad WHERE workspace_id=$1 AND id=$2`,
+		wsID, squadID).Scan(&sq.ID, &sq.Name, &sq.Instructions)
 	if noRow(err) {
 		return sq, false, nil
 	}
@@ -1615,24 +1615,24 @@ GROUP BY 1 ORDER BY 1`, wsID)
 	return out, rows.Err()
 }
 
-const squadCols = `id::text, workspace_id::text, name, instructions, coalesce(leader_agent_id::text,''), choreography, created_at`
+const squadCols = `id::text, workspace_id::text, name, instructions, coalesce(leader_agent_id::text,''), created_at`
 
-func (r *Repo) CreateSquad(ctx context.Context, wsID, name, instructions, leaderID string, choreo bool) (map[string]any, error) {
+func (r *Repo) CreateSquad(ctx context.Context, wsID, name, instructions, leaderID string) (map[string]any, error) {
 	var id string
 	err := r.q(ctx).QueryRow(ctx, `
-INSERT INTO squad (workspace_id, name, instructions, leader_agent_id, choreography)
-VALUES ($1,$2,$3,nullif($4,'')::uuid,$5) RETURNING id::text`,
-		wsID, name, instructions, leaderID, choreo).Scan(&id)
+INSERT INTO squad (workspace_id, name, instructions, leader_agent_id)
+VALUES ($1,$2,$3,nullif($4,'')::uuid) RETURNING id::text`,
+		wsID, name, instructions, leaderID).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": id, "name": name, "instructions": instructions,
-		"leader_agent_id": leaderID, "choreography": choreo}, nil
+		"leader_agent_id": leaderID}, nil
 }
 
 func (r *Repo) ListSquads(ctx context.Context, wsID string) ([]map[string]any, error) {
 	rows, err := r.q(ctx).Query(ctx, `
-SELECT id::text, name, instructions, coalesce(leader_agent_id::text,''), choreography,
+SELECT id::text, name, instructions, coalesce(leader_agent_id::text,''),
   coalesce((SELECT array_to_json(array_agg(sm.agent_id::text))::text FROM squad_member sm WHERE sm.squad_id=squad.id), '[]') AS members
 FROM squad WHERE workspace_id=$1 ORDER BY name`, wsID)
 	if err != nil {
@@ -1656,7 +1656,7 @@ func squadRowMap(id, name, instr, leader string, choreo bool, members []byte) ma
 	var ids []string
 	_ = json.Unmarshal(members, &ids)
 	return map[string]any{"id": id, "name": name, "instructions": instr,
-		"leader_agent_id": leader, "choreography": choreo, "members": ids}
+		"leader_agent_id": leader, "members": ids}
 }
 
 func (r *Repo) GetSquadRow(ctx context.Context, wsID, squadID string) (map[string]any, bool, error) {
@@ -1664,7 +1664,7 @@ func (r *Repo) GetSquadRow(ctx context.Context, wsID, squadID string) (map[strin
 	var choreo bool
 	var members []byte
 	err := r.q(ctx).QueryRow(ctx, `
-SELECT id::text, name, instructions, coalesce(leader_agent_id::text,''), choreography,
+SELECT id::text, name, instructions, coalesce(leader_agent_id::text,''),
   coalesce((SELECT array_to_json(array_agg(sm.agent_id::text))::text FROM squad_member sm WHERE sm.squad_id=squad.id), '[]')
 FROM squad WHERE workspace_id=$1 AND id=$2::uuid`,
 		wsID, squadID).Scan(&id, &name, &instr, &leader, &choreo, &members)
@@ -1685,14 +1685,14 @@ func (r *Repo) SquadNameTaken(ctx context.Context, wsID, name, excludeSquadID st
 	return exists, err
 }
 
-func (r *Repo) UpdateSquad(ctx context.Context, wsID, squadID, name, instructions, leaderAgentID string, choreography, joinLeader bool) (map[string]any, bool, error) {
+func (r *Repo) UpdateSquad(ctx context.Context, wsID, squadID, name, instructions, leaderAgentID string, joinLeader bool) (map[string]any, bool, error) {
 	var out map[string]any
 	ok := false
 	err := r.DB.Within(ctx, func(ctx context.Context) error {
 		tag, err := r.q(ctx).Exec(ctx, `
-UPDATE squad SET name=$3, instructions=$4, leader_agent_id=nullif($5,'')::uuid, choreography=$6
+UPDATE squad SET name=$3, instructions=$4, leader_agent_id=nullif($5,'')::uuid
 WHERE workspace_id=$1 AND id=$2::uuid`,
-			wsID, squadID, name, instructions, leaderAgentID, choreography)
+			wsID, squadID, name, instructions, leaderAgentID)
 		if err != nil {
 			return err
 		}

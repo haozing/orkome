@@ -236,7 +236,6 @@ type SquadInfo struct {
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
 	Instructions string        `json:"instructions"`
-	Choreography bool          `json:"choreography"`
 	Members      []SquadMember `json:"members"`
 }
 
@@ -368,14 +367,14 @@ type Repo interface {
 	InsightWorkingAgents(ctx context.Context, workspaceID string) ([]map[string]any, error)
 	InsightRunCounts(ctx context.Context, workspaceID string) ([]map[string]any, error)
 	InsightActivity30d(ctx context.Context, workspaceID string) ([]map[string]any, error)
-	CreateSquad(ctx context.Context, wsID, name, instructions, leaderID string, choreo bool) (map[string]any, error)
+	CreateSquad(ctx context.Context, wsID, name, instructions, leaderID string) (map[string]any, error)
 	ListSquads(ctx context.Context, wsID string) ([]map[string]any, error)
 
 	GetSquadRow(ctx context.Context, wsID, squadID string) (map[string]any, bool, error)
 
 	SquadNameTaken(ctx context.Context, wsID, name, excludeSquadID string) (bool, error)
 
-	UpdateSquad(ctx context.Context, wsID, squadID, name, instructions, leaderAgentID string, choreography, joinLeader bool) (map[string]any, bool, error)
+	UpdateSquad(ctx context.Context, wsID, squadID, name, instructions, leaderAgentID string, joinLeader bool) (map[string]any, bool, error)
 
 	DeleteSquad(ctx context.Context, wsID, squadID string) (SquadDeleteResult, error)
 	ListSquadMembers(ctx context.Context, wsID, squadID string) ([]SquadMemberRow, error)

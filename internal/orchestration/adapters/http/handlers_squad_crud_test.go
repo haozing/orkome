@@ -13,7 +13,7 @@ import (
 
 type squadUpdateCall struct {
 	squadID, name, instructions, leader string
-	choreo, joinLeader                  bool
+	joinLeader                          bool
 }
 
 type squadFakeRepo struct {
@@ -40,13 +40,13 @@ func (f *squadFakeRepo) SquadNameTaken(_ context.Context, _, name, exclude strin
 	return false, nil
 }
 
-func (f *squadFakeRepo) UpdateSquad(_ context.Context, _, squadID, name, instructions, leader string, choreo, join bool) (map[string]any, bool, error) {
-	f.updates = append(f.updates, squadUpdateCall{squadID, name, instructions, leader, choreo, join})
+func (f *squadFakeRepo) UpdateSquad(_ context.Context, _, squadID, name, instructions, leader string, join bool) (map[string]any, bool, error) {
+	f.updates = append(f.updates, squadUpdateCall{squadID, name, instructions, leader, join})
 	row, ok := f.squads[squadID]
 	if !ok {
 		return nil, false, nil
 	}
-	row["name"], row["instructions"], row["leader_agent_id"], row["choreography"] = name, instructions, leader, choreo
+	row["name"], row["instructions"], row["leader_agent_id"] = name, instructions, leader
 	if join {
 		if f.members == nil {
 			f.members = map[string][]orchapp.SquadMemberRow{}
@@ -89,7 +89,7 @@ func TestSquadCRUD_GetAndPut(t *testing.T) {
 	repo := &squadFakeRepo{
 		squads: map[string]map[string]any{"sq1": {
 			"id": "sq1", "name": "old name", "instructions": "old instruction",
-			"leader_agent_id": "a1", "choreography": false, "members": []string{"a1"},
+			"leader_agent_id": "a1", "members": []string{"a1"},
 		}},
 		members: map[string][]orchapp.SquadMemberRow{"sq1": {{AgentID: "a1", Role: "leader"}}},
 		agents:  map[string]bool{"a1": true, "a2": true},
@@ -102,11 +102,10 @@ func TestSquadCRUD_GetAndPut(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, agentLabelsReq(r, "GET", "/api/squads/none", "").Code)
 
 	rec = agentLabelsReq(r, "PUT", "/api/squads/sq1",
-		`{"name":"new name","instructions":"new instruction","leader_agent_id":"a1","choreography":true}`)
+		`{"name":"new name","instructions":"new instruction","leader_agent_id":"a1"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Len(t, repo.updates, 1)
 	assert.Equal(t, "new name", repo.updates[0].name)
-	assert.True(t, repo.updates[0].choreo)
 	assert.False(t, repo.updates[0].joinLeader, "leader unchanged → no member entry needed")
 
 	rec = agentLabelsReq(r, "PUT", "/api/squads/sq1", `{"name":"new name","leader_agent_id":"a2"}`)

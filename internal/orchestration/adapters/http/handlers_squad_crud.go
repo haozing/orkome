@@ -37,14 +37,13 @@ func (d Deps) handleUpdateSquad(w http.ResponseWriter, r *http.Request) {
 		Name          string `json:"name"`
 		Instructions  string `json:"instructions"`
 		LeaderAgentID string `json:"leader_agent_id"`
-		Choreography  bool   `json:"choreography"`
 	}](w, r)
 	if !ok {
 		return
 	}
 	out, err := d.Squads.Update(r.Context(), d.ws(r), r.PathValue("squadId"), orchapp.SquadUpdateInput{
 		Name: in.Name, Instructions: in.Instructions,
-		LeaderAgentID: in.LeaderAgentID, Choreography: in.Choreography,
+		LeaderAgentID: in.LeaderAgentID,
 	})
 	if err != nil {
 		writeErr(w, err)
