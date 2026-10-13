@@ -193,7 +193,7 @@ function CommentRow({ comment }: { comment: Comment }) {
   const [expanded, setExpanded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [overflows, setOverflows] = useState(false)
-  // 长评论（agent 汇报常见 Markdown 表格/多段）默认收起到 ~20 行，点击展开；
+  // 长评论默认收起到 ~5 行（用户裁决），点击展开；
   // 短评论不渲染折叠控件。挂载/内容变化后按实际高度判定是否溢出。
   useEffect(() => {
     const el = bodyRef.current
@@ -222,7 +222,7 @@ function CommentRow({ comment }: { comment: Comment }) {
         className={
           expanded
             ? 'max-w-none space-y-2 text-sm leading-relaxed'
-            : 'max-h-[20rem] overflow-hidden'
+            : 'max-h-24 overflow-hidden'
         }
       >
         <Markdown>{comment.content}</Markdown>
