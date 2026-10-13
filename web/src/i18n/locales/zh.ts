@@ -56,8 +56,7 @@ const zh: Locale = {
   },
   tools: {
     pageTitle: 'MCP 服务',
-    pageIntro:
-      '注册到本工作区、对所有智能体生效的 MCP 服务器；能力包带来的服务器在能力包页管理，智能体私有服务器在智能体详情页管理。',
+    pageIntro: 'MCP 服务器的注册与管理',
   },
   access: {
     pageTitle: '开放接入',
@@ -72,8 +71,6 @@ const zh: Locale = {
       'pack 由管理员通过 pack-provision CLI 安装，安装后此处会显示 pack 及其控制台入口（侧栏也会出现对应快捷入口）。',
     installedAt: '安装于 {{date}}',
     wsMcpTitle: '工作区级 MCP 服务器',
-    wsMcpDesc:
-      '注册到本工作区、对所有智能体生效的 MCP 服务器；智能体私有的服务器在智能体详情页的 MCP 标签页管理。',
     addServer: '新增服务器',
     noServers: '暂无服务器，点击右上角"新增服务器"注册一个。',
     storedCred: '已存凭证',

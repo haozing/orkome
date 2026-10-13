@@ -54,8 +54,7 @@ const en: Locale = {
   },
   tools: {
     pageTitle: 'MCP Servers',
-    pageIntro:
-      'MCP servers registered at the workspace level, effective for all agents; pack-provided servers are managed on the Packs page, agent-private ones on the agent detail page.',
+    pageIntro: 'Register and manage MCP servers',
   },
   access: {
     pageTitle: 'Open Access',
@@ -71,8 +70,6 @@ const en: Locale = {
       'Packs are installed by admins via the pack-provision CLI. Once installed, they appear here along with their console entry (shortcuts also show up in the sidebar).',
     installedAt: 'Installed {{date}}',
     wsMcpTitle: 'Workspace MCP servers',
-    wsMcpDesc:
-      'MCP servers registered at the workspace level, effective for all agents; per-agent servers are managed in the MCP tab of the agent detail page.',
     addServer: 'Add server',
     noServers: 'No servers yet—click "Add server" in the top right to register one.',
     storedCred: 'Credentials stored',
