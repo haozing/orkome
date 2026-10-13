@@ -386,6 +386,7 @@ const en: Locale = {
     loadingDetail: 'Loading work item…',
     notFound: 'Work item not found or inaccessible',
     tabDetail: 'Details',
+    tabReports: 'Reports',
     tabSub: 'Sub items',
     tabTasks: 'Tasks',
     tabTimeline: 'Timeline',
@@ -757,6 +758,13 @@ const en: Locale = {
     expand: 'Show more',
     collapse: 'Show less',
     latestReport: 'Latest report',
+  },
+
+  reports: {
+    loading: 'Loading reports…',
+    emptyTitle: 'No reports yet',
+    emptyDesc: 'Dispatch a task and agent execution reports will land here.',
+    byAgent: 'Agent',
   },
   outcome: {
     title: 'Outcome',

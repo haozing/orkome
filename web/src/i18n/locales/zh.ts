@@ -395,6 +395,7 @@ const zh: Locale = {
     loadingDetail: '加载工作项…',
     notFound: '工作项不存在或不可访问',
     tabDetail: '详细信息',
+    tabReports: '汇报',
     tabSub: '子工作',
     tabTasks: '任务',
     tabTimeline: '时间线',
@@ -736,6 +737,13 @@ const zh: Locale = {
     expand: '展开全文',
     collapse: '收起',
     latestReport: '最新汇报',
+  },
+
+  reports: {
+    loading: '加载汇报…',
+    emptyTitle: '还没有汇报',
+    emptyDesc: '派发任务后，agent 的执行汇报会出现在这里。',
+    byAgent: 'Agent',
   },
   outcome: {
     title: '产出',

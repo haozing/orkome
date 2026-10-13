@@ -9,6 +9,7 @@ import { PackSlotFrame } from '@/components/pack-slot-frame'
 import { usePackSlots } from '@/components/use-pack-slots'
 import { DescriptionEditor } from '@/components/work-item/description-editor'
 import { OutcomeBlock } from '@/components/work-item/outcome-block'
+import { AgentReportsTab } from '@/components/work-item/agent-reports-tab'
 import { LabelsBlock } from '@/components/work-item/label-chips'
 import { InfoPanel } from '@/components/work-item/info-panel'
 import { MoreMenu } from '@/components/work-item/more-menu'
@@ -22,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 // 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
 // validateSearch 失败即丢弃整个 search——pack:* 值必须被 schema 显式放行，
 // 否则用户停在 slot tab 时任何 search 更新都会把 tab 洗掉。
-const STATIC_TABS = ['detail', 'sub', 'tasks', 'timeline'] as const
+const STATIC_TABS = ['detail', 'reports', 'sub', 'tasks', 'timeline'] as const
 const searchSchema = z.object({
   tab: z.enum(STATIC_TABS).or(z.string().regex(/^pack:/)).optional(),
   task: z.string().optional(),
@@ -89,6 +90,7 @@ export function WorkItemDetailPage() {
               {(
                 [
                   ['detail', 'work.tabDetail'],
+                  ['reports', 'work.tabReports'],
                   ['sub', 'work.tabSub'],
                   ['tasks', 'work.tabTasks'],
                   ['timeline', 'work.tabTimeline'],
@@ -109,6 +111,7 @@ export function WorkItemDetailPage() {
           <div className="pt-4">
             {showDetail && <DescriptionEditor item={wi} />}
             {showDetail && <OutcomeBlock item={wi} />}
+            {search.tab === 'reports' && <AgentReportsTab workItemId={id} />}
             {search.tab === 'sub' && <SubWorkItemsList workItemId={id} />}
             {search.tab === 'tasks' && (
               <TaskPanel

@@ -20,7 +20,7 @@ const RichEditor = lazy(() =>
   import('@/components/editor/rich-editor').then((m) => ({ default: m.RichEditor })),
 )
 const PREVIEW_DEBOUNCE_MS = 500
-function formatTime(iso: string) {
+export function formatTime(iso: string) {
   return new Date(iso).toLocaleString(document.documentElement.lang === 'zh' ? 'zh-CN' : 'en-US', {
     month: '2-digit',
     day: '2-digit',
