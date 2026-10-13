@@ -47,9 +47,9 @@ const en: Locale = {
     squads: 'Squads',
     skills: 'Skills',
     packs: 'Packs',
-    runLogs: 'Run Logs',
+    runLogs: 'Runs',
     aiTeam: 'AI Team',
-    tools: 'Tool Integrations',
+    tools: 'MCP Servers',
     access: 'Open Access',
   },
   tools: {

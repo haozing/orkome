@@ -49,9 +49,9 @@ const zh: Locale = {
     squads: '小队',
     skills: 'Skills',
     packs: '能力包',
-    runLogs: '运行日志',
+    runLogs: '运行',
     aiTeam: 'AI团队',
-    tools: '工具集成',
+    tools: 'MCP 服务',
     access: '开放接入',
   },
   tools: {
