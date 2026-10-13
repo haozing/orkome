@@ -395,6 +395,7 @@ const zh: Locale = {
     loadingDetail: '加载工作项…',
     notFound: '工作项不存在或不可访问',
     tabDetail: '详细信息',
+    tabDiscussion: '讨论',
     tabSub: '子工作',
     tabTasks: '任务',
     tabTimeline: '时间线',

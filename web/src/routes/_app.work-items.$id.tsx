@@ -22,7 +22,7 @@ import { useTranslation } from 'react-i18next'
 // 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
 // validateSearch 失败即丢弃整个 search——pack:* 值必须被 schema 显式放行，
 // 否则用户停在 slot tab 时任何 search 更新都会把 tab 洗掉。
-const STATIC_TABS = ['detail', 'sub', 'tasks', 'timeline'] as const
+const STATIC_TABS = ['detail', 'discussion', 'sub', 'tasks', 'timeline'] as const
 const searchSchema = z.object({
   tab: z.enum(STATIC_TABS).or(z.string().regex(/^pack:/)).optional(),
   task: z.string().optional(),
@@ -89,6 +89,7 @@ export function WorkItemDetailPage() {
               {(
                 [
                   ['detail', 'work.tabDetail'],
+                  ['discussion', 'work.tabDiscussion'],
                   ['sub', 'work.tabSub'],
                   ['tasks', 'work.tabTasks'],
                   ['timeline', 'work.tabTimeline'],
@@ -109,6 +110,7 @@ export function WorkItemDetailPage() {
           <div className="pt-4">
             {showDetail && <DescriptionEditor item={wi} />}
             {showDetail && <OutcomeBlock item={wi} />}
+            {search.tab === 'discussion' && <CommentThread workItemId={id} />}
             {search.tab === 'sub' && <SubWorkItemsList workItemId={id} />}
             {search.tab === 'tasks' && (
               <TaskPanel
@@ -123,18 +125,15 @@ export function WorkItemDetailPage() {
             )}
           </div>
 
-          <div className="mt-5 flex items-center gap-2">
-            <span className="flex shrink-0 items-center gap-1 text-xs text-zinc-400">
-              <Tag className="size-3" aria-hidden="true" />
-              {t('labels.title')}
-            </span>
-            <LabelsBlock workItemId={id} />
-          </div>
-
-          <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-            <h2 className="mb-3 text-sm font-semibold">{t('comment.title')}</h2>
-            <CommentThread workItemId={id} />
-          </div>
+          {showDetail && (
+            <div className="mt-5 flex items-center gap-2">
+              <span className="flex shrink-0 items-center gap-1 text-xs text-zinc-400">
+                <Tag className="size-3" aria-hidden="true" />
+                {t('labels.title')}
+              </span>
+              <LabelsBlock workItemId={id} />
+            </div>
+          )}
         </div>
 
         <InfoPanel item={wi} />
