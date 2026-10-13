@@ -1,7 +1,7 @@
 # Batch as Agent Tool —— 批量任务 v2.0：agent 的扇出执行通道
 
-> 日期：2026-10-13
-> 状态：设计定稿（用户裁决后实施）
+> 日期：2026-10-13（v1.1：按代码审计修正 4 处事实性断言，修订以 ★ 标注）
+> 状态：设计定稿（审计后修订版，可作实施基线）
 > 原则：**无兼容包袱、数据架构干净；能 agent 完成的不麻烦人类。**
 > 取代：v1 的"批量 tab 面板"定位（624d721，保留为用户入口之一）。本文把 Batch 的第一身份定为 **agent 的内部异步扇出工具**，绑定工作项执行，面板降级为同一实体的旁观察视图。
 
@@ -112,7 +112,7 @@
 
 agent 检查 sample（选择器/映射是否抽对）后 `batch_start(batch_id)`；面板通道（人类）同样先见预览再点开始。**沉默的错误扇出被结构上排除。**
 
-> 实施注：现有 BatchWorker 已消费 pending 批次——改为「通道 B 创建后 status=pending 且不自动 claim，显式 start 才转 running」；通道 A 保持现状（inline 小批量自动开跑，省一步）。
+> ★ 实施注（审计修正）：`work_item_batch.started_at` **列已存在**（迁移 1008），不是新增；worker 的 `ClaimItems` 把 pending 批次连带消费（repo.go:140 `CASE WHEN b.status='pending' THEN 'running'`）——通道 B 需要新的守门状态。**干净解法：新增 batch status `draft`**（迁移 1043 更新 CHECK 约束：`draft` 不在 `ListActiveBatches` 的 `IN ('pending','running')` 范围内，worker 天然不碰），`batch_start` = draft→pending 转移（顺带落 started_at）；通道 A 创建即 pending（小批量自动开跑，省一步）。
 
 ---
 
@@ -130,11 +130,15 @@ agent 检查 sample（选择器/映射是否抽对）后 `batch_start(batch_id)`
 
 `batch_results` 的结果形态按 kind 分层：`mcp_tool` 条目带工具完整返回（已在 batch_item.result）；`llm_comment` 带回帖评论 id。**不给"一次返回全部 500 条"的口子**——agent 需要全量汇总时自己翻页聚合，上下文始终可控。
 
-### 2.2 完成唤醒（闭环的最后一环）
+### 2.2 完成唤醒（闭环的最后一环）★ 审计修正
 
-现状：`batch_done` 事件 + `NotifyBatchDone` 端口已存在（wiring_batch.go）。
+现状链路（代码实证，比 v1 文档假设的更完整也更不同）：
 
-v2.0 接线裁决：批次终态（completed/failed）→ **唤醒创建该批次的 agent**（originator task），唤醒 payload 携带 `{batch_id, done, failed, skipped}` 摘要——agent 醒来第一件事 `batch_status`/`batch_results` 收割。agent 若已不在运行态，唤醒建立新任务（复用现有回环机制，同 squad_harvest 模式）。
+- `batch_done` 事件 + `NotifyBatchDone`（automation 域 WakeupService，service_wakeup.go:341）已接通；
+- 但它**不是"唤醒创建者 agent"**，而是扫该工单上 `condition` 型 wakeup 规则里 `field=="batch"` 的（service_wakeup.go:350 `batchField`）——即**有人预先建了"batch 完成条件唤醒"才有人被叫醒**；
+- 唤醒的建任务机制完整存在（fireOne→enqueueForWakeup，含 agent 解析/链式上下文/去重合并），但入口是 wakeup 规则而非 batch 本身。
+
+**v2.0 接线裁决（干净化）**：batch 表新增 `originator_task_id`/`originator_agent_id`（通道 A/B 创建时从工具上下文自动填，面板通道从工单指派解析）；批次终态 → 对创建者 agent 走 `enqueueForWakeup` 同款机制建立收割任务（evidence 注入 batch_id+四态计数摘要）。**同时保留** condition 唤醒扫描（面板/第三方建的批次没有 originator agent，条件唤醒是它们的通道）——两条路都通向同一个 WakeupService，不造第三套唤醒。
 
 ### 2.3 权限与绑定
 
@@ -144,20 +148,26 @@ v2.0 接线裁决：批次终态（completed/failed）→ **唤醒创建该批�
 
 ---
 
-## 3. 数据模型（干净版，无兼容负担）
+## 3. 数据模型（干净版，无兼容负担）★ 审计修正
 
-现有 batch/batch_item 表**结构不变**（v0 设计即为此场景预留），仅两处增补：
+★ 表名实证：迁移 1008 建的是 `work_item_batch` / `work_item_batch_item`（非 batch/batch_item）。已核对的现成资产：`started_at` **已存在**（v1 文档误判为新增）；`skipped` 状态 **batch_item CHECK 已含**（v1 误判为新增）；`result_ref`/`error`/`attempts`/`max_attempts`/`lease` 全套已备；`originator_user_id` 只有 user 维度，**无 agent/task 维度**——这是真缺口。
+
+迁移 1043（净增改）：
 
 ```sql
--- 1043: 批量 v2.0
-ALTER TABLE batch ADD COLUMN started_at timestamptz;                     -- 预览→start 的显式起点
-ALTER TABLE batch ADD COLUMN source_materialization jsonb;               -- {source_count, materialized, skipped}
-ALTER TABLE batch_item ADD COLUMN skip_reason text;                      -- 物化校验失败原因（status=skipped 时）
+-- batch status CHECK 增 'draft'（通道 B 预览态，worker 的 ListActive 天然不取）
+ALTER TABLE work_item_batch DROP CONSTRAINT work_item_batch_status_check;
+ALTER TABLE work_item_batch ADD CONSTRAINT work_item_batch_status_check
+  CHECK (status IN ('draft','pending','running','paused','completed','failed','cancelled'));
+ALTER TABLE work_item_batch ADD COLUMN source_materialization jsonb;   -- {source_count, materialized, skipped}
+ALTER TABLE work_item_batch ADD COLUMN originator_task_id text;        -- 创建时的 agent 任务（唤醒收割用）
+ALTER TABLE work_item_batch ADD COLUMN originator_agent_id uuid REFERENCES agent(id);
+ALTER TABLE work_item_batch_item ADD COLUMN skip_reason text;          -- 物化校验失败原因（status=skipped 时）
 ```
 
 - `batch.source`（已有 jsonb）存通道 B 的 source+template 原文——审计与重放依据；
 - `batch_item.payload_ref`（已有 jsonb）存物化后的成品入参——**物化发生在创建期**，执行期 worker 拿到的就是成品，worker 不感知双通道；
-- status 枚举增补：batch_item 增加 `skipped`（物化跳过，区别于执行失败的 failed）——查 domain/batch.go 的 CHECK 约束同步。
+- ★ 旧 `originator_user_id` 列保留但降级为"面板创建者的展示字段"（agent 通道填 originator_agent_id/task_id）——无兼容负担下的最小语义分立。
 
 **刻意不做**：source 型的二次引用（call_ref）、payload 模板继承、跨批次数据管道。有真实场景再加，v0 不预支抽象。
 
