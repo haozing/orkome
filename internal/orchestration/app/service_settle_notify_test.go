@@ -206,47 +206,19 @@ func TestSettle_FailedDoesNotWriteOutcome(t *testing.T) {
 	assert.Equal(t, 0, ow.calls, "失败没有产出：fail 结算不写 outcome")
 }
 
-func TestSettle_OutcomeWritten_SuppressesFallbackComment(t *testing.T) {
+func TestSettle_OutcomeIsSoleChannel_NoFallbackComment(t *testing.T) {
+	// 裁决（2026-10-12）：outcome 是产出的唯一正式面；结算不再写任何兜底
+	// 评论——评论流只承载交流（人 + agent 按需 post_comment）。
 	repo := &settleNotifyFakeRepo{}
-	ow := &fakeOutcomeWriter{}
 	comments := &commentRecorder{}
 	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
 	settle.SetRuntimeInstance("i-1")
-	settle.SetOutcomeWriter(ow)
 
 	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
 	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
 		EngineOutput{Output: "the deliverable"}, nil))
 
-	assert.Equal(t, 0, comments.writes, "outcome 已落库：同一内容不再写兜底评论")
-}
-
-func TestSettle_OutcomeWriteError_FallsBackToComment(t *testing.T) {
-	repo := &settleNotifyFakeRepo{}
-	ow := &fakeOutcomeWriter{failOn: 1}
-	comments := &commentRecorder{}
-	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
-	settle.SetRuntimeInstance("i-1")
-	settle.SetOutcomeWriter(ow)
-
-	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
-	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
-		EngineOutput{Output: "deliverable"}, nil))
-
-	assert.Equal(t, 1, comments.writes, "outcome 写入失败：回落评论兜底，产出不丢")
-}
-
-func TestSettle_NoOutcomeWriter_FallsBackToComment(t *testing.T) {
-	repo := &settleNotifyFakeRepo{}
-	comments := &commentRecorder{}
-	settle := NewSettlementService(repo, &recorderEmitter{}, nil, comments, nil)
-	settle.SetRuntimeInstance("i-1")
-
-	agent := Agent{ID: "ag-1", WorkspaceID: "ws-1", Name: "worker"}
-	require.NoError(t, settle.Settle(context.Background(), completedTask(), agent,
-		EngineOutput{Output: "deliverable"}, nil))
-
-	assert.Equal(t, 1, comments.writes, "outcome 未接线（旧行为）：评论兜底照旧")
+	assert.Equal(t, 0, comments.writes, "结算不写评论：汇报 tab 是唯一汇报面")
 }
 
 // ---- 派发式小队自动回环（leader wake）----

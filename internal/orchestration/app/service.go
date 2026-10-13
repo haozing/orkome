@@ -778,28 +778,19 @@ func (s *SettlementService) Settle(ctx context.Context, task Task, agent Agent, 
 		_ = s.repo.InsertMemberUsage(ctx, task.ID, mu.AgentID, mu.Label, mu.Usage)
 	}
 
-	// 工单产出（"需求→产出"一等公民）：completed 时后写覆盖 outcome；
-	// outcome 已落库则不再写兜底 agent 评论——同一内容不落两处，评论流
-	// 回归交流面（过程汇报仍由 agent 按需 post_comment，不受影响）。
-	outcomeWritten := false
+	// 工单产出（"需求→产出"一等公民）：completed 时后写覆盖 outcome。
+	// outcome 是产出的唯一正式面（汇报 tab 读它）；评论流只承载交流
+	//（过程沟通由 agent 按需 post_comment）。
 	if task.WorkItemID != "" && s.outcomes != nil && strings.TrimSpace(out.Output) != "" {
 		body := out.Output
 		if len([]rune(body)) > 4000 {
 			body = string([]rune(body)[:4000])
 		}
-		if err := s.outcomes.WriteOutcome(ctx, task.WorkspaceID, task.WorkItemID, task.ID, body); err == nil {
-			outcomeWritten = true
-		}
-	}
-
-	if task.WorkItemID != "" && s.comments != nil && !outcomeWritten {
-		has, _ := s.comments.HasAgentComment(ctx, task.WorkItemID)
-		if !has && strings.TrimSpace(out.Output) != "" {
-			body := out.Output
-			if len([]rune(body)) > 8000 {
-				body = string([]rune(body)[:8000])
-			}
-			_ = s.comments.WriteAgentComment(ctx, task.WorkspaceID, task.WorkItemID, task.AgentID, body)
+		if err := s.outcomes.WriteOutcome(ctx, task.WorkspaceID, task.WorkItemID, task.ID, body); err != nil {
+			// outcome 是产出的唯一正式面：落库失败必须留下痕迹（此前回落
+			// 评论兜底的方案已随"评论区只做交流"裁决移除）。
+			s.emit.Emit(ctx, envelope(events.TaskFailed, task.WorkspaceID, task.AgentID,
+				map[string]any{"task_id": task.ID, "outcome_write_failed": err.Error()}))
 		}
 	}
 
@@ -868,12 +859,6 @@ func (s *SettlementService) Approve(ctx context.Context, workspaceID, taskID, by
 
 	if sid, _ := task.Context["chat_session_id"].(string); sid != "" {
 		s.emitChatDone(ctx, task, sid, out.Output, domain.Completed)
-	}
-	if task.WorkItemID != "" && s.comments != nil {
-		has, _ := s.comments.HasAgentComment(ctx, task.WorkItemID)
-		if !has && strings.TrimSpace(out.Output) != "" {
-			_ = s.comments.WriteAgentComment(ctx, task.WorkspaceID, task.WorkItemID, task.AgentID, out.Output)
-		}
 	}
 	// FP-10：complete() 已在事务内 emit 过 TaskCompleted，这里不再重复 Emit
 	//（双 EventID 会让订阅者收到双通知）。actor=byUser 供投影侧过滤自通知。
