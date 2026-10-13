@@ -204,11 +204,8 @@ export function WorkspaceMcpSection({
     },
   })
   return (
-    <section className={cn('space-y-3', className)} aria-labelledby="ws-mcp-title">
-      <div className="flex items-center justify-between gap-2">
-        <h2 id="ws-mcp-title" className="text-sm font-semibold">
-          {t('packs.wsMcpTitle')}
-        </h2>
+    <section className={cn('space-y-3', className)}>
+      <div className="flex items-center justify-end">
         <Button size="sm" onClick={() => setEditing('new')} disabled={!workspaceId}>
           <Plus className="size-3.5" aria-hidden="true" />
           {t('packs.addServer')}

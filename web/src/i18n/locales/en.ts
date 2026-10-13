@@ -69,7 +69,6 @@ const en: Locale = {
     emptyDesc:
       'Packs are installed by admins via the pack-provision CLI. Once installed, they appear here along with their console entry (shortcuts also show up in the sidebar).',
     installedAt: 'Installed {{date}}',
-    wsMcpTitle: 'Workspace MCP servers',
     addServer: 'Add server',
     noServers: 'No servers yet—click "Add server" in the top right to register one.',
     storedCred: 'Credentials stored',

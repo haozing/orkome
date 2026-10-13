@@ -70,7 +70,6 @@ const zh: Locale = {
     emptyDesc:
       'pack 由管理员通过 pack-provision CLI 安装，安装后此处会显示 pack 及其控制台入口（侧栏也会出现对应快捷入口）。',
     installedAt: '安装于 {{date}}',
-    wsMcpTitle: '工作区级 MCP 服务器',
     addServer: '新增服务器',
     noServers: '暂无服务器，点击右上角"新增服务器"注册一个。',
     storedCred: '已存凭证',
