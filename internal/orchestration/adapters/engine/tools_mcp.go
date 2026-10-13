@@ -221,6 +221,57 @@ func (e *EinoEngine) buildMCPTools(ctx context.Context, task orchapp.Task, agent
 	return br
 }
 
+// ProbeTool 是单台 MCP 服务器的工具探针结果（工具集成页"查看工具"用）。
+// Schema 来源与运行期一致：协议自描述优先，B1 存档（pack_tool_schema）补位。
+type ProbeTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+}
+
+// ProbeServerTools 对单台工作区 MCP 服务器做一次建连 + ListTools（SSRF
+// 校验、10s 预算、32 工具上限均与运行期桥接同参）。独立的轻路径：不复用
+// buildMCPTools（那需要 task/agent 上下文），只共享建连与清单协议链路。
+// archived 为 pack 工具 schema 存档（toolName → schema），可为 nil。
+func ProbeServerTools(ctx context.Context, srv orchapp.ResolvedMCPServer, guard *egressx.Guard, archived map[string]json.RawMessage) ([]ProbeTool, error) {
+	if guard == nil {
+		guard = egressx.DefaultGuard()
+	}
+	if err := guard.ValidateURL(ctx, srv.URL); err != nil {
+		return nil, fmt.Errorf("ssrf: %w", err)
+	}
+	headers := mcpHeadersOf(srv.Credentials)
+	cli, err := newMCPClient(srv, headers)
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
+	tools, schemas, err := mcpConnect(ctx, cli, headers)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProbeTool, 0, len(tools))
+	for _, t := range tools {
+		if len(out) >= mcpToolsPerServerMax {
+			break
+		}
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		pt := ProbeTool{Name: info.Name, Description: info.Desc}
+		schema := schemas[info.Name]
+		if len(schema) == 0 {
+			schema = archived[info.Name]
+		}
+		if len(schema) > 0 {
+			pt.OutputSchema = schema
+		}
+		out = append(out, pt)
+	}
+	return out, nil
+}
+
 func newMCPClient(srv orchapp.ResolvedMCPServer, headers map[string]string) (*mcpclient.Client, error) {
 	switch strings.ToLower(strings.TrimSpace(srv.Transport)) {
 	case "", "http", "streamable_http":

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -163,6 +164,35 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 	// 包级 guard；MCP 桥接（buildMCPTools）读的是 EinoEngine.Egress 字段，
 	// 不赋值则恒为 DefaultGuard——loopback/内网 MCP pack 全部 ssrf_rejected。
 	eng.Egress = egressGuard
+	// 工具集成页"查看工具"：工作区级 MCP 服务器实时探针（建连+ListTools，
+	// 与运行期同参；B1 存档补输出契约同 buildMCPTools）。app 层不依赖
+	// engine 包，经函数注入反转。
+	mcpSvc.ToolProbe = func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, error) {
+		archived := map[string]json.RawMessage{}
+		if eng.PackToolSchemas != nil {
+			if list, err := eng.PackToolSchemas.ListPackToolSchemas(ctx, workspaceID); err == nil {
+				for _, it := range list {
+					if it.ToolName == "" || it.OutputSchema == nil {
+						continue
+					}
+					b, err := json.Marshal(it.OutputSchema)
+					if err != nil {
+						continue
+					}
+					archived[it.ToolName] = b
+				}
+			}
+		}
+		probe, err := engine.ProbeServerTools(ctx, srv, egressGuard, archived)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]orchapp.ProbeTool, len(probe))
+		for i, p := range probe {
+			out[i] = orchapp.ProbeTool{Name: p.Name, Description: p.Description, OutputSchema: p.OutputSchema}
+		}
+		return out, nil
+	}
 	agents := orchapp.NewAgentService(repo, bus)
 	agents.Egress = egressGuard
 	enq := orchapp.NewEnqueueService(repo, bus)

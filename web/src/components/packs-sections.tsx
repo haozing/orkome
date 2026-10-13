@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { PackagePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, PackagePlus, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -7,7 +7,9 @@ import {
   deleteWorkspaceMcp,
   listPackEntries,
   listWorkspaceMcp,
+  probeWorkspaceMcpTools,
   updateWorkspaceMcp,
+  type McpProbeTool,
   type PackUIEntry,
   type WorkspaceMCPInput,
   type WorkspaceMCPServer,
@@ -111,6 +113,53 @@ interface ServerFormState {
 
 const TRANSPORTS = ['http', 'sse'] as const
 
+// 单台服务器的工具清单面板：点击「查看工具」时才发起 probe（实时建连，
+// 非缓存），结果在面板存活期间保留——收起再展开会重新 probe（服务器端
+// 工具面可能已变化，重查即最新态）。
+function ServerToolsPanel({ workspaceId, server }: { workspaceId: string; server: WorkspaceMCPServer }) {
+  const { t } = useTranslation()
+  const tools = useQuery({
+    queryKey: ['workspace-mcp-probe', workspaceId, server.id],
+    queryFn: () => probeWorkspaceMcpTools(workspaceId, server.id),
+    gcTime: 0, // 面板关闭即弃——下次展开重新 probe
+    retry: false,
+  })
+  if (tools.isPending) {
+    return <p className="px-3 py-2 text-xs text-zinc-500">{t('packs.toolsLoading')}</p>
+  }
+  if (tools.isError) {
+    return (
+      <p role="alert" className="px-3 py-2 text-xs text-red-600 dark:text-red-400">
+        {t('packs.toolsFailed')}
+        {tools.error instanceof Error ? `：${tools.error.message}` : ''}
+      </p>
+    )
+  }
+  const list: McpProbeTool[] = tools.data?.tools ?? []
+  if (list.length === 0) {
+    return <p className="px-3 py-2 text-xs text-zinc-500">{t('packs.toolsEmpty')}</p>
+  }
+  return (
+    <div className="px-3 pb-3">
+      <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        {t('packs.toolCount', { count: list.length })}
+      </p>
+      <ul className="space-y-1.5">
+        {list.map((tool) => (
+          <li key={tool.name} className="rounded-md bg-zinc-50 px-2.5 py-1.5 dark:bg-zinc-800/60">
+            <code className="font-mono text-xs font-medium">{tool.name}</code>
+            {tool.description && (
+              <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
+                {tool.description}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function WorkspaceMcpSection({
   workspaceId,
   className,
@@ -122,6 +171,7 @@ export function WorkspaceMcpSection({
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<WorkspaceMCPServer | 'new' | null>(null)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [toolsOpenId, setToolsOpenId] = useState<string | null>(null)
   const servers = useQuery({
     queryKey: ['workspace-mcp', workspaceId],
     queryFn: () => listWorkspaceMcp(workspaceId as string),
@@ -167,51 +217,77 @@ export function WorkspaceMcpSection({
           className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
           data-testid="ws-mcp-list"
         >
-          {servers.data.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center gap-3 px-3 py-2.5"
-              data-testid="ws-mcp-row"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  {s.name}
-                  <Badge variant="neutral">{s.transport}</Badge>
-                  {s.has_credentials && <Badge variant="success">{t('packs.storedCred')}</Badge>}
-                </p>
-                <p className="truncate font-mono text-xs text-zinc-400">{s.url}</p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
-                <Pencil className="size-3.5" aria-hidden="true" />
-                {t('common.edit')}
-              </Button>
-              {removingId === s.id ? (
-                <span className="flex shrink-0 items-center gap-1">
+          {servers.data.map((s) => {
+            const toolsOpen = toolsOpenId === s.id
+            return (
+              <li
+                key={s.id}
+                className="px-3 py-2.5"
+                data-testid="ws-mcp-row"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      {s.name}
+                      <Badge variant="neutral">{s.transport}</Badge>
+                      {s.has_credentials && <Badge variant="success">{t('packs.storedCred')}</Badge>}
+                    </p>
+                    <p className="truncate font-mono text-xs text-zinc-400">{s.url}</p>
+                  </div>
                   <Button
                     size="sm"
-                    variant="danger"
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate(s.id)}
+                    variant="ghost"
+                    aria-expanded={toolsOpen}
+                    onClick={() => setToolsOpenId(toolsOpen ? null : s.id)}
                   >
-                    {t('packs.confirmDelete')}
+                    <Wrench className="size-3.5" aria-hidden="true" />
+                    {toolsOpen ? t('packs.hideTools') : t('packs.viewTools')}
+                    <ChevronDown
+                      className={
+                        'size-3.5 shrink-0 text-zinc-400 transition-transform' +
+                        (toolsOpen ? ' rotate-180' : '')
+                      }
+                      aria-hidden="true"
+                    />
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
-                    {t('common.cancel')}
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                    {t('common.edit')}
                   </Button>
-                </span>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0 text-red-600 dark:text-red-400"
-                  aria-label={t('packs.deleteServer', { name: s.name })}
-                  onClick={() => setRemovingId(s.id)}
-                >
-                  <Trash2 className="size-3.5" aria-hidden="true" />
-                </Button>
-              )}
-            </li>
-          ))}
+                  {removingId === s.id ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(s.id)}
+                      >
+                        {t('packs.confirmDelete')}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
+                        {t('common.cancel')}
+                      </Button>
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 text-red-600 dark:text-red-400"
+                      aria-label={t('packs.deleteServer', { name: s.name })}
+                      onClick={() => setRemovingId(s.id)}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+                {toolsOpen && workspaceId && (
+                  <div className="mt-2 rounded-md border border-zinc-200 pt-2 dark:border-zinc-800">
+                    <ServerToolsPanel workspaceId={workspaceId} server={s} />
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
 

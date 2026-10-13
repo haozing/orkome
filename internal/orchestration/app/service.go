@@ -314,6 +314,11 @@ type MCPServerService struct {
 	repo Repo
 
 	Egress *egressx.Guard
+
+	// ToolProbe 是单台服务器工具枚举的引擎侧实现（engine.ProbeServerTools，
+	// 组装根接线）。第二参为 workspaceID（B1 存档按 workspace 拉取）。
+	// nil = 未接线，ProbeTools 返回 501 语义错误。
+	ToolProbe func(ctx context.Context, srv ResolvedMCPServer, workspaceID string) ([]ProbeTool, error)
 }
 
 func NewMCPServerService(repo Repo) *MCPServerService {
@@ -362,6 +367,44 @@ func (s *MCPServerService) Update(ctx context.Context, m WorkspaceMCP) (*Workspa
 
 func (s *MCPServerService) Delete(ctx context.Context, wsID, id string) error {
 	return s.repo.DeleteWorkspaceMCP(ctx, wsID, id)
+}
+
+// ProbeTool 是 MCP 工具探针的 wire 形状（app 层定义、engine 侧映射填充，
+// 避免 app → engine 反向依赖）。
+type ProbeTool struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+}
+
+// ProbeTools 对工作区级 MCP 服务器做一次实时建连 + ListTools，返回工具
+// 清单（工具集成页"查看工具"）。凭证按存储原样使用（含密封解密后的
+// headers），连接参数与运行期任务执行同参。
+func (s *MCPServerService) ProbeTools(ctx context.Context, wsID, serverID string) ([]ProbeTool, error) {
+	list, err := s.repo.ListWorkspaceMCP(ctx, wsID)
+	if err != nil {
+		return nil, err
+	}
+	var target *WorkspaceMCP
+	for i := range list {
+		if list[i].ID == serverID {
+			target = &list[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, apierr.New(apierr.NotFound, "mcp server not found")
+	}
+	if s.ToolProbe == nil {
+		return nil, apierr.New(apierr.Internal, "tool probe not wired")
+	}
+	probe, err := s.ToolProbe(ctx, ResolvedMCPServer{
+		Name: target.Name, Transport: target.Transport, URL: target.URL, Credentials: target.Credentials,
+	}, wsID)
+	if err != nil {
+		return nil, err
+	}
+	return probe, nil
 }
 
 func (s *MCPServerService) AgentMCP(ctx context.Context, wsID, agentID string) ([]AgentMCP, error) {

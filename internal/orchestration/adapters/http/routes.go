@@ -188,6 +188,7 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 		authReg("POST /api/workspaces/{workspaceId}/mcp-servers", d.memberPathMW(d.handleMCPCreate))
 		authReg("PUT /api/workspaces/{workspaceId}/mcp-servers/{serverId}", d.memberPathMW(d.handleMCPUpdate))
 		authReg("DELETE /api/workspaces/{workspaceId}/mcp-servers/{serverId}", d.memberPathMW(d.handleMCPDelete))
+		authReg("POST /api/workspaces/{workspaceId}/mcp-servers/{serverId}/probe-tools", d.memberPathMW(d.handleMCPProbeTools))
 	}
 }
 

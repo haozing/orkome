@@ -100,3 +100,21 @@ export function deleteWorkspaceMcp(workspaceId: string, serverId: string) {
     `/api/workspaces/${workspaceId}/mcp-servers/${serverId}`,
   )
 }
+
+/** 单台 MCP 服务器的工具探针结果（POST probe-tools，实时建连非缓存）。 */
+export interface McpProbeTool {
+  name: string
+  description?: string
+  output_schema?: Record<string, unknown>
+}
+
+/**
+ * POST /api/workspaces/{id}/mcp-servers/{serverId}/probe-tools
+ * 实时建连目标服务器 ListTools（SSRF 校验 / 10s 预算 / 32 工具上限与运行期同参）。
+ */
+export function probeWorkspaceMcpTools(workspaceId: string, serverId: string) {
+  return api.post<{ tools: McpProbeTool[] }>(
+    `/api/workspaces/${workspaceId}/mcp-servers/${serverId}/probe-tools`,
+    {},
+  )
+}

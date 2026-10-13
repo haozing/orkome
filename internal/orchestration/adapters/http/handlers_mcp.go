@@ -99,6 +99,21 @@ func (d Deps) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 	webx.WriteJSON(w, http.StatusOK, map[string]string{"result": "deleted"})
 }
 
+// handleMCPProbeTools 实时枚举一台工作区 MCP 服务器的工具清单（工具集成页
+// "查看工具"）。POST 语义：有副作用之外的实时外呼（建连目标服务器），不做
+// 缓存——每次点击都是当下真实状态。
+func (d Deps) handleMCPProbeTools(w http.ResponseWriter, r *http.Request) {
+	tools, err := d.MCP.ProbeTools(r.Context(), d.ws(r), r.PathValue("serverId"))
+	if err != nil {
+		writeErrReq(r, w, err)
+		return
+	}
+	if tools == nil {
+		tools = []orchapp.ProbeTool{}
+	}
+	webx.WriteJSON(w, http.StatusOK, map[string]any{"tools": tools})
+}
+
 func (d Deps) handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 	ws := d.ws(r)
 	agentID := r.PathValue("agentId")
