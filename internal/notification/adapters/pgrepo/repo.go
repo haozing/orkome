@@ -30,14 +30,14 @@ func noRow(err error) bool                    { return errors.Is(err, pgx.ErrNoR
 // rides the framework's uq_notification_dedup unique index (user_id,
 // dedup_key): product dedup keys are already namespaced and are stored raw,
 // unlike framework Notify() writes which prefix the notification type.
-func (r *Repo) InsertNotification(ctx context.Context, ws, uid string, wi *string, typ, title, body, link, dedup string) error {
+func (r *Repo) InsertNotification(ctx context.Context, ws, uid string, wi *string, typ, title, body, dedup string) error {
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, dedup_key)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
 		uid, ws, uid, wi, typ,
 		domain.TruncateRunes(title, domain.TitleMaxRunes),
 		domain.TruncateRunes(body, domain.SummaryMaxRunes),
-		link, dedup)
+		dedup)
 	return err
 }
 
@@ -58,7 +58,7 @@ func (r *Repo) ListNotification(ctx context.Context, ws, uid string, archived bo
 	}
 	args = append(args, limit)
 	rows, err := r.q(ctx).Query(ctx, `
-SELECT id::text, type, title, body, coalesce(link,''), coalesce(work_item_id::text,''), read_at, created_at
+SELECT id::text, type, title, body, coalesce(work_item_id::text,''), read_at, created_at
 FROM notification WHERE `+cond+` ORDER BY created_at DESC LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, "", err
@@ -67,7 +67,7 @@ FROM notification WHERE `+cond+` ORDER BY created_at DESC LIMIT $`+fmt.Sprint(le
 	var out []app.Item
 	for rows.Next() {
 		var it app.Item
-		if err := rows.Scan(&it.ID, &it.Type, &it.Title, &it.Body, &it.Link, &it.WorkItemID, &it.ReadAt, &it.CreatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Type, &it.Title, &it.Body, &it.WorkItemID, &it.ReadAt, &it.CreatedAt); err != nil {
 			return nil, "", err
 		}
 		out = append(out, it)
@@ -242,8 +242,8 @@ func (r *Repo) WriteTaskCompleted(ctx context.Context, workspaceID, userID, work
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,$3,nullif($4,'')::uuid,'task_completed',$5,$6,'',$7)
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, type, title, body, dedup_key)
+VALUES ($1,$2,$3,nullif($4,'')::uuid,'task_completed',$5,$6,$7)
 ON CONFLICT DO NOTHING`,
 		userID, workspaceID, userID, workItemID,
 		domain.TruncateRunes("Agent "+agentName+" completed the task", domain.TitleMaxRunes),
@@ -264,8 +264,8 @@ func (r *Repo) WriteApprovalRequest(ctx context.Context, ws, userID, taskID, pay
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,$3,'approval_request',$4,$5,'',$6) ON CONFLICT DO NOTHING`,
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, dedup_key)
+VALUES ($1,$2,$3,'approval_request',$4,$5,$6) ON CONFLICT DO NOTHING`,
 		userID, ws, userID,
 		domain.TruncateRunes("needs your approval", domain.TitleMaxRunes),
 		domain.TruncateRunes(payload, domain.BodyMaxRunes),
@@ -278,8 +278,8 @@ func (r *Repo) WriteEvalReport(ctx context.Context, ws, userID, taskID, title, b
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, link, dedup_key)
-VALUES ($1,$2,$3,'eval_report',$4,$5,'',$6)
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, dedup_key)
+VALUES ($1,$2,$3,'eval_report',$4,$5,$6)
 ON CONFLICT DO NOTHING`,
 		userID, ws, userID,
 		domain.TruncateRunes(title, domain.TitleMaxRunes),

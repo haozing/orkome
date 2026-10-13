@@ -24,7 +24,7 @@ func newFakeRepo() *fakeRepo {
 
 var _ Repo = (*fakeRepo)(nil)
 
-func (f *fakeRepo) InsertNotification(_ context.Context, ws, uid string, _ *string, _, _, _, _, dedup string) error {
+func (f *fakeRepo) InsertNotification(_ context.Context, ws, uid string, _ *string, _, _, _, dedup string) error {
 	f.notification[ws+"/"+uid] = append(f.notification[ws+"/"+uid], dedup)
 	return nil
 }

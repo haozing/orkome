@@ -15,7 +15,6 @@ type Item struct {
 	Type  string `json:"type"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
-	Link  string `json:"link,omitempty"`
 
 	WorkItemID string     `json:"work_item_id,omitempty"`
 	ReadAt     *time.Time `json:"read_at,omitempty"`
@@ -30,7 +29,7 @@ type Preference struct {
 }
 
 type Repo interface {
-	InsertNotification(ctx context.Context, workspaceID, recipientUserID string, workItemID *string, typ, title, body, link, dedupKey string) error
+	InsertNotification(ctx context.Context, workspaceID, recipientUserID string, workItemID *string, typ, title, body, dedupKey string) error
 	ListNotification(ctx context.Context, workspaceID, userID string, archived bool, limit int, before string) ([]Item, string, error)
 	UnreadCount(ctx context.Context, workspaceID, userID string) (int, error)
 	MarkRead(ctx context.Context, workspaceID, userID, id string, read bool) error
@@ -74,7 +73,6 @@ type EventIn struct {
 	SessionID string
 	Title     string
 	Body      string
-	Link      string
 
 	MentionedUserIDs []string
 
@@ -121,7 +119,7 @@ func (s *NotifyService) Handle(ctx context.Context, in EventIn) error {
 		}
 		wi := ptrOrNil(in.WorkItemID)
 		if err := s.repo.InsertNotification(ctx, in.WorkspaceID, uid, wi,
-			in.Type, in.Title, in.Body, in.Link,
+			in.Type, in.Title, in.Body,
 			in.EventID+":"+uid); err != nil {
 			return err
 		}

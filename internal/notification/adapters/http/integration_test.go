@@ -182,7 +182,7 @@ func TestNotification_SummaryFacetsArchived(t *testing.T) {
 		{"approval_request", "it:C"},
 	}
 	for _, s := range seed {
-		require.NoError(t, h.repo.InsertNotification(ctx, h.wsID, h.userID, nil, s.typ, s.dedup, "b", "", s.dedup))
+		require.NoError(t, h.repo.InsertNotification(ctx, h.wsID, h.userID, nil, s.typ, s.dedup, "b", s.dedup))
 	}
 
 	_, err := h.pool.Exec(ctx, `UPDATE notification SET created_at = now() - interval '2 days'
@@ -334,7 +334,7 @@ func TestArchive_DeleteArchivedBefore(t *testing.T) {
 	ctx := context.Background()
 	for _, dedup := range []string{"old-a", "old-b", "new-a"} {
 		require.NoError(t, h.repo.InsertNotification(ctx, h.wsID, h.userID, nil,
-			"task_completed", dedup, "t", "", dedup))
+			"task_completed", dedup, "t", dedup))
 		age := "40 days"
 		if strings.HasPrefix(dedup, "new") {
 			age = "2 days"
