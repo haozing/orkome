@@ -104,6 +104,7 @@ export function NotificationBell() {
           <Button
             variant="ghost"
             size="icon-sm"
+            className="relative"
             aria-label={t('notif.bellAria', { count: unread.data?.count ?? 0 })}
           >
             <Bell className="size-4" />
