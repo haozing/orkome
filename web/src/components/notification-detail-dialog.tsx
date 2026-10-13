@@ -6,6 +6,7 @@ import {
   notificationTypeKey,
   type NotificationItem,
 } from '@/api/notification'
+import { looksMarkdown, Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -58,9 +59,17 @@ export function NotificationDetailDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-2">
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            {shown?.body || t('notif.detailEmptyBody')}
-          </p>
+          {shown?.body ? (
+            looksMarkdown(shown.body) ? (
+              <Markdown className="break-words">{shown.body}</Markdown>
+            ) : (
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                {shown.body}
+              </p>
+            )
+          ) : (
+            <p className="text-sm text-zinc-400">{t('notif.detailEmptyBody')}</p>
+          )}
         </div>
         <DialogFooter className="items-center sm:justify-between">
           <Button

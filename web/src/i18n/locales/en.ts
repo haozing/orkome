@@ -858,6 +858,7 @@ const en: Locale = {
     edit: 'Edit',
     save: 'Save',
     cancel: 'Cancel',
+    placeholder: 'Write the outcome… Markdown supported (headings, lists, tables, code blocks)',
     fromTask: 'from task {{task}}',
     latestWins: 'Re-dispatching a task will overwrite this outcome',
     emptyGuide: 'Work item is completed but has no structured outcome yet — dispatch a task and the final conclusion will land here.',

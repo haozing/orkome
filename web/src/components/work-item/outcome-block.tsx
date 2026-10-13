@@ -1,12 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Sparkles } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { useFieldUpdate } from '@/components/work-item/use-field-update'
 import type { WorkItem } from '@/api/work'
+
+// 与评论区同款 markdown 编辑器（RichEditor，懒加载同 comment-thread）。
+const RichEditor = lazy(() =>
+  import('@/components/editor/rich-editor').then((m) => ({ default: m.RichEditor })),
+)
 
 // OutcomeBlock 工单产出（"需求→产出"一等公民，迁移 1039）。
 // 三态：有 outcome → Markdown 渲染 + 溯源底注 + 可人工编辑；
@@ -17,7 +22,6 @@ export function OutcomeBlock({ item }: { item: WorkItem }) {
   const field = useFieldUpdate(item)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const taRef = useRef<HTMLTextAreaElement>(null)
 
   const completed = item.status_category === 'done' || item.status_category === 'closed'
   if (!item.outcome && !completed) return null
@@ -25,7 +29,6 @@ export function OutcomeBlock({ item }: { item: WorkItem }) {
   const startEdit = () => {
     setDraft(item.outcome?.summary ?? '')
     setEditing(true)
-    requestAnimationFrame(() => taRef.current?.focus())
   }
   const save = () => {
     field.mutate({ outcome: { summary: draft, task_id: item.outcome?.task_id, completed_at: item.outcome?.completed_at ?? new Date().toISOString() } }, {
@@ -52,13 +55,21 @@ export function OutcomeBlock({ item }: { item: WorkItem }) {
 
       {editing ? (
         <div className="space-y-2">
-          <textarea
-            ref={taRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={8}
-            className="w-full rounded-md border border-zinc-200 bg-transparent p-2 text-sm dark:border-zinc-800"
-          />
+          <div className="rounded-md border border-zinc-300 bg-white px-3 py-2 outline-none dark:border-zinc-700 dark:bg-zinc-900">
+            <Suspense
+              fallback={
+                <div className="py-4 text-sm text-zinc-400">{t('work.editorLoading')}</div>
+              }
+            >
+              <RichEditor
+                content={draft}
+                onChange={setDraft}
+                ariaLabel={t('outcome.title')}
+                placeholder={t('outcome.placeholder')}
+                minRows={6}
+              />
+            </Suspense>
+          </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={save} disabled={field.isPending}>
               {t('outcome.save')}

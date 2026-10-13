@@ -843,6 +843,7 @@ const zh: Locale = {
     edit: '编辑',
     save: '保存',
     cancel: '取消',
+    placeholder: '写产出结论……支持 Markdown（标题、列表、表格、代码块）',
     fromTask: '来自任务 {{task}}',
     latestWins: '重新派发任务将覆盖此产出',
     emptyGuide: '工单已完成但尚无结构化产出——派发任务后，agent 的最终结论将沉淀在此。',
