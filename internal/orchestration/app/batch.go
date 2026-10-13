@@ -271,7 +271,14 @@ func (s *BatchService) RunWorker(ctx context.Context, b Batch, proc BatchProcess
 
 		if s.emit != nil || s.bus != nil {
 			_, _, _, doneN, _ := s.repo.GetBatchCounts(ctx, b.ID)
-			if doneN/b.ChunkSize > lastEmittedChunk || doneN >= b.Total {
+			// chunk_size<=0 的存量行（1043 前的通道 B draft 补默认化前的遗留）
+			// 跳过分块节流，doneN 变化即发——防御除零（worker panic 会被
+			// 调度器 recover 吞掉，批次从此无人再跑，故这里绝不能炸）。
+			chunk := b.ChunkSize
+			if chunk <= 0 {
+				chunk = 1
+			}
+			if doneN/chunk > lastEmittedChunk || doneN >= b.Total {
 				if s.emit != nil {
 					_ = s.emit.EmitBatchProgress(ctx, b.ID, doneN, b.Total)
 				}
@@ -280,7 +287,7 @@ func (s *BatchService) RunWorker(ctx context.Context, b Batch, proc BatchProcess
 						"batch_id": b.ID, "done": doneN, "total": b.Total,
 						"workspace_id": b.WorkspaceID})
 				}
-				lastEmittedChunk = doneN / b.ChunkSize
+				lastEmittedChunk = doneN / chunk
 			}
 		}
 	}
