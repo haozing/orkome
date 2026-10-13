@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -387,6 +388,27 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 	}
 
 	batches := orchapp.NewBatchService(&orchpgrepo.BatchRepo{DB: db}, nil)
+	// llm_comment 的 params 自动补全（workspace_id/work_item_id + 工单指派
+	// agent）：用户在批量面板只填 payloads，三个上下文 ID 由 server 从工单
+	// 解析——指派 agent 缺失时拒绝创建（fail-fast，而非条目全败）。
+	batches.ParamsFiller = func(ctx context.Context, b *orchapp.Batch) error {
+		if b.Kind != "llm_comment" {
+			return nil
+		}
+		b.Params["workspace_id"] = b.WorkspaceID
+		b.Params["work_item_id"] = b.WorkItemID
+		if b.Params["agent_id"] == nil || b.Params["agent_id"] == "" {
+			wi, ok, err := wRepo.GetWorkItem(ctx, b.WorkspaceID, b.WorkItemID)
+			if err != nil {
+				return err
+			}
+			if !ok || wi.AssigneeType != "agent" || wi.AssigneeID == "" {
+				return errors.New("llm_comment requires the work item to be assigned to an agent (assignee_id missing)")
+			}
+			b.Params["agent_id"] = wi.AssigneeID
+		}
+		return nil
+	}
 
 	// 首个真模型 BatchProcessor（kind=llm_comment）：payload.seed → 工单指派
 	// agent 生成摘要并 post_comment。Batch 执行面此前为插件留白（Registry 空）。

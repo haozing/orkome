@@ -79,6 +79,11 @@ type BatchService struct {
 	done BatchDoneNotifier
 	bus  BatchEmitter
 	now  func() time.Time
+
+	// ParamsFiller 按 kind 补全 params（llm_comment 需要 workspace_id/
+	// work_item_id/agent_id——agent 取工单指派人）。nil = 不补，params 原样
+	// 入库；缺必填字段的条目在执行期 fail，错误直达条目（前端可见）。
+	ParamsFiller func(ctx context.Context, b *Batch) error
 }
 
 func NewBatchService(repo BatchRepo, emit ProgressEmitter) *BatchService {
@@ -109,6 +114,11 @@ func (s *BatchService) CreateAndMaterialize(ctx context.Context, b Batch, payloa
 	}
 	if b.Source == nil {
 		b.Source = map[string]any{}
+	}
+	if s.ParamsFiller != nil {
+		if err := s.ParamsFiller(ctx, &b); err != nil {
+			return nil, err
+		}
 	}
 	b.Total = len(payloads)
 	b.Status = domain.BatchPending

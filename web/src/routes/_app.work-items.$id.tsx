@@ -17,13 +17,14 @@ import { StatusToggle } from '@/components/work-item/property-rows'
 import { CommentThread } from '@/components/work-item/comment-thread'
 import { SubWorkItemsList } from '@/components/work-item/sub-work-items'
 import { TaskPanel } from '@/components/work-item/task-panel'
+import { BatchPanel } from '@/components/work-item/batch-panel'
 import { TimelineList } from '@/components/work-item/timeline-list'
 import { useTranslation } from 'react-i18next'
 
 // 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
 // validateSearch 失败即丢弃整个 search——pack:* 值必须被 schema 显式放行，
 // 否则用户停在 slot tab 时任何 search 更新都会把 tab 洗掉。
-const STATIC_TABS = ['detail', 'reports', 'sub', 'tasks', 'timeline'] as const
+const STATIC_TABS = ['detail', 'reports', 'sub', 'tasks', 'batches', 'timeline'] as const
 const searchSchema = z.object({
   tab: z.enum(STATIC_TABS).or(z.string().regex(/^pack:/)).optional(),
   task: z.string().optional(),
@@ -93,6 +94,7 @@ export function WorkItemDetailPage() {
                   ['reports', 'work.tabReports'],
                   ['sub', 'work.tabSub'],
                   ['tasks', 'work.tabTasks'],
+                  ['batches', 'work.tabBatches'],
                   ['timeline', 'work.tabTimeline'],
                 ] as const
               ).map(([key, label]) => (
@@ -120,6 +122,7 @@ export function WorkItemDetailPage() {
                 onToggleTask={toggleTask}
               />
             )}
+            {search.tab === 'batches' && <BatchPanel workItemId={id} />}
             {search.tab === 'timeline' && <TimelineList workItemId={id} />}
             {activeSlot && (
               <PackSlotFrame pack={activeSlot.pack} slot={activeSlot.slot} workItemId={id} />
