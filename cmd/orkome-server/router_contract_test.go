@@ -34,6 +34,8 @@ import (
 	convapp "orkome/internal/conversation/app"
 	notifhttp "orkome/internal/notification/adapters/http"
 	notifapp "orkome/internal/notification/app"
+	packhttp "orkome/internal/pack/adapters/http"
+	packapp "orkome/internal/pack/app"
 	orchhttp "orkome/internal/orchestration/adapters/http"
 	orchapp "orkome/internal/orchestration/app"
 	skillhttp "orkome/internal/skills/adapters/http"
@@ -138,6 +140,10 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"PUT", "/ui-entries/{pack}"},
 	{"DELETE", "/ui-entries/{pack}"},
 
+	{"GET", "/packs"}, {"PUT", "/packs"},
+	{"GET", "/packs/{packId}"}, {"DELETE", "/packs/{packId}"},
+	{"PUT", "/packs/{packId}/subscriptions"},
+
 	{"GET", "/workspaces/{workspaceId}/webhooks/events"},
 	{"GET", "/workspaces/{workspaceId}/webhooks/deliveries"},
 	{"POST", "/workspaces/{workspaceId}/webhooks/deliveries/{deliveryId}/redeliver"},
@@ -177,6 +183,7 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/agent-builder/sessions/{sessionId}/draft"}, {"PUT", "/agent-builder/sessions/{sessionId}/draft"},
 	{"GET", "/workspaces/{workspaceId}/mcp-servers"}, {"POST", "/workspaces/{workspaceId}/mcp-servers"},
 	{"PUT", "/workspaces/{workspaceId}/mcp-servers/{id}"}, {"DELETE", "/workspaces/{workspaceId}/mcp-servers/{id}"},
+	{"POST", "/workspaces/{workspaceId}/mcp-servers/{id}/probe-tools"}, // fe80ac8 探针漏登契约表（reverse walk 实证）
 	{"GET", "/tasks/{taskId}/messages"},
 	{"POST", "/tasks/{taskId}/retry-source-context"},
 	{"POST", "/tasks/{taskId}/approve"}, {"POST", "/tasks/{taskId}/deny"},
@@ -359,6 +366,7 @@ func buildTestAPIRouter() *http.ServeMux {
 		Canceller: stubCanceller{},
 	}, auth)
 	notifhttp.Mount(r, notifhttp.Deps{Notification: &notifapp.NotificationService{}, Prefs: &notifapp.PreferenceService{}}, auth)
+	packhttp.Mount(r, packhttp.Deps{Packs: &packapp.PackService{}, MemberCheck: member}, auth)
 
 	// framework notify domain: Mount through the filtered router — the product
 	// Mount above supersedes four of the framework patterns, so a direct

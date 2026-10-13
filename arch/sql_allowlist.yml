@@ -92,6 +92,10 @@ table_owners:
     - skill_file
     - skill_to_label
     - agent_skill
+  pack:
+    - pack
+    - pack_subscription
+    - webhook_subscription # vendor 表（ploykit 迁移 011，本体归 ploykit/webhooks 域）；pack 域仅经连接表 JOIN 只读（设计 §1.2 D3 / §6 vendor 边界）
   content:
     - attachment
     - source_context_object_intent

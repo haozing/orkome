@@ -33,6 +33,36 @@ func writePack(t *testing.T, mcpURL string) string {
 	return dir
 }
 
+// answerProvisionContract 在测试 fake API server 里模拟 provision 依赖的两个
+// 应答契约，命中返回 true（已应答，handler 可直接 return）：
+//   - PUT /api/packs（pack 一等公民 §1.3）：{name, version} → 201 {id, ...}
+//   - POST /api/workspaces/{ws}/webhooks/subscriptions：→ 201 {"subscription":{"id":...}}（ploykit 现状）
+func answerProvisionContract(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == "PUT" && r.URL.Path == "/api/packs" {
+		var body struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "pk-test-0001", "workspace_id": "ws1",
+			"name": body.Name, "version": body.Version,
+			"installed_at": "2026-10-13T00:00:00Z",
+		})
+		return true
+	}
+	if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/webhooks/subscriptions") {
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"subscription": map[string]any{"id": "sub-test-0001", "url": "http://127.0.0.1:19998/hook"},
+			"secret":       "s3cret",
+		})
+		return true
+	}
+	return false
+}
+
 func fakeBlogMCPServer(t *testing.T, toolName string) *httptest.Server {
 	t.Helper()
 	s := server.NewMCPServer("fakeblog", "1.0")
@@ -309,6 +339,9 @@ func TestInstallArchivesSchemas(t *testing.T) {
 	var mu sync.Mutex
 	var archived []archivedToolSchema
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if answerProvisionContract(w, r) {
+			return
+		}
 		if r.Method == "PUT" && strings.HasPrefix(r.PathValue("pack"), "") && strings.Contains(r.URL.Path, "/api/pack-tool-schemas/") {
 			var body struct {
 				Items []archivedToolSchema `json:"items"`
@@ -346,6 +379,9 @@ func TestInstallV0NoArchive(t *testing.T) {
 
 	putSeen := false
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if answerProvisionContract(w, r) {
+			return
+		}
 		if r.Method == "PUT" && strings.Contains(r.URL.Path, "/api/pack-tool-schemas/") {
 			putSeen = true
 		}

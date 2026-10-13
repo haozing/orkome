@@ -41,6 +41,7 @@ import (
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/flagsx"
 	"orkome/internal/platform/outboxx"
+	packhttp "orkome/internal/pack/adapters/http"
 	skillhttp "orkome/internal/skills/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
@@ -259,6 +260,7 @@ func main() {
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
+	packhttp.Mount(api, wiringPack(db, cfg, log, idMemberCheck(db), roleOf(db)), authGuardMw)
 
 	// Commercial surfaces (P6-2): audit / quota usage / billing plans / admin.
 	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az, idDeps.Repo)

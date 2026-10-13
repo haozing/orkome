@@ -54,6 +54,9 @@ func newSlotsCaptureAPI(t *testing.T) (*apiClient, *capturedUIEntryPut) {
 	var mu sync.Mutex
 	cap := &capturedUIEntryPut{}
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if answerProvisionContract(w, r) {
+			return
+		}
 		if r.Method == "PUT" && strings.Contains(r.URL.Path, "/api/ui-entries/") {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)

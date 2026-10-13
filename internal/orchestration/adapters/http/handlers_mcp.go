@@ -80,6 +80,9 @@ type mcpWire struct {
 	Credentials json.RawMessage `json:"credentials"`
 	Transport   string          `json:"transport"`
 	URL         string          `json:"url"`
+	// PackID 来源能力包（pack 一等公民 §1.2）：provision 通道传入；
+	// 空 = 手工注册。服务端不校验存在性（FK 由落库兜底）。
+	PackID string `json:"pack_id"`
 }
 
 func (x mcpWire) toModel(ws string) (orchapp.WorkspaceMCP, error) {
@@ -88,7 +91,7 @@ func (x mcpWire) toModel(ws string) (orchapp.WorkspaceMCP, error) {
 		return orchapp.WorkspaceMCP{}, err
 	}
 	return orchapp.WorkspaceMCP{WorkspaceID: ws, Name: x.Name, Transport: x.Transport,
-		URL: x.URL, Credentials: creds}, nil
+		URL: x.URL, Credentials: creds, PackID: x.PackID}, nil
 }
 
 func (d Deps) handleMCPDelete(w http.ResponseWriter, r *http.Request) {

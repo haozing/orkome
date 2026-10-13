@@ -12,6 +12,7 @@ type PackUIEntry struct {
 	ID          string       `json:"id"`
 	WorkspaceID string       `json:"workspace_id"`
 	Pack        string       `json:"pack"`
+	PackID      string       `json:"pack_id,omitempty"` // 迁移 1042：FK→pack；空=旧数据（v0 无兼容）
 	Label       string       `json:"label"`
 	URLTemplate string       `json:"url_template"`
 	Slots       []PackUISlot `json:"slots"`
@@ -43,13 +44,15 @@ func NewPackUIEntryService(repo PackUIEntryRepo) *PackUIEntryService {
 }
 
 func (s *PackUIEntryService) Upsert(ctx context.Context, ws, pack, label, urlTemplate string) error {
-	return s.UpsertWithSlots(ctx, ws, pack, label, urlTemplate, nil)
+	return s.UpsertWithSlots(ctx, ws, pack, "", label, urlTemplate, nil)
 }
 
 // UpsertWithSlots 与 entry 同一 PUT 路径：slots 随行落库（nil = 无 slots，覆盖旧值）。
-func (s *PackUIEntryService) UpsertWithSlots(ctx context.Context, ws, pack, label, urlTemplate string, slots []PackUISlot) error {
-	if ws == "" || pack == "" || label == "" || urlTemplate == "" {
-		return apierr.NewValidation("pack, label and url_template required")
+// packID 非空时按 (workspace_id, pack_id) 冲突写（迁移 1042 的一等公民口径；
+// provision 第 0 步先 upsert pack 拿 id 再传此）——空 packID 拒绝，防漂回字符串键。
+func (s *PackUIEntryService) UpsertWithSlots(ctx context.Context, ws, pack, packID, label, urlTemplate string, slots []PackUISlot) error {
+	if ws == "" || pack == "" || packID == "" || label == "" || urlTemplate == "" {
+		return apierr.NewValidation("pack, pack_id, label and url_template required")
 	}
 	if err := validateURLTemplate("url_template", "", urlTemplate); err != nil {
 		return err
@@ -57,7 +60,7 @@ func (s *PackUIEntryService) UpsertWithSlots(ctx context.Context, ws, pack, labe
 	if err := validateSlots(slots); err != nil {
 		return err
 	}
-	return s.repo.UpsertPackUIEntry(ctx, PackUIEntry{WorkspaceID: ws, Pack: pack, Label: label, URLTemplate: urlTemplate, Slots: slots})
+	return s.repo.UpsertPackUIEntry(ctx, PackUIEntry{WorkspaceID: ws, Pack: pack, PackID: packID, Label: label, URLTemplate: urlTemplate, Slots: slots})
 }
 
 func (s *PackUIEntryService) List(ctx context.Context, ws string) ([]PackUIEntry, error) {

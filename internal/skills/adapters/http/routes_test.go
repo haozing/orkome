@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,16 @@ type crudFakeRepo struct {
 	skills map[string]app.Skill
 	byName map[string]string
 	files  map[string][]app.SkillFile
+}
+
+func (f *crudFakeRepo) InsertSkill(_ context.Context, s app.Skill) (app.Skill, error) {
+	if s.ID == "" {
+		s.ID = "sk-" + s.Name
+	}
+	s.CreatedAt = time.Now()
+	f.skills[s.ID] = s
+	f.byName[s.WorkspaceID+"/"+s.Name] = s.ID
+	return s, nil
 }
 
 func (f *crudFakeRepo) GetSkill(_ context.Context, ws, id string) (app.Skill, bool, error) {
@@ -148,6 +159,65 @@ func crudReq(r http.Handler, method, target, body string) *httptest.ResponseReco
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
+}
+
+// newCRUDRouterAs 同 newCRUDRouter，但 auth 注入的 principal 带 Role
+// （模拟 owner/admin PAT——origin=pack 放行的鉴权路径测试入口）。
+func newCRUDRouterAs(t *testing.T, role string) (*http.ServeMux, *crudFakeRepo) {
+	t.Helper()
+	repo := &crudFakeRepo{
+		skills: map[string]app.Skill{}, byName: map[string]string{}, files: map[string][]app.SkillFile{},
+	}
+	r := http.NewServeMux()
+	Mount(r, Deps{
+		Skills:      app.NewSkillService(repo),
+		MemberCheck: func(context.Context, string, string) (bool, error) { return true, nil },
+	}, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(webx.WithPrincipal(r.Context(),
+				&webx.Principal{UserID: "u-1", Source: webx.SourcePAT, Role: role})))
+		})
+	})
+	return r, repo
+}
+
+func TestSkillCreateOriginPassthrough(t *testing.T) {
+	r, _ := newCRUDRouter(t)
+
+	// 非 admin（无 Role）显式请求 origin=pack → 强制 manual + 清 origin_ref（防伪造）。
+	rec := crudReq(r, "POST", "/skills",
+		`{"name":"forge-1","description":"d","origin":"pack","origin_ref":"pk-evil"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var sk app.Skill
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sk))
+	assert.Equal(t, "manual", sk.Origin, "non-admin cannot forge origin=pack")
+	assert.Empty(t, sk.OriginRef, "origin_ref cleared for non-admin")
+
+	// 非 admin 不带 origin → manual（现状不变）。
+	require.Equal(t, http.StatusCreated, crudReq(r, "POST", "/skills", `{"name":"forge-2"}`).Code)
+
+	// admin 显式 origin=pack → 保留 pack + origin_ref 取 body 值（provision 通道）。
+	admin, adminRepo := newCRUDRouterAs(t, "admin")
+	rec = crudReq(admin, "POST", "/skills",
+		`{"name":"forge-3","description":"d","origin":"pack","origin_ref":"pk-123"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var packSk app.Skill
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &packSk))
+	assert.Equal(t, "pack", packSk.Origin, "admin passthrough for provision")
+	assert.Equal(t, "pk-123", packSk.OriginRef)
+
+	// admin 但 origin 非 pack（如伪造 origin=import）→ 仍强制 manual。
+	rec = crudReq(admin, "POST", "/skills", `{"name":"forge-4","origin":"import","origin_ref":"https://x"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sk))
+	assert.Equal(t, "manual", sk.Origin, "only origin=pack is passable, others forced manual")
+	assert.Empty(t, sk.OriginRef)
+
+	// 落库视图一致（admin fake repo 按 ID 回读 forge-3 的行）。
+	stored, ok := adminRepo.skills[packSk.ID]
+	require.True(t, ok, "created skill stored under returned ID")
+	assert.Equal(t, "pack", stored.Origin)
+	assert.Equal(t, "pk-123", stored.OriginRef)
 }
 
 func TestSkillUpdateEndpoint(t *testing.T) {

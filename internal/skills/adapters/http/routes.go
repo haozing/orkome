@@ -118,7 +118,16 @@ func (d Deps) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	in.WorkspaceID = d.ws(r)
 	in.CreatedBy = webx.PrincipalFrom(r.Context()).UserID
-	in.Origin = "manual"
+	// origin 放行（pack 一等公民设计 §4.3 R3 修 D1）：仅 workspace admin 显式
+	// 请求 origin='pack' 时保留（provision 通道），origin_ref 取请求 body 值；
+	// 其余一律强制 'manual' 并清空 origin_ref（防伪造——pack 卸载按
+	// origin='pack' AND origin_ref=pack_id 精确清理，该标记必须不可伪造）。
+	if p := webx.PrincipalFrom(r.Context()); in.Origin == "pack" && (p.Role == "owner" || p.Role == "admin") {
+		in.Origin = "pack"
+	} else {
+		in.Origin = "manual"
+		in.OriginRef = ""
+	}
 	sk, err := d.Skills.Create(r.Context(), in)
 	if err != nil {
 		writeErr(w, err)

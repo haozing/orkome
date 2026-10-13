@@ -90,7 +90,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 
 	t.Run("PUT with slots stores and GET returns slots inline", func(t *testing.T) {
 		rec := uiEntryReq(r, "PUT", "/api/ui-entries/agentblog",
-			`{"pack":"agentblog","label":"内容工厂","url_template":"https://ab.example/console",
+			`{"pack":"agentblog","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"内容工厂","url_template":"https://ab.example/console",
 			  "slots":[{"slot":"workitem.detail.tab","label":"文章预览",
 			            "url_template":"https://ab.example/slot?item={workItemId}","height":480}]}`)
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -107,7 +107,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 
 	t.Run("PUT without slots then GET yields empty slots array not null", func(t *testing.T) {
 		rec := uiEntryReq(r, "PUT", "/api/ui-entries/plainpack",
-			`{"pack":"plainpack","label":"P","url_template":"https://p.example"}`)
+			`{"pack":"plainpack","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"P","url_template":"https://p.example"}`)
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		// fake repo 不会做 COALESCE（那是 pg repo 的职责），模拟 repo 层语义：
 		repo.stored[len(repo.stored)-1].Slots = []orchapp.PackUISlot{}
@@ -122,7 +122,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 
 	t.Run("PUT with unknown slot identifier rejected (catalog frozen)", func(t *testing.T) {
 		rec := uiEntryReq(r, "PUT", "/api/ui-entries/badpack",
-			`{"pack":"badpack","label":"B","url_template":"https://b.example",
+			`{"pack":"badpack","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"B","url_template":"https://b.example",
 			  "slots":[{"slot":"workspace.dashboard.card","label":"卡片",
 			            "url_template":"https://b.example/card","height":300}]}`)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -131,7 +131,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 
 	t.Run("PUT with slot missing height rejected", func(t *testing.T) {
 		rec := uiEntryReq(r, "PUT", "/api/ui-entries/noheight",
-			`{"pack":"noheight","label":"N","url_template":"https://n.example",
+			`{"pack":"noheight","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"N","url_template":"https://n.example",
 			  "slots":[{"slot":"workitem.detail.tab","label":"x",
 			            "url_template":"https://n.example/s"}]}`)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -157,7 +157,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				pack := "scheme-" + strings.ReplaceAll(tc.name, " ", "-")
-				body := `{"pack":"` + pack + `","label":"S","url_template":"https://s.example",
+				body := `{"pack":"` + pack + `","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"S","url_template":"https://s.example",
 				  "slots":[{"slot":"workitem.detail.tab","label":"x",
 				            "url_template":"` + strings.ReplaceAll(tc.template, `"`, `\"`) + `","height":480}]}`
 				rec := uiEntryReq(r, "PUT", "/api/ui-entries/"+pack, body)
@@ -181,7 +181,7 @@ func TestUIEntrySlotsContract(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				pack := "entry-" + strings.ReplaceAll(tc.name, " ", "-")
-				body := `{"pack":"` + pack + `","label":"E","url_template":"` +
+				body := `{"pack":"` + pack + `","pack_id":"dc217df4-2851-480f-b3c9-b5cc039e40cc","label":"E","url_template":"` +
 					strings.ReplaceAll(tc.template, `"`, `\"`) + `"}`
 				rec := uiEntryReq(r, "PUT", "/api/ui-entries/"+pack, body)
 				assert.Equal(t, tc.want, rec.Code, tc.template+" → "+rec.Body.String())
@@ -189,19 +189,11 @@ func TestUIEntrySlotsContract(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy PUT without slots field still works (v0 provision path)", func(t *testing.T) {
+	t.Run("PUT without pack_id rejected (migration 1042: string-key era over)", func(t *testing.T) {
 		rec := uiEntryReq(r, "PUT", "/api/ui-entries/legacy",
 			`{"pack":"legacy","label":"L","url_template":"https://l.example"}`)
-		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-		// agentblog + plainpack + legacy（badpack/noheight 两个被拒未入库）
-		require.Len(t, repo.stored, 3)
-		var legacy *orchapp.PackUIEntry
-		for i := range repo.stored {
-			if repo.stored[i].Pack == "legacy" {
-				legacy = &repo.stored[i]
-			}
-		}
-		require.NotNil(t, legacy)
-		assert.Empty(t, legacy.Slots, "v0 语义：不带 slots 的 PUT 存 nil（pg 层 COALESCE []）")
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		// agentblog + plainpack（badpack/noheight/legacy 三个被拒未入库）
+		require.Len(t, repo.stored, 2)
 	})
 }

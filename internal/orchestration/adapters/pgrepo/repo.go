@@ -47,21 +47,24 @@ func (r *Repo) CreateAgent(ctx context.Context, a orchapp.Agent) (orchapp.Agent,
 		a.RuntimeConfig = map[string]any{}
 	}
 	row := r.q(ctx).QueryRow(ctx, `
-INSERT INTO agent (workspace_id, name, description, runtime_config, max_concurrent_tasks, visibility, owner_user_id, conversation_starters, runtime_kind)
-VALUES ($1,$2,$3,$4,$5,$6,nullif($7,'')::uuid,$8,coalesce(nullif($9,''),'engine'))
+INSERT INTO agent (workspace_id, name, description, runtime_config, max_concurrent_tasks, visibility, owner_user_id, conversation_starters, runtime_kind, pack_id)
+VALUES ($1,$2,$3,$4,$5,$6,nullif($7,'')::uuid,$8,coalesce(nullif($9,''),'engine'),nullif($10,'')::uuid)
 RETURNING `+agentCols,
 		a.WorkspaceID, a.Name, a.Description, a.RuntimeConfig, a.MaxConcurrent, a.Visibility,
-		a.OwnerUserID, a.ConversationStarters, a.RuntimeKind)
+		a.OwnerUserID, a.ConversationStarters, a.RuntimeKind, a.PackID)
 	return scanAgent(row)
 }
 
+// pack_id 用 coalesce(nullif(...,'')) 承载可空归属（空串 = 手工创建 = NULL）。
 const agentCols = `id, workspace_id, name, description, runtime_config, max_concurrent_tasks, visibility,
-coalesce(owner_user_id::text,''), archived_at IS NOT NULL, created_at, conversation_starters, runtime_kind`
+coalesce(owner_user_id::text,''), archived_at IS NOT NULL, created_at, conversation_starters, runtime_kind,
+coalesce(pack_id::text,'')`
 
 func scanAgent(row pgx.Row) (orchapp.Agent, error) {
 	var a orchapp.Agent
 	err := row.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.Description, &a.RuntimeConfig, &a.MaxConcurrent,
-		&a.Visibility, &a.OwnerUserID, &a.Archived, &a.CreatedAt, &a.ConversationStarters, &a.RuntimeKind)
+		&a.Visibility, &a.OwnerUserID, &a.Archived, &a.CreatedAt, &a.ConversationStarters, &a.RuntimeKind,
+		&a.PackID)
 	return a, err
 }
 

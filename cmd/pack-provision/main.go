@@ -406,8 +406,9 @@ type listAgents struct {
 }
 type listSkills struct {
 	Skills []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Origin string `json:"origin"`
 	}
 }
 type listSubs struct {
@@ -418,6 +419,22 @@ type listSubs struct {
 }
 
 func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]string, enforcePrefix bool, frameOrigin string) error {
+
+	// 第 0 步（pack 一等公民设计 §4.3 R3）：upsert pack 聚合根，拿 packID。
+	// 后续所有资产创建（MCP/agents/skills）与订阅关联都挂这个 id——
+	// 服务端按 workspace+name 幂等 upsert，重装即覆盖 version 迁入新结构。
+	version := orDefault(p.Version, "0.0.0")
+	var upserted struct {
+		ID string `json:"id"`
+	}
+	if err := c.do("PUT", "/api/packs", map[string]any{"name": p.Name, "version": version}, &upserted); err != nil {
+		return fmt.Errorf("upsert pack %s: %w", p.Name, err)
+	}
+	packID := upserted.ID
+	if packID == "" {
+		return fmt.Errorf("upsert pack %s: server returned no pack id (server side PUT /api/packs not upgraded?)", p.Name)
+	}
+	fmt.Printf("- pack %s@%s upserted (%s)\n", p.Name, version, packID)
 
 	var mcpList listMCP
 	if err := c.do("GET", "/api/workspaces/"+c.WS+"/mcp-servers", nil, &mcpList); err != nil {
@@ -432,7 +449,8 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 			fmt.Printf("- mcp %s already exists, skipped\n", m.Name)
 			continue
 		}
-		body := map[string]any{"name": m.Name, "transport": m.Transport, "url": m.URL, "credentials": map[string]any{}}
+		body := map[string]any{"name": m.Name, "transport": m.Transport, "url": m.URL,
+			"credentials": map[string]any{}, "pack_id": packID}
 		if m.CredentialRef != "" {
 			val, ok := creds[m.CredentialRef]
 			if !ok {
@@ -498,7 +516,7 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 		}
 		body := map[string]any{"name": a.Name, "description": a.Description,
 			"runtime_config": mc, "visibility": orDefault(a.Visibility, "public"),
-			"max_concurrent_tasks": orDefaultInt(a.MaxConcurrent, 6)}
+			"max_concurrent_tasks": orDefaultInt(a.MaxConcurrent, 6), "pack_id": packID}
 		var created struct {
 			ID string `json:"id"`
 		}
@@ -514,18 +532,27 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 		return fmt.Errorf("list skills: %w", err)
 	}
 	skillID := map[string]string{}
+	skillOrigin := map[string]string{}
 	for _, s := range skList.Skills {
 		skillID[s.Name] = s.ID
+		skillOrigin[s.Name] = s.Origin
 	}
 	for _, s := range p.Skills {
 		if _, ok := skillID[s.Name]; ok {
-			fmt.Printf("- skill %s already exists, skipped\n", s.Name)
+			// 同名碰撞裁决（设计 §6）：已存在且来源非 pack = 用户手工技能，
+			// fail 提示而非静默 skip（静默 skip 会把手工技能误记进 pack 资产，
+			// uninstall 时被连带误删）；origin=pack（本 pack 或他 pack 先前装的）幂等 skip。
+			if skillOrigin[s.Name] != "pack" {
+				return fmt.Errorf("skill %s already exists as a %s skill — rename it or the pack skill (same-name collision: manual skills are never silently adopted by a pack)", s.Name, orDefault(skillOrigin[s.Name], "manual"))
+			}
+			fmt.Printf("- skill %s already exists (origin=pack), skipped\n", s.Name)
 			continue
 		}
 		var created struct {
 			ID string `json:"id"`
 		}
-		if err := c.do("POST", "/api/skills", map[string]any{"name": s.Name, "description": s.Description}, &created); err != nil {
+		if err := c.do("POST", "/api/skills", map[string]any{"name": s.Name, "description": s.Description,
+			"origin": "pack", "origin_ref": packID}, &created); err != nil {
 			return fmt.Errorf("create skill %s: %w", s.Name, err)
 		}
 		skillID[s.Name] = created.ID
@@ -562,11 +589,28 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 	for _, ev := range p.Events {
 		if subURL[ev.URL] {
 			fmt.Printf("- subscription %s already exists, skipped\n", ev.URL)
+			// 已存在的订阅（按 URL 去重的分支）也要关联到 pack（幂等；连接表
+			// UNIQUE(pack_id, subscription_id)，重复关联无害）。
+			if err := linkSubscriptions(ctx, c, packID, ev.URL); err != nil {
+				return err
+			}
 			continue
 		}
+		var created struct {
+			Subscription struct {
+				ID string `json:"id"`
+			} `json:"subscription"`
+		}
 		if err := c.do("POST", "/api/workspaces/"+c.WS+"/webhooks/subscriptions",
-			map[string]any{"url": ev.URL, "events": ev.Types, "description": "pack " + p.Name}, nil); err != nil {
+			map[string]any{"url": ev.URL, "events": ev.Types, "description": "pack " + p.Name}, &created); err != nil {
 			return fmt.Errorf("create subscription %s: %w", ev.URL, err)
+		}
+		if created.Subscription.ID == "" {
+			return fmt.Errorf("create subscription %s: server returned no subscription id", ev.URL)
+		}
+		if err := c.do("PUT", "/api/packs/"+packID+"/subscriptions",
+			map[string]any{"subscription_id": created.Subscription.ID}, nil); err != nil {
+			return fmt.Errorf("link subscription %s to pack %s: %w", ev.URL, p.Name, err)
 		}
 		fmt.Printf("- subscription %s created (%d event types)\n", ev.URL, len(ev.Types))
 	}
@@ -602,7 +646,7 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 			}
 			slots = kept
 		}
-		body := map[string]any{"pack": p.Name, "label": label, "url_template": p.UI.Entry.URLTemplate}
+		body := map[string]any{"pack": p.Name, "pack_id": packID, "label": label, "url_template": p.UI.Entry.URLTemplate}
 		if len(slots) > 0 {
 			wire := make([]map[string]any, 0, len(slots))
 			for _, s := range slots {
@@ -625,6 +669,25 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 		return fmt.Errorf("pack/v1 ui.slots requires ui.entry (slots ride the same PUT /api/ui-entries path)")
 	}
 	fmt.Printf("pack %s@%s installed\n", p.Name, p.Version)
+	return nil
+}
+
+// linkSubscriptions 把某个已存在的订阅（按 URL 匹配）关联到 pack 的连接表
+// （设计 §1.2 D3 解法）。URL 命中多行时全关联（幂等，UNIQUE 约束去重）。
+func linkSubscriptions(_ context.Context, c *apiClient, packID, url string) error {
+	var subList listSubs
+	if err := c.do("GET", "/api/workspaces/"+c.WS+"/webhooks/subscriptions", nil, &subList); err != nil {
+		return fmt.Errorf("list subscriptions for linking: %w", err)
+	}
+	for _, s := range subList.Items {
+		if s.URL != url || s.ID == "" {
+			continue
+		}
+		if err := c.do("PUT", "/api/packs/"+packID+"/subscriptions",
+			map[string]any{"subscription_id": s.ID}, nil); err != nil {
+			return fmt.Errorf("link subscription %s to pack: %w", url, err)
+		}
+	}
 	return nil
 }
 
@@ -833,6 +896,122 @@ func uninstall(ctx context.Context, c *apiClient, p *packSpec) error {
 		fmt.Printf("- tool schema archive %s deleted\n", p.Name)
 	}
 
+	// 首选路径（pack 一等公民设计 §4.3 R3 修 D1/D2/D3）：按 pack 聚合根定向
+	// 清理——详情聚合返回的 agents/skills/subscriptions IDs 精确命中，不再按
+	// 名字猜（按名匹配会误伤同名手工资产）。
+	if pk, ok := findPackByName(c, p.Name); ok {
+		cleanPackByID(c, pk)
+		if p.UI.Entry != nil {
+			if err := c.do("DELETE", "/api/ui-entries/"+p.Name, nil, nil); err == nil {
+				fmt.Printf("- deep link entry %s deleted\n", p.Name)
+			}
+		}
+		if err := c.do("DELETE", "/api/packs/"+pk.ID, nil, nil); err == nil {
+			fmt.Printf("- pack %s (%s) deleted\n", p.Name, pk.ID)
+		} else {
+			fmt.Printf("! pack %s row delete failed (%v) — assets already cleaned; rerun after server upgrade\n", p.Name, err)
+		}
+		fmt.Printf("pack %s uninstalled\n", p.Name)
+		return nil
+	}
+
+	// 兜底路径：GET /api/packs 404（服务端未升级到 pack 实体表）——按旧逻辑
+	// 名字匹配清理，并提示。
+	fmt.Printf("! pack %s not found via GET /api/packs (server lacks pack registry?) — falling back to name-matched cleanup\n", p.Name)
+	return uninstallByName(c, p)
+}
+
+// packDetail 是 GET /api/packs/{id} 详情聚合（设计 §1.3）中 uninstall 需要的
+// 字段——CLI 只挑用得上的，多余字段忽略。
+type packDetail struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// Agents/Skills/Subscriptions 都取 ID 列表做精确清理。
+	Agents []struct {
+		ID string `json:"id"`
+	} `json:"agents"`
+	Skills []struct {
+		ID string `json:"id"`
+	} `json:"skills"`
+	Subscriptions []struct {
+		ID string `json:"id"`
+	} `json:"subscriptions"`
+}
+
+// findPackByName GET /api/packs 列表按 name 找 packID；not-found 返回 ok=false
+// （列表端点不可用与空列表同归为 not found，走兜底）。
+func findPackByName(c *apiClient, name string) (packDetail, bool) {
+	var list struct {
+		Packs []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"packs"`
+	}
+	if err := c.do("GET", "/api/packs", nil, &list); err != nil {
+		return packDetail{}, false
+	}
+	for _, it := range list.Packs {
+		if it.Name == name {
+			var detail packDetail
+			if err := c.do("GET", "/api/packs/"+it.ID, nil, &detail); err != nil || detail.ID == "" {
+				return packDetail{}, false
+			}
+			return detail, true
+		}
+	}
+	return packDetail{}, false
+}
+
+// cleanPackByID 按 pack 详情聚合的资产 IDs 定向清理：订阅（跨系统显式清）、
+// skills（硬删）、agents（归档软删）、MCP（pack_id 反查，删除后行置空由
+// 迁移语义决定——这里直接删除注册行，与旧 uninstall 行为一致）。
+func cleanPackByID(c *apiClient, pk packDetail) {
+	for _, s := range pk.Subscriptions {
+		if s.ID == "" {
+			continue
+		}
+		if err := c.do("DELETE", "/api/workspaces/"+c.WS+"/webhooks/subscriptions/"+s.ID, nil, nil); err == nil {
+			fmt.Printf("- subscription %s deleted\n", s.ID)
+		}
+	}
+	for _, s := range pk.Skills {
+		if s.ID == "" {
+			continue
+		}
+		if err := c.do("DELETE", "/api/skills/"+s.ID, nil, nil); err == nil {
+			fmt.Printf("- skill %s deleted\n", s.ID)
+		}
+	}
+	for _, a := range pk.Agents {
+		if a.ID == "" {
+			continue
+		}
+		if err := c.do("POST", "/api/agents/"+a.ID+"/archive", nil, nil); err == nil {
+			fmt.Printf("- agent %s archived (not hard-deleted)\n", a.ID)
+		}
+	}
+	// MCP 注册行不在详情聚合的删除清单里（独立生命周期），按 pack_id 反查定向删。
+	var mcpList struct {
+		Servers []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			PackID string `json:"pack_id"`
+		} `json:"servers"`
+	}
+	if err := c.do("GET", "/api/workspaces/"+c.WS+"/mcp-servers", nil, &mcpList); err == nil {
+		for _, m := range mcpList.Servers {
+			if m.PackID != "" && m.PackID == pk.ID {
+				if err := c.do("DELETE", "/api/workspaces/"+c.WS+"/mcp-servers/"+m.ID, nil, nil); err == nil {
+					fmt.Printf("- mcp %s deleted\n", m.Name)
+				}
+			}
+		}
+	}
+}
+
+// uninstallByName 旧版按名匹配清理（服务端无 pack 注册表时的兜底路径）。
+func uninstallByName(c *apiClient, p *packSpec) error {
 	var subList listSubs
 	if err := c.do("GET", "/api/workspaces/"+c.WS+"/webhooks/subscriptions", nil, &subList); err != nil {
 		return err

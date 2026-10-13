@@ -19,10 +19,10 @@ func (r *Repo) UpsertPackUIEntry(ctx context.Context, e app.PackUIEntry) error {
 		slotsJSON = b
 	}
 	_, err := r.DB.Tx(ctx).Exec(ctx, `
-INSERT INTO pack_ui_entry (workspace_id, pack, label, url_template, slots)
-VALUES ($1,$2,$3,$4,$5::jsonb)
-ON CONFLICT (workspace_id, pack) DO UPDATE SET label=$3, url_template=$4, slots=$5::jsonb`,
-		e.WorkspaceID, e.Pack, e.Label, e.URLTemplate, slotsJSON)
+INSERT INTO pack_ui_entry (workspace_id, pack, pack_id, label, url_template, slots)
+VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+ON CONFLICT (workspace_id, pack_id) DO UPDATE SET label=$4, url_template=$5, slots=$6::jsonb`,
+		e.WorkspaceID, e.Pack, e.PackID, e.Label, e.URLTemplate, slotsJSON)
 	return err
 }
 

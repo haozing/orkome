@@ -50,6 +50,10 @@ type Agent struct {
 	Archived      bool           `json:"archived"`
 	CreatedAt     time.Time      `json:"created_at"`
 
+	// PackID 来源能力包（pack 一等公民 §1.2 修 D2）：空 = 手工创建。
+	// 仅 Create 写入（provision 通道），Update 不改归属。
+	PackID string `json:"pack_id,omitempty"`
+
 	ConversationStarters []ConversationStarter `json:"conversation_starters"`
 
 	InvocationTargets *[]InvocationTarget `json:"invocation_targets,omitempty"`
@@ -107,6 +111,10 @@ type WorkspaceMCP struct {
 	Credentials map[string]any `json:"-"`
 	HasCreds    bool           `json:"has_credentials"`
 	CreatedAt   time.Time      `json:"created_at"`
+
+	// PackID 来源能力包（pack 一等公民 §1.2）：空 = 手工注册。
+	// 仅 Create 写入，Update 不改归属（MCP 行有独立生命周期，pack 删除时列置空）。
+	PackID string `json:"pack_id,omitempty"`
 }
 
 type AgentMCP struct {

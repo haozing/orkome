@@ -31,18 +31,18 @@ func TestValidateSlotsURLTemplateScheme(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tpl := range ok {
-		require.NoError(t, svc.UpsertWithSlots(ctx, "ws", "p", "L", "https://e.example", []PackUISlot{
+		require.NoError(t, svc.UpsertWithSlots(ctx, "ws", "p", "pack-1", "L", "https://e.example", []PackUISlot{
 			{Slot: SlotWorkItemDetailTab, Label: "x", URLTemplate: tpl, Height: 480},
 		}), tpl)
 	}
 	for _, tpl := range bad {
-		err := svc.UpsertWithSlots(ctx, "ws", "p", "L", "https://e.example", []PackUISlot{
+		err := svc.UpsertWithSlots(ctx, "ws", "p", "pack-1", "L", "https://e.example", []PackUISlot{
 			{Slot: SlotWorkItemDetailTab, Label: "x", URLTemplate: tpl, Height: 480},
 		})
 		require.Error(t, err, tpl)
 		assert.Equal(t, apierr.Validation, err.(*apierr.Error).Code)
 		// entry 模板同一纪律。
-		err = svc.UpsertWithSlots(ctx, "ws", "p", "L", tpl, nil)
+		err = svc.UpsertWithSlots(ctx, "ws", "p", "pack-1", "L", tpl, nil)
 		require.Error(t, err, "entry "+tpl)
 		assert.Equal(t, apierr.Validation, err.(*apierr.Error).Code)
 	}

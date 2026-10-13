@@ -35,12 +35,14 @@ import (
 	orchapp "orkome/internal/orchestration/app"
 )
 
-const wsMCPCols = `id::text, workspace_id::text, name, transport, url, credentials, created_at`
+// wsMCPCols 尾列 pack_id 可空归属（pack 一等公民 §1.2）：coalesce 空串表示
+// 手工注册（NULL）——同 agentCols 的 nullif/coalesce 空串口径。
+const wsMCPCols = `id::text, workspace_id::text, name, transport, url, credentials, created_at, coalesce(pack_id::text,'')`
 
 func scanWSMCP(seal CredentialSealer, row pgx.Row) (orchapp.WorkspaceMCP, error) {
 	var m orchapp.WorkspaceMCP
 	var raw []byte
-	if err := row.Scan(&m.ID, &m.WorkspaceID, &m.Name, &m.Transport, &m.URL, &raw, &m.CreatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.WorkspaceID, &m.Name, &m.Transport, &m.URL, &raw, &m.CreatedAt, &m.PackID); err != nil {
 		return m, err
 	}
 	creds, err := unsealCreds(seal, raw)
@@ -76,9 +78,9 @@ func (r *Repo) CreateWorkspaceMCP(ctx context.Context, m orchapp.WorkspaceMCP) (
 		return orchapp.WorkspaceMCP{}, err
 	}
 	out, err := scanWSMCP(r.Seal, r.q(ctx).QueryRow(ctx, `
-INSERT INTO workspace_mcp_server (workspace_id, name, transport, url, credentials)
-VALUES ($1,$2,$3,$4,$5) RETURNING `+wsMCPCols,
-		m.WorkspaceID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed))
+INSERT INTO workspace_mcp_server (workspace_id, name, transport, url, credentials, pack_id)
+VALUES ($1,$2,$3,$4,$5,nullif($6,'')::uuid) RETURNING `+wsMCPCols,
+		m.WorkspaceID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed, m.PackID))
 	if isDupName(err) {
 		return out, errMCPTaken
 	}

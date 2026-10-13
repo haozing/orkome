@@ -27,6 +27,7 @@ func (d Deps) handleUIEntryUpsert(w http.ResponseWriter, r *http.Request) {
 	}
 	in, ok := decode[struct {
 		Pack        string               `json:"pack"`
+		PackID      string               `json:"pack_id"`
 		Label       string               `json:"label"`
 		URLTemplate string               `json:"url_template"`
 		Slots       []orchapp.PackUISlot `json:"slots"`
@@ -34,7 +35,7 @@ func (d Deps) handleUIEntryUpsert(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := d.PackUIEntries.UpsertWithSlots(r.Context(), d.ws(r), in.Pack, in.Label, in.URLTemplate, in.Slots); err != nil {
+	if err := d.PackUIEntries.UpsertWithSlots(r.Context(), d.ws(r), in.Pack, in.PackID, in.Label, in.URLTemplate, in.Slots); err != nil {
 		writeErr(w, err)
 		return
 	}
