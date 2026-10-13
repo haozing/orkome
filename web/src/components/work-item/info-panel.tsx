@@ -33,7 +33,7 @@ export function InfoPanel({ item }: { item: WorkItem }) {
       ? (resolveUser(item.creator_id) ?? t('work.unknown'))
       : `Agent ${item.creator_id.slice(0, 8)}…`
   return (
-    <aside className="w-[350px] shrink-0 space-y-1 border-l border-zinc-200 pl-5 dark:border-zinc-800">
+    <aside className="w-[300px] shrink-0 space-y-1 border-l border-zinc-200 pl-5 dark:border-zinc-800">
       <h2 className="px-2 pb-1 text-xs font-medium text-zinc-400">{t('work.properties')}</h2>
       <StatusRow item={item} />
       <PriorityRow item={item} />
@@ -57,9 +57,9 @@ export function InfoPanel({ item }: { item: WorkItem }) {
 }
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm">
-      <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
-      <span className="text-right">{children}</span>
+    <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm">
+      <span className="shrink-0 text-zinc-500 dark:text-zinc-400">{label}</span>
+      <span className="min-w-0 truncate text-right">{children}</span>
     </div>
   )
 }

@@ -23,7 +23,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 const ROW_CLASS =
-  'flex w-full cursor-default items-center justify-between rounded-md px-2 py-1.5 text-sm outline-none hover:bg-accent data-[popup-open]:bg-accent'
+  'flex w-full cursor-default items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm outline-none hover:bg-accent data-[popup-open]:bg-accent'
+// Value side of a property row: shrinks below content size so long labels
+// (raw agent IDs, long parent titles) truncate instead of overflowing the
+// panel; the row label stays fixed.
+const VALUE_CLASS = 'flex min-w-0 items-center gap-1'
+const VALUE_TEXT_CLASS = 'min-w-0 truncate'
 function Checkmark({ on }: { on: boolean }) {
   return (
     <Check
@@ -57,12 +62,12 @@ export function AssigneeRow({ item }: { item: WorkItem }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={ROW_CLASS}>
-        <span className="text-muted-foreground">{t('work.colAssignee')}</span>
-        <span className="flex items-center gap-1">
-          <span className={item.assignee_id ? undefined : 'text-muted-foreground'}>
+        <span className="shrink-0 text-muted-foreground">{t('work.colAssignee')}</span>
+        <span className={VALUE_CLASS}>
+          <span className={VALUE_TEXT_CLASS + (item.assignee_id ? '' : ' text-muted-foreground')}>
             {currentLabel}
           </span>
-          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
+          <ChevronDown className="size-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
@@ -129,11 +134,11 @@ export function StatusRow({ item }: { item: WorkItem }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={ROW_CLASS}>
-        <span className="text-muted-foreground">{t('work.colStatus')}</span>
-        <span className="flex items-center gap-1">
+        <span className="shrink-0 text-muted-foreground">{t('work.colStatus')}</span>
+        <span className={VALUE_CLASS}>
           <BadgeDot status={item.status} />
-          {label}
-          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
+          <span className={VALUE_TEXT_CLASS}>{label}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
@@ -190,10 +195,10 @@ export function PriorityRow({ item }: { item: WorkItem }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={ROW_CLASS}>
-        <span className="text-muted-foreground">{t('work.colPriority')}</span>
-        <span className="flex items-center gap-1">
-          <span className={meta.className}>{t(meta.labelKey)}</span>
-          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
+        <span className="shrink-0 text-muted-foreground">{t('work.colPriority')}</span>
+        <span className={VALUE_CLASS}>
+          <span className={VALUE_TEXT_CLASS + ' ' + meta.className}>{t(meta.labelKey)}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
@@ -284,12 +289,14 @@ export function ParentRow({ item }: { item: WorkItem }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={ROW_CLASS}>
-        <span className="text-muted-foreground">{t('work.parentItem')}</span>
-        <span className="flex items-center gap-1">
-          <span className={item.parent_work_item_id ? undefined : 'text-muted-foreground'}>
+        <span className="shrink-0 text-muted-foreground">{t('work.parentItem')}</span>
+        <span className={VALUE_CLASS}>
+          <span
+            className={VALUE_TEXT_CLASS + (item.parent_work_item_id ? '' : ' text-muted-foreground')}
+          >
             {parentLabel}
           </span>
-          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
+          <ChevronDown className="size-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56">
