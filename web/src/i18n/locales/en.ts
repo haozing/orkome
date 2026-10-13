@@ -386,7 +386,6 @@ const en: Locale = {
     loadingDetail: 'Loading work item…',
     notFound: 'Work item not found or inaccessible',
     tabDetail: 'Details',
-    tabDiscussion: 'Discussion',
     tabSub: 'Sub items',
     tabTasks: 'Tasks',
     tabTimeline: 'Timeline',
