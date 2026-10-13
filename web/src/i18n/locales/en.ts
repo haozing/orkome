@@ -53,9 +53,9 @@ const en: Locale = {
     access: 'Open Access',
   },
   tools: {
-    pageTitle: 'Tool Integrations',
+    pageTitle: 'MCP Servers',
     pageIntro:
-      'Where agent tools come from: installed packs and workspace-level MCP servers; agent-private servers are managed on the agent detail page.',
+      'MCP servers registered at the workspace level, effective for all agents; pack-provided servers are managed on the Packs page, agent-private ones on the agent detail page.',
   },
   access: {
     pageTitle: 'Open Access',

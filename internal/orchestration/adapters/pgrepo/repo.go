@@ -1645,17 +1645,16 @@ FROM squad WHERE workspace_id=$1 ORDER BY name`, wsID)
 	var out []map[string]any
 	for rows.Next() {
 		var id, name, instr, leader string
-		var choreo bool
 		var members []byte
-		if err := rows.Scan(&id, &name, &instr, &leader, &choreo, &members); err != nil {
+		if err := rows.Scan(&id, &name, &instr, &leader, &members); err != nil {
 			return nil, err
 		}
-		out = append(out, squadRowMap(id, name, instr, leader, choreo, members))
+		out = append(out, squadRowMap(id, name, instr, leader, members))
 	}
 	return out, rows.Err()
 }
 
-func squadRowMap(id, name, instr, leader string, choreo bool, members []byte) map[string]any {
+func squadRowMap(id, name, instr, leader string, members []byte) map[string]any {
 	var ids []string
 	_ = json.Unmarshal(members, &ids)
 	return map[string]any{"id": id, "name": name, "instructions": instr,
@@ -1664,20 +1663,19 @@ func squadRowMap(id, name, instr, leader string, choreo bool, members []byte) ma
 
 func (r *Repo) GetSquadRow(ctx context.Context, wsID, squadID string) (map[string]any, bool, error) {
 	var id, name, instr, leader string
-	var choreo bool
 	var members []byte
 	err := r.q(ctx).QueryRow(ctx, `
 SELECT id::text, name, instructions, coalesce(leader_agent_id::text,''),
   coalesce((SELECT array_to_json(array_agg(sm.agent_id::text))::text FROM squad_member sm WHERE sm.squad_id=squad.id), '[]')
 FROM squad WHERE workspace_id=$1 AND id=$2::uuid`,
-		wsID, squadID).Scan(&id, &name, &instr, &leader, &choreo, &members)
+		wsID, squadID).Scan(&id, &name, &instr, &leader, &members)
 	if noRow(err) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, err
 	}
-	return squadRowMap(id, name, instr, leader, choreo, members), true, nil
+	return squadRowMap(id, name, instr, leader, members), true, nil
 }
 
 func (r *Repo) SquadNameTaken(ctx context.Context, wsID, name, excludeSquadID string) (bool, error) {

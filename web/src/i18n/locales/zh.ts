@@ -55,9 +55,9 @@ const zh: Locale = {
     access: '开放接入',
   },
   tools: {
-    pageTitle: '工具集成',
+    pageTitle: 'MCP 服务',
     pageIntro:
-      '智能体的工具来源：已安装的 pack 与工作区级 MCP 服务器；智能体私有服务器在智能体详情页管理。',
+      '注册到本工作区、对所有智能体生效的 MCP 服务器；能力包带来的服务器在能力包页管理，智能体私有服务器在智能体详情页管理。',
   },
   access: {
     pageTitle: '开放接入',
