@@ -7,6 +7,7 @@ import {
   DoorOpen,
   ListTodo,
   LogOut,
+  Package,
   ScrollText,
   Settings,
   User,
@@ -64,6 +65,7 @@ const AI_TEAM_NAV_ITEMS = [
   { to: '/agents', label: 'nav.agents', icon: Bot },
   { to: '/squads', label: 'nav.squads', icon: Users },
   { to: '/skills', label: 'nav.skills', icon: BookOpen },
+  { to: '/packs', label: 'nav.packs', icon: Package },
   { to: '/tools', label: 'nav.tools', icon: Wrench },
   { to: '/run-logs', label: 'nav.runLogs', icon: ScrollText },
 ] as const

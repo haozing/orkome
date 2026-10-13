@@ -40,6 +40,8 @@ export async function listPackEntries(): Promise<PackUIEntry[]> {
 /**
  * 工作区级 MCP 服务器（workspace_mcp_server 表）。
  * 后端 WorkspaceMCP 的 credentials 字段 json:"-" 不回传，只回 has_credentials 布尔。
+ * pack_id（迁移 1042，Pack 一等公民化）：非空 = 该行由 pack-provision 安装产出，
+ * 来源能力包详情见 /packs/{pack_id}；空/缺省 = 手工注册。
  */
 export interface WorkspaceMCPServer {
   id: string
@@ -49,6 +51,7 @@ export interface WorkspaceMCPServer {
   url: string
   has_credentials: boolean
   created_at: string
+  pack_id?: string
 }
 
 /**
@@ -117,4 +120,81 @@ export function probeWorkspaceMcpTools(workspaceId: string, serverId: string) {
     `/api/workspaces/${workspaceId}/mcp-servers/${serverId}/probe-tools`,
     {},
   )
+}
+
+// ---------------------------------------------------------------------------
+// Pack 聚合根（docs/pack-first-class-design-2026-10-13.md §1.3，迁移 1042）。
+// pack 从"散落 5 张表的字符串键"升为一等实体；以下两个端点是 P1 前端（/packs
+// 列表 + 详情五区块）的唯一新数据源。workspace 经 X-Workspace-Id 头传递
+// （apiFetch 的 workspaceIdProvider 自动附带，与 listPackEntries 同参）。
+// ---------------------------------------------------------------------------
+
+/** GET /api/packs 的 items[] 元素：pack 行 + 三个资产计数。 */
+export interface PackEntry {
+  id: string
+  name: string
+  version: string
+  installed_at: string
+  server_count: number
+  agent_count: number
+  skill_count: number
+}
+
+/** GET /api/packs → { items: [...] } */
+export async function listPacks(): Promise<PackEntry[]> {
+  const res = await api.get<{ items: PackEntry[] | null }>('/api/packs')
+  return res.items ?? []
+}
+
+/** 详情聚合：pack_tool_schema 存档清单的一行。 */
+export interface PackToolSchema {
+  server: string
+  tool_name: string
+  /** protocol = 握手自描述；pack_yaml = pack.yaml 声明（契约边界，B1） */
+  source: string
+  installed_at: string
+}
+
+/** 详情聚合：pack_ui_entry + slots（控制台入口与工单 tab）。 */
+export interface PackDetailUIEntry {
+  label: string
+  url_template: string
+  slots: { slot: string; label: string; height: number }[]
+}
+
+/** 详情聚合：事件订阅（pack_subscription 连接表命中 ploykit webhook_subscription）。 */
+export interface PackSubscription {
+  subscription_id: string
+  url: string
+  event_types: string[]
+  is_active: boolean
+}
+
+/** 详情聚合：本包创建的智能体（pack_id 命中，archived 软删）。 */
+export interface PackAgent {
+  id: string
+  name: string
+  archived: boolean
+}
+
+/** 详情聚合：本包创建的技能（origin='pack' AND origin_ref=pack_id，D1 修复）。 */
+export interface PackSkill {
+  id: string
+  name: string
+}
+
+/** GET /api/packs/{packId} 的聚合详情（五区块的数据形状）。 */
+export interface PackDetail {
+  pack: { id: string; name: string; version: string; installed_at: string }
+  servers: { name: string; transport: string; url: string; has_credentials: boolean }[]
+  tool_schemas: PackToolSchema[]
+  ui_entry: PackDetailUIEntry | null
+  subscriptions: PackSubscription[]
+  agents: PackAgent[]
+  skills: PackSkill[]
+}
+
+/** GET /api/packs/{packId} → PackDetail 聚合 */
+export function getPack(packId: string) {
+  return api.get<PackDetail>(`/api/packs/${packId}`)
 }

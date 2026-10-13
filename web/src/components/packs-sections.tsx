@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { ChevronDown, PackagePlus, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -29,8 +30,12 @@ import { cn } from '@/lib/utils'
 // Packs 与集成页的组件拆分（docs/pack-frontend-design-2026-10-11.md §3.1）：
 // 第 1 段 PacksInstalledSection —— 只读列表（pack 名 + entry label + installed_at）；
 //     v0 明确不做：健康列 / 版本号 / 工具数 / 订阅数（数据源不存在，审计确认）。
+//     P1（pack-first-class-design §2.2）后此段保持不动——已装 pack 的管理面
+//     迁往 /packs 页，这里只留侧栏语义的只读快照。
 // 第 2 段 WorkspaceMcpSection —— 工作区级 MCP 服务器注册表（新写，非平移；
 //     agent 级管理 UI 在 agent 详情页 MCP tab，两者并存不搬动）。
+//     P1 起行带来源列：pack_id 非空 = pack 安装产出，只读 + 「管理 →」链详情；
+//     手工行 CRUD 不变。
 // 两段拆成独立组件以便组件级测试（三态 / 增删交互）。
 
 export function PacksInstalledSection({ className }: { className?: string }) {
@@ -116,33 +121,45 @@ const TRANSPORTS = ['http', 'sse'] as const
 // 单台服务器的工具清单面板：点击「查看工具」时才发起 probe（实时建连，
 // 非缓存），结果在面板存活期间保留——收起再展开会重新 probe（服务器端
 // 工具面可能已变化，重查即最新态）。
-function ServerToolsPanel({ workspaceId, server }: { workspaceId: string; server: WorkspaceMCPServer }) {
+// P1 提取为按 serverId 取数 + label 键可注入，供 /packs/$packId 详情页
+// 「实时探针」直接复用（pack-first-class-design §2.3 ②）。
+export function ServerToolsPanel({
+  workspaceId,
+  serverId,
+  i18nPrefix = 'packs',
+}: {
+  workspaceId: string
+  /** 工作区 MCP 注册表行 id（probe 端点按此寻址，非服务器名） */
+  serverId: string
+  /** i18n 前缀：/tools 页用 packs.*，pack 详情页传 packs2.* */
+  i18nPrefix?: 'packs' | 'packs2'
+}) {
   const { t } = useTranslation()
   const tools = useQuery({
-    queryKey: ['workspace-mcp-probe', workspaceId, server.id],
-    queryFn: () => probeWorkspaceMcpTools(workspaceId, server.id),
+    queryKey: ['workspace-mcp-probe', workspaceId, serverId],
+    queryFn: () => probeWorkspaceMcpTools(workspaceId, serverId),
     gcTime: 0, // 面板关闭即弃——下次展开重新 probe
     retry: false,
   })
   if (tools.isPending) {
-    return <p className="px-3 py-2 text-xs text-zinc-500">{t('packs.toolsLoading')}</p>
+    return <p className="px-3 py-2 text-xs text-zinc-500">{t(`${i18nPrefix}.toolsLoading`)}</p>
   }
   if (tools.isError) {
     return (
       <p role="alert" className="px-3 py-2 text-xs text-red-600 dark:text-red-400">
-        {t('packs.toolsFailed')}
+        {t(`${i18nPrefix}.toolsFailed`)}
         {tools.error instanceof Error ? `：${tools.error.message}` : ''}
       </p>
     )
   }
   const list: McpProbeTool[] = tools.data?.tools ?? []
   if (list.length === 0) {
-    return <p className="px-3 py-2 text-xs text-zinc-500">{t('packs.toolsEmpty')}</p>
+    return <p className="px-3 py-2 text-xs text-zinc-500">{t(`${i18nPrefix}.toolsEmpty`)}</p>
   }
   return (
     <div className="px-3 pb-3">
       <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-        {t('packs.toolCount', { count: list.length })}
+        {t(`${i18nPrefix}.toolCount`, { count: list.length })}
       </p>
       <ul className="space-y-1.5">
         {list.map((tool) => (
@@ -219,11 +236,16 @@ export function WorkspaceMcpSection({
         >
           {servers.data.map((s) => {
             const toolsOpen = toolsOpenId === s.id
+            // 来源列（pack-first-class-design §2.2）：pack_id 非空 = pack 安装
+            // 产出，只读（隐藏编辑/删除，管理动作在包详情页）；空 = 手工注册，
+            // 现有 CRUD 行为不变。
+            const fromPack = typeof s.pack_id === 'string' && s.pack_id !== ''
             return (
               <li
                 key={s.id}
                 className="px-3 py-2.5"
                 data-testid="ws-mcp-row"
+                data-from-pack={fromPack || undefined}
               >
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
@@ -231,6 +253,7 @@ export function WorkspaceMcpSection({
                       {s.name}
                       <Badge variant="neutral">{s.transport}</Badge>
                       {s.has_credentials && <Badge variant="success">{t('packs.storedCred')}</Badge>}
+                      {fromPack && <Badge variant="secondary">{t('packs2.fromPackBadge')}</Badge>}
                     </p>
                     <p className="truncate font-mono text-xs text-zinc-400">{s.url}</p>
                   </div>
@@ -250,39 +273,52 @@ export function WorkspaceMcpSection({
                       aria-hidden="true"
                     />
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
-                    <Pencil className="size-3.5" aria-hidden="true" />
-                    {t('common.edit')}
-                  </Button>
-                  {removingId === s.id ? (
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(s.id)}
-                      >
-                        {t('packs.confirmDelete')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
-                        {t('common.cancel')}
-                      </Button>
-                    </span>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="shrink-0 text-red-600 dark:text-red-400"
-                      aria-label={t('packs.deleteServer', { name: s.name })}
-                      onClick={() => setRemovingId(s.id)}
+                  {fromPack ? (
+                    <Link
+                      to="/packs/$packId"
+                      params={{ packId: s.pack_id! }}
+                      className="flex h-7 shrink-0 items-center rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] font-medium text-zinc-600 outline-none hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                      data-testid="ws-mcp-pack-link"
                     >
-                      <Trash2 className="size-3.5" aria-hidden="true" />
-                    </Button>
+                      {t('packs2.manageLink')}
+                    </Link>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
+                        <Pencil className="size-3.5" aria-hidden="true" />
+                        {t('common.edit')}
+                      </Button>
+                      {removingId === s.id ? (
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={remove.isPending}
+                            onClick={() => remove.mutate(s.id)}
+                          >
+                            {t('packs.confirmDelete')}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
+                            {t('common.cancel')}
+                          </Button>
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="shrink-0 text-red-600 dark:text-red-400"
+                          aria-label={t('packs.deleteServer', { name: s.name })}
+                          onClick={() => setRemovingId(s.id)}
+                        >
+                          <Trash2 className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
                 {toolsOpen && workspaceId && (
                   <div className="mt-2 rounded-md border border-zinc-200 pt-2 dark:border-zinc-800">
-                    <ServerToolsPanel workspaceId={workspaceId} server={s} />
+                    <ServerToolsPanel workspaceId={workspaceId} serverId={s.id} />
                   </div>
                 )}
               </li>
