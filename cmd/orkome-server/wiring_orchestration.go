@@ -166,8 +166,9 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 	eng.Egress = egressGuard
 	// 工具集成页"查看工具"：工作区级 MCP 服务器实时探针（建连+ListTools，
 	// 与运行期同参；B1 存档补输出契约同 buildMCPTools）。app 层不依赖
-	// engine 包，经函数注入反转。
-	mcpSvc.ToolProbe = func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, error) {
+	// engine 包，经函数注入反转。probeToolProbeFn 供两个 MCPServerService
+	// 实例（引擎 resolver 用 / HTTP Deps 用）共用——接线只做一次。
+	probeFn := func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, error) {
 		archived := map[string]json.RawMessage{}
 		if eng.PackToolSchemas != nil {
 			if list, err := eng.PackToolSchemas.ListPackToolSchemas(ctx, workspaceID); err == nil {
@@ -193,6 +194,7 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 		}
 		return out, nil
 	}
+	mcpSvc.ToolProbe = probeFn
 	agents := orchapp.NewAgentService(repo, bus)
 	agents.Egress = egressGuard
 	enq := orchapp.NewEnqueueService(repo, bus)
@@ -423,6 +425,7 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 		MCP: func() *orchapp.MCPServerService {
 			m := orchapp.NewMCPServerService(repo)
 			m.Egress = egressGuard
+			m.ToolProbe = probeFn
 			return m
 		}(),
 		MemberCheck:           memberCheck,
