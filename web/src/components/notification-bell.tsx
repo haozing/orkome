@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Bell, CheckCheck } from 'lucide-react'
+import { useState } from 'react'
 import {
   getUnreadCount,
   listNotifications,
@@ -10,6 +11,7 @@ import {
   type NotificationItem,
 } from '@/api/notification'
 import { Button } from '@/components/ui/button'
+import { NotificationDetailDialog } from '@/components/notification-detail-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,21 +27,29 @@ function formatTime(iso: string, locale = 'en-US'): string {
     minute: '2-digit',
   })
 }
-function PreviewRow({ item }: { item: NotificationItem }) {
+function PreviewRow({
+  item,
+  onOpenDetail,
+}: {
+  item: NotificationItem
+  onOpenDetail: (item: NotificationItem) => void
+}) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const unread = !item.read_at
   const open = () => {
-    if (!unread) {
-      if (item.work_item_id)
-        void navigate({ to: '/work-items/$id', params: { id: item.work_item_id } })
+    // Fast path: linked work items navigate straight there (dropdown is a
+    // quick-jump surface). Everything else opens the shared detail dialog.
+    if (item.work_item_id) {
+      if (unread)
+        void markNotificationRead(item.id, true).then(() =>
+          queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+        )
+      void navigate({ to: '/work-items/$id', params: { id: item.work_item_id } })
       return
     }
-    void markNotificationRead(item.id, true).then(() => {
-      if (item.work_item_id) {
-        void navigate({ to: '/work-items/$id', params: { id: item.work_item_id } })
-      }
-    })
+    onOpenDetail(item)
   }
   return (
     <button
@@ -72,6 +82,8 @@ function PreviewRow({ item }: { item: NotificationItem }) {
 export function NotificationBell() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [detail, setDetail] = useState<NotificationItem | null>(null)
   // Realtime: the hub pushes user-scoped notification:* frames; the central
   // bridge in main.tsx invalidates ['notifications', …] on them, so both
   // queries below refetch without per-component frame listeners.
@@ -125,7 +137,7 @@ export function NotificationBell() {
             <p className="px-3 py-6 text-center text-xs text-zinc-400">{t('notif.empty')}</p>
           )}
           {recent.data?.items.map((it) => (
-            <PreviewRow key={it.id} item={it} />
+            <PreviewRow key={it.id} item={it} onOpenDetail={setDetail} />
           ))}
         </div>
         <button
@@ -136,6 +148,16 @@ export function NotificationBell() {
           {t('notif.viewAllNotifications')}
         </button>
       </DropdownMenuContent>
+      <NotificationDetailDialog
+        item={detail}
+        onOpenChange={(o) => {
+          if (o) return
+          setDetail(null)
+          // The dialog marks the item read server-side on open; refresh the
+          // bell badge and preview rows once it closes.
+          void queryClient.invalidateQueries({ queryKey: ['notifications'] })
+        }}
+      />
     </DropdownMenu>
   )
 }

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { createFileRoute } from '@tanstack/react-router'
 import { Archive, CheckCheck, Circle, CircleCheck } from 'lucide-react'
 import { z } from 'zod'
+import { useState } from 'react'
 import {
   archiveAllReadNotifications,
   archiveNotification,
@@ -12,6 +13,7 @@ import {
   type NotificationItem,
 } from '@/api/notification'
 import { Button } from '@/components/ui/button'
+import { NotificationDetailDialog } from '@/components/notification-detail-dialog'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -39,7 +41,15 @@ function useFormatTime() {
       minute: '2-digit',
     })
 }
-function Row({ item, view }: { item: NotificationItem; view: 'all' | 'unread' | 'archived' }) {
+function Row({
+  item,
+  view,
+  onOpen,
+}: {
+  item: NotificationItem
+  view: 'all' | 'unread' | 'archived'
+  onOpen: (item: NotificationItem) => void
+}) {
   const { t } = useTranslation()
   const formatTime = useFormatTime()
   const queryClient = useQueryClient()
@@ -53,10 +63,6 @@ function Row({ item, view }: { item: NotificationItem; view: 'all' | 'unread' | 
     onSuccess: invalidate,
   })
   const unread = !item.read_at
-  const canOpen = !!item.work_item_id || !!item.link
-  const open = () => {
-    if (unread) read.mutate()
-  }
   return (
     <div
       className={cn(
@@ -74,10 +80,9 @@ function Row({ item, view }: { item: NotificationItem; view: 'all' | 'unread' | 
       </span>
       <button
         type="button"
-        onClick={open}
-        disabled={!canOpen}
+        onClick={() => onOpen(item)}
         className="min-w-0 flex-1 cursor-default text-left outline-none"
-        aria-label={canOpen ? t('notif.openAndRead', { title: item.title }) : undefined}
+        aria-label={t('notif.openAndRead', { title: item.title })}
       >
         <p className="flex items-center gap-2">
           <span
@@ -127,6 +132,7 @@ function NotificationsPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
+  const [detail, setDetail] = useState<NotificationItem | null>(null)
   const view: 'all' | 'unread' | 'archived' = search.archived
     ? 'archived'
     : search.unread
@@ -236,10 +242,12 @@ function NotificationsPage() {
       {visible.length > 0 && (
         <div className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {visible.map((it) => (
-            <Row key={it.id} item={it} view={view} />
+            <Row key={it.id} item={it} view={view} onOpen={setDetail} />
           ))}
         </div>
       )}
+
+      <NotificationDetailDialog item={detail} onOpenChange={(o) => !o && setDetail(null)} />
 
       {view !== 'unread' && list.hasNextPage && (
         <div className="text-center">

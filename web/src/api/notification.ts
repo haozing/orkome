@@ -4,7 +4,6 @@ export interface NotificationItem {
   type: string
   title: string
   body: string
-  link?: string
   work_item_id?: string
   read_at?: string
   created_at: string
