@@ -8,6 +8,7 @@ import {
   PriorityRow,
   StatusRow,
 } from '@/components/work-item/property-rows'
+import { WorkflowPanel } from '@/components/workflow/workflow-panel'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTranslation } from 'react-i18next'
 function formatDateTime(iso: string) {
@@ -19,7 +20,7 @@ function formatDateTime(iso: string) {
     minute: '2-digit',
   })
 }
-export function InfoPanel({ item }: { item: WorkItem }) {
+export function InfoPanel({ item, workItemId, projectId }: { item: WorkItem; workItemId?: string; projectId?: string }) {
   const { t } = useTranslation()
   const workspaceId = useWorkspaceStore((s) => s.currentId) ?? ''
   const members = useQuery(membersQueryOptions(workspaceId))
@@ -52,6 +53,10 @@ export function InfoPanel({ item }: { item: WorkItem }) {
       <InfoRow label={t('work.creator')}>{creatorLabel}</InfoRow>
       <InfoRow label={t('work.createdAt')}>{formatDateTime(item.created_at)}</InfoRow>
       <InfoRow label={t('work.updatedAt')}>{formatDateTime(item.updated_at)}</InfoRow>
+
+      {/* 流程光标卡在同一侧栏内、属性/详情下方（用户裁决：一个侧栏，属性在上流程在下）。
+          无 workItemId 的调用方（无该上下文）不渲染。 */}
+      {workItemId && <WorkflowPanel workItemId={workItemId} projectId={projectId ?? ''} />}
     </aside>
   )
 }

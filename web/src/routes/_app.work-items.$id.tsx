@@ -19,7 +19,6 @@ import { SubWorkItemsList } from '@/components/work-item/sub-work-items'
 import { TaskPanel } from '@/components/work-item/task-panel'
 import { BatchPanel } from '@/components/work-item/batch-panel'
 import { TimelineList } from '@/components/work-item/timeline-list'
-import { WorkflowPanel } from '@/components/workflow/workflow-panel'
 import { useTranslation } from 'react-i18next'
 
 // 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
@@ -144,10 +143,8 @@ export function WorkItemDetailPage() {
           </div>
         </div>
 
-        {/* 属性区在上（最高频编辑入口），流程光标卡在其下（2026-10-14 裁决：
-            流程是"动态化的状态+负责人"，常驻侧栏但不抢占属性首位） */}
-        <InfoPanel item={wi} />
-        <WorkflowPanel workItemId={id} projectId={wi.project_id ?? ''} />
+        {/* 属性+流程同侧栏（用户裁决：属性在上、流程光标在下） */}
+        <InfoPanel item={wi} workItemId={id} projectId={wi.project_id ?? ''} />
       </div>
     </div>
   )
