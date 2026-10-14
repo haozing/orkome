@@ -561,6 +561,65 @@ func (r *Repo) GetAgentIDByPATID(ctx context.Context, patID string) (string, boo
 	return agentID, err == nil, err
 }
 
+// ListRuntimeCredentials 列一个 external agent 的接入凭证（JOIN PAT 行取
+// 前缀；不回明文）。revoked 行也返回——列表要能呈现"已撤销"状态。
+// 视图类型放 orchestration/app（RuntimeCredView），iron law：adapters 不
+// 自创跨层形状。
+func (r *Repo) ListRuntimeCredentials(ctx context.Context, ws, agentID string) ([]orchapp.RuntimeCredView, error) {
+	rows, err := r.q(ctx).Query(ctx, `
+SELECT c.id::text, coalesce(c.name,''), coalesce(t.prefix,''), c.revoked_at IS NOT NULL,
+       c.created_at, c.revoked_at
+FROM agent_credential c
+LEFT JOIN personal_access_token t ON t.id=c.pat_id
+WHERE c.workspace_id=$1 AND c.agent_id=$2
+ORDER BY c.created_at DESC`, ws, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []orchapp.RuntimeCredView{}
+	for rows.Next() {
+		var v orchapp.RuntimeCredView
+		if err := rows.Scan(&v.ID, &v.Name, &v.PatPrefix, &v.Revoked, &v.CreatedAt, &v.RevokedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// RevokeRuntimeCredential 双行同措（同一事务）：agent_credential.revoked_at
+// 断 runtime fence 的 agent 映射，personal_access_token.revoked_at 断认证本身
+// ——只撤前者 PAT 仍能认证（MCP 照通，真机实证）。幂等：credential 行不在
+// 本 workspace/agent 名下或已撤销 → (false, nil)；已撤销行再撤同此。
+func (r *Repo) RevokeRuntimeCredential(ctx context.Context, ws, agentID, credID string) (bool, error) {
+	tx, err := r.DB.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var patID string
+	err = tx.QueryRow(ctx, `
+UPDATE agent_credential SET revoked_at=now()
+WHERE id=$1::uuid AND workspace_id=$2 AND agent_id=$3 AND revoked_at IS NULL
+RETURNING pat_id::text`, credID, ws, agentID).Scan(&patID)
+	if noRow(err) {
+		return false, nil
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return false, nil // 非法 uuid 字面量 = 真不存在，同应答
+		}
+		return false, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE personal_access_token SET revoked_at=now() WHERE id=$1::uuid AND revoked_at IS NULL`, patID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 func (r *Repo) CountStaleExternalQueued(ctx context.Context, olderThanMinutes int) (int, error) {
 	var n int
 	err := r.q(ctx).QueryRow(ctx, `

@@ -23,17 +23,20 @@ type agentMCPDeps struct {
 	wRepo    *workpgrepo.Repo
 	wSvc     *workapp.WorkItemService
 	external *orchapp.ExternalTaskService
+	roleOf   func(ctx context.Context, workspaceID, userID string) (string, error)
 }
 
 func mountAgentMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 	db *pg.DB, bus *eventbus.Bus, external *orchapp.ExternalTaskService,
-	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error)) {
+	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
+	roleOf func(ctx context.Context, workspaceID, userID string) (string, error)) {
 	orchRepo := orchpgrepo.New(db)
 	wRepo := &workpgrepo.Repo{DB: db}
 	d := &agentMCPDeps{
 		orchRepo: orchRepo, wRepo: wRepo,
 		wSvc:     workapp.NewWorkItemService(wRepo, bus, nil),
 		external: external,
+		roleOf:   roleOf,
 	}
 
 	s := server.NewMCPServer("orkome-agent", "0.1.0")
@@ -44,6 +47,25 @@ func mountAgentMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 	guarded := auth(webx.RequireAuth(d.workspaceMW(memberCheck)(handler)))
 	api.Handle("POST /api/mcp/w/{workspaceId}/agent", guarded)
 	api.Handle("GET /api/mcp/w/{workspaceId}/agent", guarded)
+
+	// runtime credential 管理面（/access 页消费）：铸出来的凭证此前无列出/
+	// 撤销入口——丢了只能等永不到期的 PAT 自己烂掉。撤销是双行同措：
+	// agent_credential.revoked_at（断 runtime fence 映射）+ PAT 行
+	// revoked_at（断认证本身）；只撤前者 PAT 依然能认证通过（真机实证）。
+	// 管理链先 workspaceMW 验成员，再 admin 闸——principal.Role 由
+	// workspaceMW 经 roleOf 填充（pack 域 wsFromHeader 同款三段式）。
+	adminOf := func(next http.Handler) http.Handler {
+		return auth(webx.RequireAuth(d.workspaceMW(memberCheck)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := webx.PrincipalFrom(r.Context())
+			if p == nil || (p.Role != "owner" && p.Role != "admin") {
+				webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace owner or admin role required", nil)
+				return
+			}
+			next.ServeHTTP(w, r)
+		}))))
+	}
+	api.Handle("GET /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials", adminOf(http.HandlerFunc(d.handleListRuntimeCredentials)))
+	api.Handle("DELETE /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials/{credId}", adminOf(http.HandlerFunc(d.handleRevokeRuntimeCredential)))
 }
 
 func (d *agentMCPDeps) workspaceMW(memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error)) func(http.Handler) http.Handler {
@@ -57,6 +79,11 @@ func (d *agentMCPDeps) workspaceMW(memberCheck func(ctx context.Context, workspa
 				return
 			}
 			p.WorkspaceID = ws
+			if d.roleOf != nil {
+				if role, rerr := d.roleOf(r.Context(), ws, p.UserID); rerr == nil {
+					p.Role = role
+				}
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -68,6 +95,63 @@ func (d *agentMCPDeps) agentOf(ctx context.Context) (ws, agentID string, err err
 		return "", "", apierr.New(apierr.Forbidden, "runtime credential required (agent-bound MCP endpoint)")
 	}
 	return p.WorkspaceID, p.AgentID, nil
+}
+
+// runtimeCredView 是列表行：不回明文（PAT 行只出前缀），状态由双行推导。
+type runtimeCredView = orchapp.RuntimeCredView
+
+// handleListRuntimeCredentials 列一个 external agent 的接入凭证（admin——
+// 与 mint 同权限口径；member 不该看到 agent 的认证材料）。
+func (d *agentMCPDeps) handleListRuntimeCredentials(w http.ResponseWriter, r *http.Request) {
+	p := webx.PrincipalFrom(r.Context())
+	if p.Role != "owner" && p.Role != "admin" {
+		webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace owner or admin role required", nil)
+		return
+	}
+	ws := r.PathValue("workspaceId")
+	agentID := r.PathValue("agentId")
+	if ok, err := d.memberHasAgent(r.Context(), ws, agentID); err != nil || !ok {
+		webx.WriteError(w, http.StatusNotFound, apierr.NotFound, "agent not found", nil)
+		return
+	}
+	creds, err := d.orchRepo.ListRuntimeCredentials(r.Context(), ws, agentID)
+	if err != nil {
+		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "list failed", nil)
+		return
+	}
+	if creds == nil {
+		creds = []runtimeCredView{}
+	}
+	webx.WriteJSON(w, http.StatusOK, map[string]any{"items": creds})
+}
+
+// handleRevokeRuntimeCredential 双行同措：agent_credential.revoked_at +
+// personal_access_token.revoked_at。幂等（已撤销的行再撤是无操作，仍 200）。
+func (d *agentMCPDeps) handleRevokeRuntimeCredential(w http.ResponseWriter, r *http.Request) {
+	p := webx.PrincipalFrom(r.Context())
+	if p.Role != "owner" && p.Role != "admin" {
+		webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace owner or admin role required", nil)
+		return
+	}
+	ws := r.PathValue("workspaceId")
+	agentID := r.PathValue("agentId")
+	credID := r.PathValue("credId")
+	ok, err := d.orchRepo.RevokeRuntimeCredential(r.Context(), ws, agentID, credID)
+	if err != nil {
+		webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "revoke failed", nil)
+		return
+	}
+	if !ok {
+		webx.WriteError(w, http.StatusNotFound, apierr.NotFound, "credential not found", nil)
+		return
+	}
+	webx.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// memberHasAgent 校验 agent 属于该 workspace（列表/撤销前的归属闸）。
+func (d *agentMCPDeps) memberHasAgent(ctx context.Context, ws, agentID string) (bool, error) {
+	_, ok, err := d.orchRepo.GetAgent(ctx, ws, agentID)
+	return ok, err
 }
 
 func jsonText(v any) (*mcp.CallToolResult, error) {

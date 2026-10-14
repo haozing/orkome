@@ -270,7 +270,7 @@ func main() {
 
 	workspacehttp.Mount(api, idDeps.WorkspaceMountDeps())
 
-	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db))
+	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db), roleOf(db))
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)

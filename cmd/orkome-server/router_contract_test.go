@@ -145,6 +145,9 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/agents/{agentId}"}, {"PUT", "/agents/{agentId}"},
 	{"POST", "/agents/{agentId}/archive"}, {"POST", "/agents/{agentId}/restore"},
 	{"POST", "/agents/{agentId}/runtime-credentials"},
+	// runtime credential 管理面（/access 页；GET 列表 + DELETE 双行同措撤销）
+	{"GET", "/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials"},
+	{"DELETE", "/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials/{credId}"},
 	{"POST", "/mcp/w/{workspaceId}/agent"},
 	{"GET", "/mcp/w/{workspaceId}/agent"},
 	{"GET", "/ui-entries"},
@@ -399,6 +402,9 @@ func buildTestAPIRouter() *http.ServeMux {
 
 	r.HandleFunc("POST /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
 	r.HandleFunc("GET /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
+	// runtime credential 管理面（/access 页；GET 列表 + DELETE 双行同措撤销）
+	r.HandleFunc("GET /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials", func(http.ResponseWriter, *http.Request) {})
+	r.HandleFunc("DELETE /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials/{credId}", func(http.ResponseWriter, *http.Request) {})
 
 	// 商业化面（main.go:253 comm.MountAPI → quotahttp + audithttp）：
 	// 注册期不解引用 nil 服务，测试只关心 pattern 面。

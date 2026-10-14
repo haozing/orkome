@@ -38,6 +38,17 @@ type Task struct {
 	CompletedAt         *time.Time     `json:"completed_at,omitempty"`
 }
 
+// RuntimeCredView 是 external agent 接入凭证的列表行（/access 管理面）。
+// 明文永不回传——认证材料只有 mint 响应那一次。
+type RuntimeCredView struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	PatPrefix string     `json:"pat_prefix"`
+	Revoked   bool       `json:"revoked"`
+	CreatedAt time.Time  `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}
+
 type Agent struct {
 	ID            string         `json:"id"`
 	WorkspaceID   string         `json:"workspace_id"`
