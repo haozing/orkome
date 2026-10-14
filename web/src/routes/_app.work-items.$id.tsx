@@ -19,6 +19,7 @@ import { SubWorkItemsList } from '@/components/work-item/sub-work-items'
 import { TaskPanel } from '@/components/work-item/task-panel'
 import { BatchPanel } from '@/components/work-item/batch-panel'
 import { TimelineList } from '@/components/work-item/timeline-list'
+import { WorkflowPanel } from '@/components/workflow/workflow-panel'
 import { useTranslation } from 'react-i18next'
 
 // 动态 slot tab（C2/F3）：静态枚举 + pack:<pack> 前缀动态值（前端设计 §1.3 审计修订）。
@@ -143,6 +144,8 @@ export function WorkItemDetailPage() {
           </div>
         </div>
 
+        {/* 流程区块（W3 追加，设计 §6.2 触点 2）：数据源 start/restart 响应 + WS 桥刷新 */}
+        <WorkflowPanel workItemId={id} projectId={wi.project_id ?? ''} />
         <InfoPanel item={wi} />
       </div>
     </div>

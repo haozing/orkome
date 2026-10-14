@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { ChevronRight, Plus, Star } from 'lucide-react'
+import { ChevronRight, Plus, Star, Workflow } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createProject, listProjects, type Project } from '@/api/work'
+import { WorkflowEditor } from '@/components/workflow/workflow-editor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -50,6 +51,8 @@ export function ProjectNav() {
   const [createOpen, setCreateOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [starred, setStarred] = useState<string[]>([])
+  // W1 项目流程编辑器入口：当前打开编辑器的项目 id（null = 关闭）。
+  const [workflowProjectId, setWorkflowProjectId] = useState<string | null>(null)
   const routerSearch = useRouterState({ select: (s) => s.location.search }) as {
     project?: string
   }
@@ -106,6 +109,7 @@ export function ProjectNav() {
             active={p.id === activeProjectId}
             starred={starred.includes(p.id)}
             onToggleStar={() => toggleStar(p.id)}
+            onOpenWorkflow={() => setWorkflowProjectId(p.id)}
           />
         ))}
         {projects.isSuccess && sorted.length === 0 && (
@@ -133,6 +137,7 @@ export function ProjectNav() {
       )}
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <WorkflowDialog projectId={workflowProjectId} onOpenChange={setWorkflowProjectId} />
     </div>
   )
 }
@@ -141,11 +146,13 @@ function ProjectRow({
   active,
   starred,
   onToggleStar,
+  onOpenWorkflow,
 }: {
   project: Project
   active: boolean
   starred: boolean
   onToggleStar: () => void
+  onOpenWorkflow: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -171,6 +178,15 @@ function ProjectRow({
       </Link>
       <button
         type="button"
+        aria-label={t('workflow.openEditorAria', { name: project.name })}
+        title={t('workflow.openEditorAria', { name: project.name })}
+        className="flex size-6 shrink-0 items-center justify-center rounded text-zinc-400 outline-none opacity-0 group-hover:opacity-100 hover:bg-zinc-100 hover:text-zinc-600 focus-visible:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        onClick={onOpenWorkflow}
+      >
+        <Workflow className="size-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
         aria-label={starred ? t('projects.unstar') : t('projects.star')}
         className={cn(
           'flex size-6 shrink-0 items-center justify-center rounded outline-none',
@@ -183,6 +199,48 @@ function ProjectRow({
         <Star className={cn('size-3.5', starred && 'fill-current')} aria-hidden="true" />
       </button>
     </div>
+  )
+}
+
+// W1 项目流程编辑器挂载点：项目尚无详情页（project 行直接链到 /work-items?project=），
+// 侧栏行内的 Workflow 图标 + Dialog 是最小侵入入口；项目详情页落地后（W3）把
+// WorkflowEditor 平移进页面区块即可，组件本身不感知载体。
+function WorkflowDialog({
+  projectId,
+  onOpenChange,
+}: {
+  projectId: string | null
+  onOpenChange: (projectId: string | null) => void
+}) {
+  const { t } = useTranslation()
+  const project = useQuery({
+    queryKey: ['projects'],
+    queryFn: listProjects,
+    enabled: projectId !== null,
+    select: (projects: Project[]) => projects.find((p) => p.id === projectId),
+  })
+  return (
+    <Dialog
+      open={projectId !== null}
+      onOpenChange={(open) => {
+        if (!open) onOpenChange(null)
+      }}
+    >
+      <DialogContent className="sm:max-w-xl">
+        <DialogTitle>{t('workflow.editorTitle')}</DialogTitle>
+        <DialogDescription className="text-xs">
+          {project.data ? project.data.name : ''}
+        </DialogDescription>
+        <div className="max-h-[60vh] overflow-y-auto pr-1">
+          {projectId !== null && <WorkflowEditor projectId={projectId} />}
+        </div>
+        <DialogFooter>
+          <DialogClose className="border-border bg-background hover:bg-muted inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-sm font-medium outline-none">
+            {t('common.close')}
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 function CreateProjectDialog({
