@@ -85,3 +85,21 @@ repo.go:507-518 注释明说 external 豁免理由是"client-side execution, sur
 6. **§3.3 权限**:显式列 PAT 暴露面,v0 接受全权+文案警示(收敛列 backlog);/api/mcp/me 挂粗限流。
 7. **§6 退役**:第一刀口径改"CreateAgent API 拒绝 external";第二刀枚举收敛为 engine|assistant_proxy;依赖面补 agentBoundPAT/guard_runtime。
 8. **§7 切分**:W1 增加"结算尾部公共层抽取 + dispatcher 白名单 + liveness 心跳行 + 重启豁免"四项基础设施改造——工作量比 v0 估的大,但这正是"β 的可观测性"真实成本。
+
+
+---
+
+# 二轮审计(v2 → v3,2026-10-14)
+
+对 v2 的新论断与修法做第二轮双审计(事实核 N1-N10 / 可实施性 R1-R12,合并去重 19 项)。**总评:v2 对首轮 21 项修复方向全对;心跳行方案结构成立(agent_runtime 主键/UPSERT 形状/判死 SQL 兼容/无清理 worker 均实证);但三组新修法自身不成立——claim 互斥(READ COMMITTED 下事务不互斥+唯一索引不存在)、150s 判死窗口(对 AI 客户端不可执行)、工单推进(先例不存在)——3 P0。已全部并入 v3。**
+
+## P0(3)
+1. **N1 幂等索引炸普通 agent**:所有 API 建 agent 默认写 owner(routes.go:273),普通 UNIQUE(workspace_id,owner_user_id) 让一 owner 多 agent 即崩——改部分唯一索引 WHERE runtime_kind='assistant_proxy'(迁移 1046)。
+2. **R1/R2 claim 不互斥**:纯事务内 NOT EXISTS 在 READ COMMITTED 双双通过;须 FOR UPDATE 工单行 + 部分唯一索引 + ON CONFLICT DO NOTHING。
+3. **N2/R6 推进先例不存在**:Settle 全文不写工单 status(service.go:819-861),引擎推进靠 LLM 调 update_work_item_status 工具;自动推进是全新行为,须定义完成态规则(category='done' 最小 position/终态只结算/revision 冲突降级)。
+
+## P1(6)
+R3 判死分窗(150s 统一阈值→engine 150s/proxy 30min,第五项基建);R5 恢复缺口(get_my_running_tasks 工具);N3 直插 running 不可行(InsertTask 硬编码 queued,CAS 置 running 组合拳);N4 心跳行 engine NOT NULL(伪码必须带 engine='assistant',禁 HeartbeatRuntime);R7 fail 再求助断层(评论重置排除谓词);N8 SrcAssistantClaim domain 常量。
+
+## P2/P3(10)
+N5 心跳行 DELETE 无先例(新逻辑);N6 限流已有 WebhookRateLimiter 可复用("首个限流面"论断错误);N7 CHECK unnamed 约束 DDL 写法;N9 proxy owner 干扰触发豁免(service_trigger.go:141);N10 list_my_claims 查询归属;R4 心跳节奏约定入 AGENTS.md;R9 补 list_labels/list_statuses 发现工具;R8 工具计数 14;R11 W1 拆分(页面/@mention 后移 W2);R12 验证口径补 4 条(总 11 条)。
