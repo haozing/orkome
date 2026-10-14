@@ -202,3 +202,75 @@ export interface PackDetail {
 export function getPack(packId: string) {
   return api.get<PackDetail>(`/api/packs/${packId}`)
 }
+
+// ---------------------------------------------------------------------------
+// 能力包平台化（平台化前端 P2）：安装向导 + 使用文档 + 资产挂载。
+// wire 契约已冻结（pack-install-wizard 任务书 §API 契约），后端并行实现中，
+// 字段名照契约直映（snake_case），不改上面已有函数。
+// ---------------------------------------------------------------------------
+
+/** 安装请求里的单台 MCP 服务器声明（credential 可选，provider/secret 二元组）。 */
+export interface PackInstallMcpServer {
+  name: string
+  transport: string
+  url: string
+  credential?: { provider: string; secret: string }
+}
+
+/** 安装请求里的事件订阅声明（types 取自 webhook 事件目录）。 */
+export interface PackInstallEvent {
+  url: string
+  types: string[]
+  description?: string
+}
+
+/** 安装请求里的界面进驻声明（slot 目录仍冻结为 workitem.detail.tab）。 */
+export interface PackInstallUI {
+  label: string
+  url_template: string
+  slots: PackUISlot[]
+}
+
+/** POST /api/packs/install 的请求体（mcp/events/ui 三段均可空/缺省）。 */
+export interface PackInstallSpec {
+  name: string
+  version: string
+  mcp?: PackInstallMcpServer[]
+  events?: PackInstallEvent[]
+  ui?: PackInstallUI
+}
+
+/** 安装响应：一次性回显的订阅密钥行（secret 可能为空——后端未回填时不展示）。 */
+export interface PackInstallSubscriptionSecret {
+  url: string
+  subscription_id: string
+  /** 明文仅本次响应出现（可能为空），前端一次性 Dialog 展示后不再可得 */
+  secret?: string
+}
+
+/** POST /api/packs/install → 201 + { pack, subscriptions } */
+export function installPack(spec: PackInstallSpec) {
+  return api.post<{
+    pack: { id: string; workspace_id: string; name: string; version: string; installed_at: string }
+    subscriptions: PackInstallSubscriptionSecret[] | null
+  }>('/api/packs/install', spec)
+}
+
+/** GET /api/packs/{packId}/usage-document → { markdown }（member 可读）。 */
+export function getPackUsageDocument(packId: string) {
+  return api.get<{ markdown: string }>(`/api/packs/${packId}/usage-document`)
+}
+
+/**
+ * POST /api/agents/{agentId}/pack body { pack_id }（admin）。
+ * pack_id 空串 = 卸下（详情页「卸下」按钮同参）；204 无响应体。
+ * member 调用会 403——页面侧行内错误提示，不做权限隐藏。
+ */
+export function setAgentPack(agentId: string, packId: string) {
+  return api.post<unknown>(`/api/agents/${agentId}/pack`, { pack_id: packId })
+}
+
+/** POST /api/skills/{skillId}/pack body { pack_id }（admin），语义同 setAgentPack。 */
+export function setSkillPack(skillId: string, packId: string) {
+  return api.post<unknown>(`/api/skills/${skillId}/pack`, { pack_id: packId })
+}

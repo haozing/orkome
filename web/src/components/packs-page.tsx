@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Boxes, PackageOpen } from 'lucide-react'
+import { Boxes, PackageOpen, PackagePlus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { listPacks, type PackEntry } from '@/api/packs'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
@@ -23,9 +23,20 @@ export function PacksPageView() {
     })
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">{t('packs2.pageTitle')}</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('packs2.pageIntro')}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold">{t('packs2.pageTitle')}</h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('packs2.pageIntro')}</p>
+        </div>
+        {/* 平台化 P2：安装从纯 CLI 引导升级为页面向导（POST /api/packs/install） */}
+        <Link
+          to="/packs/install"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none hover:bg-primary/80 focus-visible:ring-3 focus-visible:ring-ring/50"
+          data-testid="packs-install-link"
+        >
+          <PackagePlus className="size-4" aria-hidden="true" />
+          {t('packsInstall.wizardTitle')}
+        </Link>
       </div>
 
       {packs.isPending && <PageLoading label={t('packs2.loading')} />}

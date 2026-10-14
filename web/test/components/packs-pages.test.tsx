@@ -106,6 +106,9 @@ describe('/packs list (three states)', () => {
     expect(await screen.findByText('No packs installed yet')).toBeInTheDocument()
     const cmd = screen.getByTestId('packs-install-cmd')
     expect(cmd.textContent).toContain('pack-provision install')
+    // 平台化 P2：头部安装入口（向导页）
+    expect(screen.getByTestId('packs-install-link')).toBeInTheDocument()
+    expect(screen.getByTestId('packs-install-link').getAttribute('to')).toBe('/packs/install')
   })
 
   it('rows: name, version, asset counts; click-through to detail', async () => {

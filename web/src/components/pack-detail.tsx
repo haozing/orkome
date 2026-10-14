@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowLeft,
+  BookOpen,
   ChevronDown,
   ChevronRight,
   Copy,
   HeartPulse,
+  Link2,
   Pause,
   Play,
   Radio,
@@ -15,6 +17,8 @@ import {
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getPack, listWorkspaceMcp, probeWorkspaceMcpTools, type PackDetail } from '@/api/packs'
+import { PackUsageDialog } from '@/components/pack-export-dialog'
+import { PackAttachPickerDialog, PackDetachButton } from '@/components/pack-attach-dialog'
 import {
   listWebhookDeliveries,
   listWebhookEvents,
@@ -102,6 +106,10 @@ export function PackDetailView({ packId }: { packId: string }) {
   }
 
   const [uninstallOpen, setUninstallOpen] = useState(false)
+  // 使用文档 Dialog（平台化 P2）：打开才挂载组件（查询随 Dialog 生命周期）
+  const [usageOpen, setUsageOpen] = useState(false)
+  // 资产挂载 picker（平台化 P2）：null=关，'agent'/'skill'=对应 picker 打开
+  const [attachPicker, setAttachPicker] = useState<'agent' | 'skill' | null>(null)
   // 探针寻址依赖注册表名→id 映射；注册表未就绪时先禁用探活（否则映射为空，
   // 探活空转成 0/0 健康，误导）。
   const probeReady = !!workspaceId && !!detail.data && registry.isSuccess
@@ -157,6 +165,16 @@ export function PackDetailView({ packId }: { packId: string }) {
           >
             <HeartPulse className="size-3.5" aria-hidden="true" />
             {probing ? t('packs2.probing') : t('packs2.probeAction')}
+          </Button>
+          {/* 使用文档（平台化 P2）：member 可读端点，无权限门槛 */}
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="pack-usage-open"
+            onClick={() => setUsageOpen(true)}
+          >
+            <BookOpen className="size-3.5" aria-hidden="true" />
+            {t('packsInstall.usageAction')}
           </Button>
           <Button
             size="sm"
@@ -332,12 +350,22 @@ export function PackDetailView({ packId }: { packId: string }) {
         )}
       </SectionBlock>
 
-      {/* ⑤ 资产：agents（archived 灰显）+ skills */}
+      {/* ⑤ 资产：agents（archived 灰显）+ skills；标题行「挂载」开放
+          picker（平台化 P2），已挂行带「卸下」（空串 pack_id 提交） */}
       <SectionBlock title={t('packs2.assetsTitle')}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
               {t('packs2.agentsLabel', { n: d.agents.length })}
+              <Button
+                size="xs"
+                variant="ghost"
+                data-testid="pack-agent-attach"
+                onClick={() => setAttachPicker('agent')}
+              >
+                <Link2 className="size-3" aria-hidden="true" />
+                {t('packsInstall.attachAgent')}
+              </Button>
             </p>
             {d.agents.length === 0 ? (
               <p className="text-sm text-zinc-500">{t('packs2.agentsEmpty')}</p>
@@ -349,25 +377,38 @@ export function PackDetailView({ packId }: { packId: string }) {
                     className={a.archived ? 'text-sm text-zinc-400' : 'text-sm'}
                     data-testid="pack-agent-row"
                   >
-                    <Link
-                      to="/agents/$agentId"
-                      params={{ agentId: a.id }}
-                      className="inline-flex items-center gap-1.5 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400"
-                      aria-label={t('packs2.viewAgent', { name: a.name })}
-                    >
-                      {a.name}
-                      {a.archived && (
-                        <span className="text-xs">{t('packs2.agentArchivedSuffix')}</span>
-                      )}
-                    </Link>
+                    <span className="flex items-center gap-1.5">
+                      <Link
+                        to="/agents/$agentId"
+                        params={{ agentId: a.id }}
+                        className="inline-flex items-center gap-1.5 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400"
+                        aria-label={t('packs2.viewAgent', { name: a.name })}
+                      >
+                        {a.name}
+                        {a.archived && (
+                          <span className="text-xs">{t('packs2.agentArchivedSuffix')}</span>
+                        )}
+                      </Link>
+                      {/* 卸下：行内 ghost 小按钮；member 403 行内报错 */}
+                      <PackDetachButton packId={d.pack.id} kind="agent" id={a.id} />
+                    </span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
           <div>
-            <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
               {t('packs2.skillsLabel', { n: d.skills.length })}
+              <Button
+                size="xs"
+                variant="ghost"
+                data-testid="pack-skill-attach"
+                onClick={() => setAttachPicker('skill')}
+              >
+                <Link2 className="size-3" aria-hidden="true" />
+                {t('packsInstall.attachSkill')}
+              </Button>
             </p>
             {d.skills.length === 0 ? (
               <p className="text-sm text-zinc-500">{t('packs2.skillsEmpty')}</p>
@@ -375,14 +416,17 @@ export function PackDetailView({ packId }: { packId: string }) {
               <ul className="space-y-1">
                 {d.skills.map((sk) => (
                   <li key={sk.id} className="text-sm" data-testid="pack-skill-row">
-                    <Link
-                      to="/skills/$skillId"
-                      params={{ skillId: sk.id }}
-                      className="inline-flex rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400"
-                      aria-label={t('packs2.viewSkill', { name: sk.name })}
-                    >
-                      {sk.name}
-                    </Link>
+                    <span className="flex items-center gap-1.5">
+                      <Link
+                        to="/skills/$skillId"
+                        params={{ skillId: sk.id }}
+                        className="inline-flex rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400"
+                        aria-label={t('packs2.viewSkill', { name: sk.name })}
+                      >
+                        {sk.name}
+                      </Link>
+                      <PackDetachButton packId={d.pack.id} kind="skill" id={sk.id} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -414,6 +458,33 @@ export function PackDetailView({ packId }: { packId: string }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 使用文档 Dialog（平台化 P2）：打开才挂载，查询随 Dialog 生命周期 */}
+      {usageOpen && (
+        <PackUsageDialog
+          packId={d.pack.id}
+          packName={d.pack.name}
+          onClose={() => setUsageOpen(false)}
+        />
+      )}
+
+      {/* 资产挂载 picker（平台化 P2）：existingIds 传详情页当前列表，过滤已挂 */}
+      {attachPicker === 'agent' && (
+        <PackAttachPickerDialog
+          packId={d.pack.id}
+          kind="agent"
+          existingIds={d.agents.map((a) => a.id)}
+          onClose={() => setAttachPicker(null)}
+        />
+      )}
+      {attachPicker === 'skill' && (
+        <PackAttachPickerDialog
+          packId={d.pack.id}
+          kind="skill"
+          existingIds={d.skills.map((sk) => sk.id)}
+          onClose={() => setAttachPicker(null)}
+        />
+      )}
     </div>
   )
 }
