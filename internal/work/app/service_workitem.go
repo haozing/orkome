@@ -431,6 +431,13 @@ func (s *WorkItemService) Subscribe(ctx context.Context, workspaceID, workItemID
 	return &sub, nil
 }
 
+// ActiveStatusKeysFor 是 MCP 助理面用的"待处理集"解析:该区状态目录 →
+// 非 done/closed 类的 status_key 列表(toDomainDefs 的导出封装,cmd 层
+// 编排 list_my_claims 时用;域内已有三处同款调用)。
+func ActiveStatusKeysFor(defs []StatusDef) []string {
+	return domain.ActiveStatusKeys(toDomainDefs(defs))
+}
+
 func toDomainDefs(defs []StatusDef) []domain.StatusDef {
 	out := make([]domain.StatusDef, len(defs))
 	for i, d := range defs {

@@ -266,4 +266,16 @@ rules:
       and applies the workspace fence (ag.workspace_id=$1, same pattern and transitional semantics
       as SKILLS-AGENT-SCOPE).
 
+  - id: ORCH-RUNTIME-CRED-PAT
+    domain: orchestration
+    source: internal/orchestration/adapters/pgrepo/repo.go
+    anchor: agent_credential
+    foreign_tables: [personal_access_token]
+    func: (*pgrepo.Repo).ListRuntimeCredentials / RevokeRuntimeCredential
+    reason: runtime credential 管理面（/access 页）双行同措撤销——agent_credential.revoked_at
+      与 PAT 行 revoked_at 必须同事务失效（只撤前者 PAT 仍能认证通过，真机实证）。
+      PAT 表归 identity 域；撤销是编排域凭证生命周期的一部分，经端口反转会让事务
+      边界跨域，故登记为有意跨域写。transitional——第二刀物理删除时本条随
+      agent_credential 一并移除。
+
 exemptions: []

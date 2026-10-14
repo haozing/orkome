@@ -258,3 +258,29 @@ func TestCommentWrite_CrossWorkspaceFence(t *testing.T) {
 	require.NoError(t, svc.Delete(ctx, "ws-1", "c-1", "u-author"))
 	assert.True(t, repo.comments["c-1"].Deleted)
 }
+
+// 助理接入（v4 §3.2 add_comment）：SkipTrigger 置位时评论照常落库/
+// 订阅/事件，但跳过 triggerEngine.OnComment——AI 代用户评论不得意外
+// 触发 agent 派发。admission 回 Blocked + skipped_by_request。
+func TestCommentCreate_SkipTrigger(t *testing.T) {
+	repo := newFakeCommentRepo()
+	repo.items["wi-1"] = WorkItem{ID: "wi-1", WorkspaceID: "ws-1"}
+	engine := &fakeTriggerEngine{result: "queued", reason: ""}
+	SetTriggerEngine(engine)
+	t.Cleanup(func() { SetTriggerEngine(nil) })
+	svc := NewCommentService(repo, nil, nil)
+	ctx := context.Background()
+
+	c, admission, err := svc.Create(ctx, NewComment{
+		WorkspaceID: "ws-1", WorkItemID: "wi-1", AuthorType: "user", AuthorID: "u-me",
+		Content: "AI 进度汇报", SkipTrigger: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	assert.Zero(t, engine.calls, "skipTrigger 不进触发面")
+	require.NotNil(t, admission)
+	assert.Equal(t, "blocked", admission.Result)
+	assert.Equal(t, "skipped_by_request", admission.ReasonCode)
+	assert.NotEmpty(t, repo.touched, "TouchWorkItem 照常（评论重置谓词依赖 last_activity）")
+	assert.Len(t, repo.subs, 1, "作者订阅照常")
+}

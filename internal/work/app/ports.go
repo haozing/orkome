@@ -301,6 +301,17 @@ type ListQuery struct {
 	Props map[string]string
 
 	PropFilters []domain.PropFilter
+
+	// ExcludeAgentActiveTasks 排除"该 agent 已有活跃代理任务"的工单
+	//（助理接入 v4 §3.2 list_my_claims 谓词排除：queued/running 代理任务
+	// 占用的单不再列出）。值= agent id（proxy 行）。SQL 为 NOT EXISTS 子
+	// 查询（跨域 join agent_task_queue 有 ListWorkItemUsage 先例）。
+	ExcludeAgentActiveTasks string
+
+	// ExcludeAgentRecentlyClaimed 排除"该 agent 在近 hours 小时内有终态代理
+	// 任务（且其后用户未再评论）"的工单（v4 §4.2 fail 后 24h 内暂列不出——
+	// 用户在该工单发一条评论即重置排除）。0 = 不启用。
+	ExcludeAgentRecentlyClaimedHours int
 }
 
 type NewComment struct {
@@ -310,6 +321,11 @@ type NewComment struct {
 	AuthorID    string
 	Content     string
 	ParentID    string
+	// SkipTrigger 跳过 triggerEngine.OnComment（助理接入 v4 §3.2 add_comment
+	// 的 skipTrigger 语义）：AI 以用户身份评论不得意外触发 agent 派发。
+	// 用户再求助的"评论重置"走谓词时间戳（CommentCreated 事件照发），与此
+	// 互不干扰。零值 false = 既有行为（网页/REST 面不受影响）。
+	SkipTrigger bool
 }
 
 type Emitter interface {

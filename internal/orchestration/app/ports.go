@@ -458,6 +458,44 @@ type Repo interface {
 	GetTaskAwaiting(ctx context.Context, workspaceID, id string) (Task, bool, error)
 
 	ResetSupplementToPending(ctx context.Context, workspaceID, taskID, supplementID string) (bool, error)
+
+	// ---------- 助理接入（v4 §4.1/§4.2）----------
+
+	// EnsureAssistantProxyAgent 幂等取/建用户代理行 id（ON CONFLICT DO
+	// NOTHING + 部分唯一索引 uq_agent_assistant_proxy 兜底并发）。
+	EnsureAssistantProxyAgent(ctx context.Context, workspaceID, userID string) (string, error)
+	// GetAssistantProxyAgent 读代理行 id（不存在 ok=false，不建行）。
+	GetAssistantProxyAgent(ctx context.Context, workspaceID, userID string) (string, bool, error)
+	// ClaimAssistantTask 接单事务原子芯：FOR UPDATE 锁工单行 + assignee 校验
+	// + 防重 + InsertTask(queued)→CAS 置 running，单事务。ok=false 即冲突 409。
+	ClaimAssistantTask(ctx context.Context, in AssistantClaim) (Task, bool, error)
+	// StallIdleAssistantTasks 超时挂起：proxy 行 running 超 hours 小时置
+	// stalled（终态），返回被挂起行供通知/工单回退。
+	StallIdleAssistantTasks(ctx context.Context, hours int) ([]StalledAssistantTask, error)
+	// ListRunningByAgent 列某 agent（代理行）下 running 任务。
+	ListRunningByAgent(ctx context.Context, workspaceID, agentID string) ([]Task, error)
+	// GetTaskWorkItemStatus 读任务所挂工单的当前 status_key（推进/回退前的
+	// 终态判断；SQL join work_item 有 ListWorkItemUsage 先例）。ok=false 即
+	// 工单不存在或已删。
+	GetTaskWorkItemStatus(ctx context.Context, workspaceID, workItemID string) (string, bool, error)
+}
+
+// AssistantClaim 接单事务入参：任务归属 proxy 行、代跑身份为用户本人。
+// AgentID 由调用方先经 EnsureAssistantProxyAgent 解析。
+type AssistantClaim struct {
+	WorkspaceID string
+	AgentID     string
+	UserID      string
+	WorkItemID  string
+}
+
+// StalledAssistantTask 被超时挂起的代理任务的归属面（发通知 + 工单回退用）。
+type StalledAssistantTask struct {
+	ID               string
+	WorkspaceID      string
+	AgentID          string
+	WorkItemID       string
+	OriginatorUserID string
 }
 
 type NotificationWriter interface {

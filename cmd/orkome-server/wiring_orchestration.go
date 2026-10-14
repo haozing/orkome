@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"time"
 
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
@@ -61,7 +62,7 @@ func egressGuardOf(cfg *Config) *egressx.Guard {
 
 func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Config,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
-) (*workers.Dispatcher, *workers.LivenessSweeper, orchhttp.Deps, *orchapp.EnqueueService, *engine.EinoEngine, *orchapp.BatchService, map[string]orchapp.BatchProcessor) {
+) (*workers.Dispatcher, *workers.LivenessSweeper, *workers.AssistantStalledSweeper, *orchapp.AssistantTaskService, orchhttp.Deps, *orchapp.EnqueueService, *engine.EinoEngine, *orchapp.BatchService, map[string]orchapp.BatchProcessor) {
 	repo := orchpgrepo.New(db)
 	repo.Seal = credentialSealer(log, cfg)
 	convRepo := convpgrepo.New(db)
@@ -315,13 +316,39 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 		Trigger: trig, JanitorEvery: 5 * time.Minute, JanitorHours: 24,
 	}
 
+	// ---------- 助理接入（v4 §4/§7 W1）----------
+	assistant := orchapp.NewAssistantTaskService(repo, bus)
+	assistant.SetSummarySummarizer(summarySvc)
+	assistant.SetSettlement(settle)
+	// 工单推进/回退端口（跨域函数注入）：done=category 'done' 最小 position、
+	// todo=unstarted 类 todo 语义、terminal=done/closed。status 目录在 work
+	// 域（status_catalog），经函数端口反转，域层零互依。
+	assistant.SetStatusUpdater(assistantStatusUpdater{wRepo: wRepo, svc: wSvc})
+	// stalled 交还通知最薄路径：notification 域 WriteNotice 直写（dedup 去重
+	// —— sweeper 周期重扫前已置终态，dedup 再兜一层）。
+	assistant.SetNotifier(assistantNotifier{repo: notifRepo})
+
+	// 超时挂起 sweeper（v4 §4.3）：4h 阈值、5 分钟周期——4h 量级不需要
+	// liveness 的 30s 节奏。动作=置 stalled+通知+工单回退（Assistant 承载）。
+	stalled := &workers.AssistantStalledSweeper{
+		Stall: func(ctx context.Context) (int, error) {
+			return assistant.StallExpired(ctx, 4)
+		},
+		Log:             log,
+		Every:           5 * time.Minute,
+		StallAfterHours: 4,
+	}
+
 	recorder := outboxx.NewRecorder(db)
 	enq.SetOutbox(recorder, db.Within)
 	settle.SetOutbox(recorder, db.Within)
 
+	assistant.SetOutbox(recorder, db.Within)
+
 	external := orchapp.NewExternalTaskService(repo, bus)
 	external.SetOutbox(recorder, db.Within)
 	external.SetSummarySummarizer(summarySvc) // A2：external runtime 结算同口径
+	external.SetSettlement(settle)            // 结算尾部公共层：external 补落 outcome
 	mintRuntimeCredential := func(ctx context.Context, ws, agentID, name string) (string, error) {
 		a, ok, err := repo.GetAgent(ctx, ws, agentID)
 		if err != nil {
@@ -476,7 +503,7 @@ VALUES ($1,$2,$3,$4)`, ws, agentID, pat.ID, name)
 			return repo.ListTaskMessages(ctx, ws, taskID, q)
 		},
 	}
-	return d, sweeper, deps, enq, eng, batches, batchRegistry
+	return d, sweeper, stalled, assistant, deps, enq, eng, batches, batchRegistry
 }
 
 func wiringCredentials(repo *orchpgrepo.Repo) *orchapp.CredentialService {
@@ -709,6 +736,93 @@ func (c chatWriter) ClearResumePointer(ctx context.Context, sessionID string) er
 var _ = events.TaskQueued
 
 type mcpResolverAd struct{ svc *orchapp.MCPServerService }
+
+// assistantStatusUpdater orchapp.AssistantStatusUpdater 的 work 域实现：
+// 推进走 UpdateStatusByAgent 通道（代理通道先例）；done/todo/terminal 三个
+// 目录查询读 status_catalog（work 域）——status_key 每区可配，不靠猜。
+type assistantStatusUpdater struct {
+	wRepo *workpgrepo.Repo
+	svc   *workapp.WorkItemService
+}
+
+func (a assistantStatusUpdater) UpdateStatusByAgent(ctx context.Context, ws, wi, agentID, statusKey string) error {
+	return workBenchAdapter{wRepo: a.wRepo, svc: a.svc}.UpdateStatusByAgent(ctx, ws, wi, agentID, statusKey)
+}
+
+func (a assistantStatusUpdater) statuses(ctx context.Context, ws string) ([]workapp.StatusDef, error) {
+	if err := a.wRepo.EnsureStatusSeed(ctx, ws); err != nil {
+		return nil, err
+	}
+	defs, err := a.wRepo.ListStatuses(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(defs, func(i, j int) bool { return defs[i].Position < defs[j].Position })
+	return defs, nil
+}
+
+func (a assistantStatusUpdater) DoneStatusKey(ctx context.Context, ws string) (string, error) {
+	defs, err := a.statuses(ctx, ws)
+	if err != nil {
+		return "", err
+	}
+	for _, d := range defs {
+		if d.Category == workdomain.CatDone {
+			return d.Key, nil // 已按 position 升序——第一个 done 类即最小
+		}
+	}
+	return "", nil
+}
+
+func (a assistantStatusUpdater) TodoStatusKey(ctx context.Context, ws string) (string, error) {
+	defs, err := a.statuses(ctx, ws)
+	if err != nil {
+		return "", err
+	}
+	// 待处理=unstarted 类；优先非 backlog 的第一个（todo 语义），全空回落 backlog。
+	fallback := ""
+	for _, d := range defs {
+		if d.Category != workdomain.CatUnstarted {
+			continue
+		}
+		if fallback == "" {
+			fallback = d.Key
+		}
+		if d.Key != workdomain.StatusBacklog {
+			return d.Key, nil
+		}
+	}
+	return fallback, nil
+}
+
+func (a assistantStatusUpdater) IsTerminalStatus(ctx context.Context, ws, key string) (bool, error) {
+	defs, err := a.statuses(ctx, ws)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range defs {
+		if d.Key == key {
+			return workdomain.IsTerminal(d.Category), nil
+		}
+	}
+	// 内建 key 直判（自定义目录未覆盖时）。
+	for _, b := range workdomain.BuiltinStatuses {
+		if b.Key == key {
+			return workdomain.IsTerminal(b.Category), nil
+		}
+	}
+	return false, nil
+}
+
+// assistantNotifier orchapp.AssistantNotifier 的 notification 域直写适配：
+// 超时挂起是 sweeper 的主动动作而非事件副产物，直写比造事件+投影少两层间接
+//（WriteNotice 自带 dedup_key ON CONFLICT DO NOTHING 与静音面）。
+type assistantNotifier struct{ repo *notifpgrepo.Repo }
+
+func (a assistantNotifier) WriteStalledNotice(ctx context.Context, ws, userID, workItemID, body string) error {
+	return a.repo.WriteNotice(ctx, ws, userID, "assistant_stalled", "AI 任务超时挂起", body,
+		"assistant_stalled:"+userID+":"+workItemID)
+}
 
 func (a mcpResolverAd) ResolveMCP(ctx context.Context, ws, agentID string) ([]orchapp.ResolvedMCPServer, error) {
 	return a.svc.ResolveForEngine(ctx, ws, agentID)

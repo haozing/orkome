@@ -311,6 +311,37 @@ func (r *Repo) ListWorkItems(ctx context.Context, q app.ListQuery) ([]app.WorkIt
 		conds = append(conds, app.InvolvesCondition(n))
 		args = append(args, q.Involves)
 	}
+	if q.ExcludeAgentActiveTasks != "" {
+		// list_my_claims 谓词排除（助理接入 v4 §3.2）：该代理行已有
+		// queued/dispatched/running 任务挂着的工单不再列出（防止 AI 轮询
+		// 重复认领进行中的单）。agent_task_queue join 与 ClaimNext 的
+		// NOT EXISTS 子查询同形。
+		n++
+		conds = append(conds, fmt.Sprintf(`NOT EXISTS(SELECT 1 FROM agent_task_queue atq
+  WHERE atq.work_item_id = wi.id AND atq.agent_id = $%d::uuid
+    AND atq.status IN ('queued','dispatched','running'))`, n))
+		args = append(args, q.ExcludeAgentActiveTasks)
+
+		// fail 后 24h 内暂列不出（v4 §4.2 再求助通路）：近 N 小时有终态代理
+		// 任务、且其后用户未再评论（评论重置通路=主通路）。completed 类任务
+		// 的工单已被推进到终态/带 outcome，天然不在待处理集；这里挡的主要
+		// 是 failed/stalled 的"刚交还"窗口。
+		if hours := q.ExcludeAgentRecentlyClaimedHours; hours > 0 {
+			// 两个参数:agentID($n::uuid)与小时数($n+1::int)——占位必须
+			// 分别编号且 n += 2(曾把两处都写成 $n → 参数序号与类型错位,
+			// uuid 转 integer 报 42846,list_my_claims 真机实证)。
+			n += 2
+			conds = append(conds, fmt.Sprintf(`NOT EXISTS(SELECT 1 FROM agent_task_queue atq
+  WHERE atq.work_item_id = wi.id AND atq.agent_id = $%d::uuid
+    AND atq.status IN ('failed','stalled','cancelled')
+    AND atq.completed_at > now() - ($%d::int * interval '1 hour')
+    AND NOT EXISTS(SELECT 1 FROM comment c
+      WHERE c.work_item_id = wi.id AND c.deleted_at IS NULL
+        AND c.created_at > atq.completed_at))`, n-1, n))
+			args = append(args, q.ExcludeAgentActiveTasks)
+			args = append(args, hours)
+		}
+	}
 	for _, pf := range q.PropFilters {
 		cond, used := app.PropCondition(pf, n+1)
 		conds = append(conds, cond)

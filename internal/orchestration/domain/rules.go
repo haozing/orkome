@@ -85,6 +85,13 @@ const (
 	SrcRuleOwner     = "rule_owner"
 	SrcOwnerFallback = "owner_fallback"
 
+	// SrcAssistantClaim 用户 AI 认领工单（助理接入 v4 §4.2）：任务归属
+	// proxy agent 行、originator/accountable=用户本人。归因瀑布里与
+	// direct_human 同形（originator 非空即直达），该值主要作为 payload/
+	// 事件侧的来源标记，供 TaskCompleted 消费者跳过引擎闲置复位等
+	// 代理专属分流。
+	SrcAssistantClaim = "assistant_claim"
+
 	SrcBackfill = "backfill"
 
 	SrcUnattributed = "unattributed"

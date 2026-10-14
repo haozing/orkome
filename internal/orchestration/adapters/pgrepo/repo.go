@@ -509,8 +509,8 @@ func (r *Repo) FailRunningAtStartup(ctx context.Context) (int, error) {
 UPDATE agent_task_queue SET status='failed', completed_at=now(),
   failure_reason=$1, error='process restart: run state not recoverable'
 WHERE status='running'
-  AND NOT EXISTS ( -- external runtime exemption (contract Phase 2a): client-side execution, survives server restarts
-    SELECT 1 FROM agent xa WHERE xa.id = agent_task_queue.agent_id AND xa.runtime_kind = 'external')`, failuretax.RuntimeRecovery)
+  AND NOT EXISTS ( -- client-side execution exemption (contract Phase 2a + assistant W1): external 与 assistant_proxy 均为客户端执行，平台重启不该判死
+    SELECT 1 FROM agent xa WHERE xa.id = agent_task_queue.agent_id AND xa.runtime_kind IN ('external','assistant_proxy'))`, failuretax.RuntimeRecovery)
 	if err != nil {
 		return 0, err
 	}
@@ -625,7 +625,7 @@ func (r *Repo) CountStaleExternalQueued(ctx context.Context, olderThanMinutes in
 	err := r.q(ctx).QueryRow(ctx, `
 SELECT count(*) FROM agent_task_queue t
 JOIN agent a ON a.id = t.agent_id
-WHERE t.status='queued' AND a.runtime_kind='external'
+WHERE t.status='queued' AND a.runtime_kind IN ('external','assistant_proxy')
   AND t.created_at < now() - ($1::int * interval '1 minute')`, olderThanMinutes).Scan(&n)
 	return n, err
 }
@@ -637,8 +637,8 @@ WHERE t.status='running' AND t.awaiting_input_since IS NULL
   AND (t.runtime_id IS NULL OR NOT EXISTS (
     SELECT 1 FROM agent_runtime ar
     WHERE ar.instance_id = t.runtime_id AND ar.last_seen_at > now() - ($1::int * interval '1 second')))
-  AND NOT EXISTS ( -- external runtime exemption (contract Phase 2a: no instance heartbeat)
-    SELECT 1 FROM agent xa WHERE xa.id = t.agent_id AND xa.runtime_kind = 'external')`,
+  AND NOT EXISTS ( -- client-side runtime exemption (contract Phase 2a + assistant W1): external 无心跳先例；assistant_proxy（v4 有人值守）claim 不写 runtime_id，无豁免会被 t.runtime_id IS NULL 分支 150s 判死
+    SELECT 1 FROM agent xa WHERE xa.id = t.agent_id AND xa.runtime_kind IN ('external','assistant_proxy'))`,
 		staleSeconds)
 	if err != nil {
 		return nil, err
@@ -816,6 +816,212 @@ SELECT EXISTS(SELECT 1 FROM agent_task_queue
 WHERE workspace_id=$1 AND work_item_id=$2::uuid AND agent_id=$3::uuid AND status='running')`,
 		wsID, workItemID, agentID).Scan(&exists)
 	return exists, err
+}
+
+// ---------- 助理接入（v4 §4.1/§4.2）：proxy agent 行 + 接单事务 ----------
+
+// EnsureAssistantProxyAgent 幂等取/建用户的代理执行身份：每工作区每用户
+// 恰一行（runtime_kind='assistant_proxy'）。先按幂等键 SELECT，无则
+// INSERT ON CONFLICT DO NOTHING 再 SELECT——并发首触由迁移 1046 的部分
+// 唯一索引 uq_agent_assistant_proxy 兜底，双方最终读到同一确定性行。
+// 刻意绕过 AgentService.Create（visibility/invocation 校验）：proxy 是内部
+// 行，visibility='private' 无 invocation target 属预期形状。
+func (r *Repo) EnsureAssistantProxyAgent(ctx context.Context, ws, userID string) (string, error) {
+	const sel = `SELECT id::text FROM agent
+WHERE workspace_id=$1::uuid AND owner_user_id=$2::uuid AND runtime_kind='assistant_proxy'
+ORDER BY created_at LIMIT 1`
+	var id string
+	err := r.q(ctx).QueryRow(ctx, sel, ws, userID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !noRow(err) {
+		return "", err
+	}
+	// 名字存固定标识（防改名漂移；展示层动态拼"张三的 AI"）。
+	name := "assistant-proxy-" + userID
+	if len(name) > 100 {
+		name = name[:100]
+	}
+	_, err = r.q(ctx).Exec(ctx, `
+INSERT INTO agent (workspace_id, name, description, runtime_config, max_concurrent_tasks, visibility, owner_user_id, runtime_kind)
+VALUES ($1::uuid, $2, '用户 AI 接入的执行身份', '{}'::jsonb, 1, 'private', $3::uuid, 'assistant_proxy')
+ON CONFLICT DO NOTHING`, ws, name, userID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		// 部分唯一索引兜底并发首触：冲突方已建行，落到下方 SELECT 即可。
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			err = nil
+		} else {
+			return "", err
+		}
+	}
+	err = r.q(ctx).QueryRow(ctx, sel, ws, userID).Scan(&id)
+	return id, err
+}
+
+// GetAssistantProxyAgent 读用户的代理行 id（不存在则 ok=false，不建行）。
+func (r *Repo) GetAssistantProxyAgent(ctx context.Context, ws, userID string) (string, bool, error) {
+	var id string
+	err := r.q(ctx).QueryRow(ctx, `
+SELECT id::text FROM agent
+WHERE workspace_id=$1::uuid AND owner_user_id=$2::uuid AND runtime_kind='assistant_proxy'
+ORDER BY created_at LIMIT 1`, ws, userID).Scan(&id)
+	if noRow(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
+// ClaimAssistantTask 接单事务的原子芯（v4 §4.2 单事务+行锁）：
+//  1. FOR UPDATE OF wi 锁工单行——同工单并发 claim 在锁上串行化
+//     （二轮 R1/R2：READ COMMITTED 下纯 NOT EXISTS 互不可见会双双通过）；
+//  2. 工单校验：存在、属于该工作区、assignee 必须= userID（防 AI 抢别人的单）；
+//  3. 防重：该 proxy 行已有 queued/running 任务挂同工单 → ok=false（409）；
+//  4. InsertTask 语义直插 + 同事务 CAS 置 running（InsertTask 硬编码 queued，
+//     repo.go:319——两步在同一事务内等价于"直插 running"，且避开
+//     EnqueueAssignment 的模型配置闸，直插先例 handlers_taskview.go:296）。
+//
+// 若驱动/规划器对 FOR UPDATE OF 有坑，退化路径是
+// pg_advisory_xact_lock(hashtext($wi))——先实测行锁，可行即用行锁。
+func (r *Repo) ClaimAssistantTask(ctx context.Context, in orchapp.AssistantClaim) (orchapp.Task, bool, error) {
+	var t orchapp.Task
+	err := r.DB.Within(ctx, func(ctx context.Context) error {
+		// 行锁 + 工单归属/指派校验一条 SQL 完成：锁不到行即工单不存在
+		// 或不属于该工作区。
+		var assigneeType string
+		var assigneeID *string
+		err := r.q(ctx).QueryRow(ctx, `
+SELECT wi.assignee_type, wi.assignee_id::text
+FROM work_item wi WHERE wi.id=$1::uuid AND wi.workspace_id=$2::uuid FOR UPDATE OF wi`,
+			in.WorkItemID, in.WorkspaceID).Scan(&assigneeType, &assigneeID)
+		if noRow(err) {
+			return apierr.New(apierr.NotFound, "work item not found")
+		}
+		if err != nil {
+			return err
+		}
+		if assigneeType != "user" || assigneeID == nil || *assigneeID != in.UserID {
+			// assignee 必须= 认领用户本人：AI 不得代抢别人的单。
+			return apierr.New(apierr.Forbidden, "work item is not assigned to you")
+		}
+		// 防重（锁内）：同 proxy 行同工单已有活跃任务 → 409。
+		var dup bool
+		if err := r.q(ctx).QueryRow(ctx, `
+SELECT EXISTS(SELECT 1 FROM agent_task_queue
+WHERE workspace_id=$1::uuid AND work_item_id=$2::uuid AND agent_id=$3::uuid
+  AND status IN ('queued','dispatched','running'))`,
+			in.WorkspaceID, in.WorkItemID, in.AgentID).Scan(&dup); err != nil {
+			return err
+		}
+		if dup {
+			return apierr.New(apierr.Conflict, "already claimed")
+		}
+		// 插 queued → 同事务 CAS 置 running（claim 即在跑：无 dispatcher、
+		// 无 dispatched 中间态）。
+		inserted, err := r.InsertTask(ctx, orchapp.Task{
+			WorkspaceID: in.WorkspaceID, AgentID: in.AgentID, WorkItemID: in.WorkItemID,
+			Status: domain.Queued, MaxAttempts: 1,
+			Context: map[string]any{
+				"trigger":      "assistant_claim",
+				"on_behalf_of": in.UserID,
+			},
+			OriginatorUserID: in.UserID, AccountableUserID: in.UserID,
+			OriginatorSource: domain.SrcAssistantClaim,
+		})
+		if err != nil {
+			return err
+		}
+		claimed, err := scanTask(r.q(ctx).QueryRow(ctx, fmt.Sprintf(`
+UPDATE agent_task_queue SET status='running', started_at=now(), prepare_lease_expires_at=NULL
+WHERE id=$1 AND status='queued'
+RETURNING %s`, taskCols), inserted.ID))
+		if err != nil {
+			return err
+		}
+		t = claimed
+		return nil
+	})
+	if err != nil {
+		return orchapp.Task{}, false, err
+	}
+	return t, true, nil
+}
+
+// StallIdleAssistantTasks 超时挂起（v4 §4.3 僵尸窗口期唯一平台动作）：
+// proxy 行下 running 且 started_at 早于阈值 hours 的任务置 stalled——
+// 纯超时，不关心 AI 活性。stalled 是终态（不 failed、不重试）。返回行
+// 携带 workspace/work_item 归属供调用方发通知与回退工单。
+func (r *Repo) StallIdleAssistantTasks(ctx context.Context, hours int) ([]orchapp.StalledAssistantTask, error) {
+	if hours <= 0 {
+		hours = 4
+	}
+	rows, err := r.q(ctx).Query(ctx, fmt.Sprintf(`
+UPDATE agent_task_queue t SET status='stalled', completed_at=now(),
+  error='assistant timeout: no user follow-up'
+WHERE t.status='running' AND t.started_at < now() - ($1::int * interval '1 hour')
+  AND EXISTS (SELECT 1 FROM agent a WHERE a.id = t.agent_id AND a.runtime_kind='assistant_proxy')
+RETURNING %s`, taskCols), hours)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []orchapp.StalledAssistantTask
+	for rows.Next() {
+		var t orchapp.Task
+		if err := rows.Scan(&t.ID, &t.WorkspaceID, &t.AgentID, &t.WorkItemID, &t.Status, &t.Priority,
+			&t.Attempt, &t.MaxAttempts, &t.Context, &t.OriginatorUserID, &t.AccountableUserID,
+			&t.OriginatorSource, &t.TriggerEvidenceKind, &t.SessionRefIn, &t.IsLeaderTask, &t.SquadID, &t.FailureReason, &t.Error, &t.Result, &t.CreatedAt, &t.CompletedAt, &t.Summary); err != nil {
+			return nil, err
+		}
+		out = append(out, orchapp.StalledAssistantTask{
+			ID: t.ID, WorkspaceID: t.WorkspaceID, AgentID: t.AgentID,
+			WorkItemID: t.WorkItemID, OriginatorUserID: t.OriginatorUserID,
+		})
+	}
+	return out, rows.Err()
+}
+
+// ListRunningByAgent 列代理行（或任意 agent）下 running 任务——
+// get_my_running_tasks 工具的活动上下文面。
+func (r *Repo) ListRunningByAgent(ctx context.Context, wsID, agentID string) ([]orchapp.Task, error) {
+	rows, err := r.q(ctx).Query(ctx, fmt.Sprintf(`
+SELECT %s FROM agent_task_queue WHERE workspace_id=$1 AND agent_id=$2 AND status='running'
+ORDER BY started_at DESC NULLS LAST`, taskCols), wsID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []orchapp.Task
+	for rows.Next() {
+		var t orchapp.Task
+		if err := rows.Scan(&t.ID, &t.WorkspaceID, &t.AgentID, &t.WorkItemID, &t.Status, &t.Priority,
+			&t.Attempt, &t.MaxAttempts, &t.Context, &t.OriginatorUserID, &t.AccountableUserID,
+			&t.OriginatorSource, &t.TriggerEvidenceKind, &t.SessionRefIn, &t.IsLeaderTask, &t.SquadID, &t.FailureReason, &t.Error, &t.Result, &t.CreatedAt, &t.CompletedAt, &t.Summary); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetTaskWorkItemStatus 读工单当前 status_key（SQL join work_item 归 work 域
+// 表，只读 join 有 ListWorkItemUsage / ListWorkspaceTasks 先例）。
+func (r *Repo) GetTaskWorkItemStatus(ctx context.Context, wsID, workItemID string) (string, bool, error) {
+	var key string
+	err := r.q(ctx).QueryRow(ctx,
+		`SELECT status_key FROM work_item WHERE workspace_id=$1::uuid AND id=$2::uuid`,
+		wsID, workItemID).Scan(&key)
+	if noRow(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return key, true, nil
 }
 
 // FindLeaderTaskByID 按 leader 任务 ID 直取（成员 context.leader_task_id 精确回指，

@@ -138,7 +138,11 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 					continue
 				}
 
-				if agent.RuntimeKind == "external" {
+				// 引擎白名单（v4 §4.4 改造1）：只跑 engine。原黑名单只跳
+				// external——新 kind assistant_proxy 会被引擎当 engine 抢跑
+				//（proxy 行无模型配置 → fail 链废单）。工人模型冻结后
+				// external 亦不再入列（第二刀随枚举收敛自然移除）。
+				if agent.RuntimeKind != "engine" {
 					continue
 				}
 				task, ok, err := d.Claim.ClaimNext(ctx, agent)

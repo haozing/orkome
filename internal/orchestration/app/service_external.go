@@ -15,6 +15,9 @@ type ExternalTaskService struct {
 	outbox    OutboxRecorder
 	uow       Within
 	summaries *SummaryService
+	// settle 结算尾部公共层（v4 §4.4 改造2）：Complete 经 WriteOutcomeFor
+	// 落工单产出——修复 external 从不落 outcome 的存量缺陷。nil 时跳过。
+	settle *SettlementService
 }
 
 func NewExternalTaskService(repo Repo, emit Emitter) *ExternalTaskService {
@@ -110,6 +113,10 @@ func (s *ExternalTaskService) ReportMessage(ctx context.Context, ws, taskID, age
 	return s.repo.AppendTaskMessage(ctx, ws, taskID, kind, strings.TrimSpace(callID), content, false)
 }
 
+// SetSettlement 接线结算尾部公共层（outcome 段）。不调用时 Complete 不落
+// outcome（旧行为）。
+func (s *ExternalTaskService) SetSettlement(ss *SettlementService) { s.settle = ss }
+
 func (s *ExternalTaskService) Complete(ctx context.Context, ws, taskID, agentID, result string) error {
 	t, err := s.guard(ctx, ws, taskID, agentID, true)
 	if err != nil {
@@ -126,6 +133,10 @@ func (s *ExternalTaskService) Complete(ctx context.Context, ws, taskID, agentID,
 		return s.repo.CompleteRun(ctx, t.ID, result, "", CurrentEngineTag(), summary, UsageReport{})
 	}); err != nil {
 		return err
+	}
+	// 结算尾部公共层：工单产出后写覆盖（与引擎 Settle 同一份）。
+	if s.settle != nil {
+		s.settle.WriteOutcomeFor(ctx, t, result)
 	}
 	s.promoteAfterTerminal(ctx, t)
 	return nil

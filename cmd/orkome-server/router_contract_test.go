@@ -150,6 +150,9 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"DELETE", "/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials/{credId}"},
 	{"POST", "/mcp/w/{workspaceId}/agent"},
 	{"GET", "/mcp/w/{workspaceId}/agent"},
+	// 助理 MCP 面（助理接入 W1，v4 §3.1）：用户 PAT 专用端点。
+	{"POST", "/mcp/w/{workspaceId}/me"},
+	{"GET", "/mcp/w/{workspaceId}/me"},
 	{"GET", "/ui-entries"},
 	{"PUT", "/ui-entries/{pack}"},
 	{"DELETE", "/ui-entries/{pack}"},
@@ -402,6 +405,9 @@ func buildTestAPIRouter() *http.ServeMux {
 
 	r.HandleFunc("POST /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
 	r.HandleFunc("GET /api/mcp/w/{workspaceId}/agent", func(http.ResponseWriter, *http.Request) {})
+	// 助理 MCP 面（v4 §3.1）：stub 与生产 mountAssistantMCP 的 pattern 对账。
+	r.HandleFunc("POST /api/mcp/w/{workspaceId}/me", func(http.ResponseWriter, *http.Request) {})
+	r.HandleFunc("GET /api/mcp/w/{workspaceId}/me", func(http.ResponseWriter, *http.Request) {})
 	// runtime credential 管理面（/access 页；GET 列表 + DELETE 双行同措撤销）
 	r.HandleFunc("GET /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials", func(http.ResponseWriter, *http.Request) {})
 	r.HandleFunc("DELETE /api/workspaces/{workspaceId}/agents/{agentId}/runtime-credentials/{credId}", func(http.ResponseWriter, *http.Request) {})

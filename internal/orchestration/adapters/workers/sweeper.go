@@ -188,3 +188,60 @@ func (s *LivenessSweeper) SweepDelegatedRecovery(ctx context.Context) (int, erro
 	}
 	return n, nil
 }
+
+// AssistantStalledSweeper 超时挂起 sweeper（v4 §4.3）：代理任务（proxy 行）
+// running 超过阈值小时数 → stalled（新终态，不 failed、不重试、不进失败税）
+// → 通知用户 + 工单转回待处理。有人值守模式下这是僵尸窗口期平台的唯一动作
+// ——责任交还人，平台不代决策。装配经 Assistant 钩子（orchapp.
+// AssistantTaskService.StallExpired 承载通知/回退），无钩子时空转。
+type AssistantStalledSweeper struct {
+	// Stall 挂起+交还动作（wiring 注入 AssistantTaskService.StallExpired）。
+	Stall func(ctx context.Context) (int, error)
+
+	Log *slog.Logger
+
+	// Every 扫描周期（默认 5 分钟——4h 量级的阈值不需要 liveness 的 30s 节奏）。
+	Every time.Duration
+
+	// StallAfterHours running 超过该小时数挂起（默认 4，v4 §4.3）。
+	StallAfterHours int
+
+	Metrics interface {
+		IncrAttrs(name string, attrs map[string]string)
+	}
+}
+
+func (s *AssistantStalledSweeper) Run(ctx context.Context) error {
+	if s.Every <= 0 {
+		s.Every = 5 * time.Minute
+	}
+	ticker := time.NewTicker(s.Every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if _, err := s.RunOnce(ctx); err != nil {
+				s.Log.Error("assistant stalled sweep", "err", err)
+			}
+		}
+	}
+}
+
+func (s *AssistantStalledSweeper) RunOnce(ctx context.Context) (int, error) {
+	if s.Stall == nil {
+		return 0, nil
+	}
+	n, err := s.Stall(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		if s.Metrics != nil {
+			s.Metrics.IncrAttrs("sweep_hits", map[string]string{"kind": "assistant_stalled"})
+		}
+		s.Log.Info("assistant stalled sweep: running → stalled (handed back to user)", "n", n)
+	}
+	return n, nil
+}

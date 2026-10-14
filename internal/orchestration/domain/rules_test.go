@@ -135,3 +135,18 @@ func TestCancellableByTriggerComment(t *testing.T) {
 		assert.False(t, CancellableByTriggerComment(s), "%s cannot be cancelled by comment", s)
 	}
 }
+
+// 助理接入（v4 §4.2）：SrcAssistantClaim 进归因瀑布的行为锁定。proxy 任务
+// 携 originator=用户本人（claim 时直插），走瀑布第一支直达；该值与
+// direct_human 同形——双轨不分离（internal archive 05 §1 不变量）。
+func TestResolveAttribution_AssistantClaim(t *testing.T) {
+	o, a := ResolveAttribution("u-me", "u-me", "", SrcAssistantClaim)
+	assert.Equal(t, "u-me", o, "assistant_claim 认领归因直达用户")
+	assert.Equal(t, "u-me", a, "审计轨与授权轨同形")
+
+	// originator 缺失（异常数据）时按 unknown source 回落 accountable——
+	// 与 direct_human 同款 fail-safe，不炸消费端。
+	o2, a2 := ResolveAttribution("", "u-acc", "u-owner", SrcAssistantClaim)
+	assert.Empty(t, o2)
+	assert.Equal(t, "u-acc", a2)
+}

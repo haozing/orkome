@@ -177,7 +177,12 @@ func (s *CommentService) Create(ctx context.Context, in NewComment) (*Comment, *
 	}
 
 	var admission *AdmissionResult
-	if triggerEngine != nil {
+	// skipTrigger（助理接入）：AI 代用户评论不触发派发——否则用户 AI 的
+	// 进度汇报会把自己/别人的 agent 意外唤醒。admission 回 Blocked 以
+	// trigger_engine_not_wired 兼容形状标注"未走触发面"。
+	if in.SkipTrigger {
+		admission = &AdmissionResult{Result: dispatchreason.Blocked, ReasonCode: dispatchreason.SkippedByRequest}
+	} else if triggerEngine != nil {
 		root := rootOfComment(ctx, s.repo, c)
 		rootType, rootID := "", ""
 		if rc, ok, _ := s.repo.GetComment(ctx, root); ok {

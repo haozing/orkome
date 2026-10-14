@@ -67,9 +67,19 @@ func (s *AgentService) Create(ctx context.Context, a Agent) (*Agent, error) {
 	switch a.RuntimeKind {
 	case "":
 		a.RuntimeKind = "engine"
-	case "engine", "external":
+	case "engine", "assistant_proxy":
+	case "external":
+		// 工人模型退役第一刀（v4 §6）：CreateAgent API 拒绝 external——
+		// 该闸门从 W2 提前到本波（assistant_proxy 不走此入口，见下）。
+		return nil, apierr.NewValidation("runtime_kind external is retired; external runtimes are frozen")
 	default:
-		return nil, apierr.NewValidation("runtime_kind must be engine or external")
+		return nil, apierr.NewValidation("runtime_kind must be engine or assistant_proxy")
+	}
+	if a.RuntimeKind == "assistant_proxy" {
+		// 代理行是平台内部身份（惰性创建于 repo 层），不暴露给 Create API：
+		// 它会做 visibility/invocation 校验，而 proxy 行 visibility='private'
+		// 无 invocation target 属预期形状，绕过而非复用。
+		return nil, apierr.NewValidation("runtime_kind assistant_proxy is managed internally")
 	}
 	if err := validateConversationStarters(a.ConversationStarters); err != nil {
 		return nil, err
@@ -749,6 +759,26 @@ func (s *SettlementService) SummaryForSweep(ctx context.Context, taskID, reason,
 	return s.summaryForFail(ctx, Task{ID: taskID}, reason, errMsg)
 }
 
+// WriteOutcomeFor 结算尾部公共层的 outcome 段（v4 §4.4 改造2，二轮 P0-3）：
+// completed 任务的工单产出后写覆盖。从 Settle 抽出——引擎链之外的所有结算
+// 口（external/assistant_proxy 直连任务）经此共用同一份落库与降级行为；
+// 此前 external 从不落 outcome 是存量缺陷，本抽取顺带修复。
+// outcome 落库失败必须留下痕迹（emit TaskFailed 携 outcome_write_failed），
+// 但不使结算本身失败——产出缺失不该把"活干完了"改写成"失败"。
+func (s *SettlementService) WriteOutcomeFor(ctx context.Context, task Task, result string) {
+	if task.WorkItemID == "" || s.outcomes == nil || strings.TrimSpace(result) == "" {
+		return
+	}
+	body := result
+	if len([]rune(body)) > 4000 {
+		body = string([]rune(body)[:4000])
+	}
+	if err := s.outcomes.WriteOutcome(ctx, task.WorkspaceID, task.WorkItemID, task.ID, body); err != nil {
+		s.emit.Emit(ctx, envelope(events.TaskFailed, task.WorkspaceID, task.AgentID,
+			map[string]any{"task_id": task.ID, "outcome_write_failed": err.Error()}))
+	}
+}
+
 func (s *SettlementService) SetRuntimeInstance(instanceID string) { s.instanceID = instanceID }
 
 func (s *SettlementService) SetOutbox(rec OutboxRecorder, uow Within) {
@@ -833,20 +863,8 @@ func (s *SettlementService) Settle(ctx context.Context, task Task, agent Agent, 
 	}
 
 	// 工单产出（"需求→产出"一等公民）：completed 时后写覆盖 outcome。
-	// outcome 是产出的唯一正式面（汇报 tab 读它）；评论流只承载交流
-	//（过程沟通由 agent 按需 post_comment）。
-	if task.WorkItemID != "" && s.outcomes != nil && strings.TrimSpace(out.Output) != "" {
-		body := out.Output
-		if len([]rune(body)) > 4000 {
-			body = string([]rune(body)[:4000])
-		}
-		if err := s.outcomes.WriteOutcome(ctx, task.WorkspaceID, task.WorkItemID, task.ID, body); err != nil {
-			// outcome 是产出的唯一正式面：落库失败必须留下痕迹（此前回落
-			// 评论兜底的方案已随"评论区只做交流"裁决移除）。
-			s.emit.Emit(ctx, envelope(events.TaskFailed, task.WorkspaceID, task.AgentID,
-				map[string]any{"task_id": task.ID, "outcome_write_failed": err.Error()}))
-		}
-	}
+	// 结算尾部公共层（v4 §4.4 改造2）：external/proxy 直连结算共用 WriteOutcomeFor。
+	s.WriteOutcomeFor(ctx, task, out.Output)
 
 	if task.Context != nil {
 		if sid, _ := task.Context["chat_session_id"].(string); sid != "" {
@@ -1207,7 +1225,7 @@ func envelope(name, wsID, actor string, payload any) events.Envelope {
 }
 
 func taskResult(t Task, result string) TaskPayload {
-	return TaskPayload{ID: t.ID, WorkspaceID: t.WorkspaceID, AgentID: t.AgentID, WorkItemID: t.WorkItemID, Status: t.Status, Result: result}
+	return TaskPayload{ID: t.ID, WorkspaceID: t.WorkspaceID, AgentID: t.AgentID, WorkItemID: t.WorkItemID, Status: t.Status, Result: result, OriginatorSource: t.OriginatorSource}
 }
 
 type TaskPayload struct {
@@ -1217,6 +1235,11 @@ type TaskPayload struct {
 	WorkItemID  string `json:"work_item_id,omitempty"`
 	Status      string `json:"status"`
 	Result      string `json:"result,omitempty"`
+	// OriginatorSource 任务来源标记（v4 §4.2）：assistant_claim 时
+	// TaskCompleted 的消费者跳过引擎闲置复位（resetIdleWorkItem）——代理
+	// 任务不是引擎闲置，reset 的 status guard 会把工单打回 todo，与代理
+	// 语义相悖。零值 omitempty：既有发射面 payload 形状不变。
+	OriginatorSource string `json:"originator_source,omitempty"`
 }
 
 func mustJSON(m map[string]any) []byte {

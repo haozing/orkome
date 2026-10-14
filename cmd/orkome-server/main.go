@@ -24,6 +24,7 @@ import (
 	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
 	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
 	autohttp "orkome/internal/automation/adapters/http"
+	autobhttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
 	chpgrepo "orkome/internal/channels/adapters/pgrepo"
 	chapp "orkome/internal/channels/app"
@@ -85,7 +86,7 @@ func main() {
 	workersReg := NewWorkers(log)
 	idDeps := wiringIdentity(log, db, redisCli, cfg)
 	workDeps := wiringWork(log, db, bus, workersReg, idMemberCheck(db), cfg.JWTSecret)
-	dispatcher, sweeper, orchHTTPDeps, orchEnq, orchEng, batchSvc, batchRegistry := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
+	dispatcher, sweeper, stalledSweeper, assistantSvc, orchHTTPDeps, orchEnq, orchEng, batchSvc, batchRegistry := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
 	// Project Workflow 推进引擎装配（W2）：双门铃订阅 + 派发矩阵 + 防失控联动
 	//（必须在 wiringWork 之后——消费 workDeps.Workflow；wiring_orchestration
 	// 之后——持有 orchEnq）。
@@ -108,6 +109,15 @@ func main() {
 			case events.TaskCompleted:
 				p, ok := e.Payload.(orchapp.TaskPayload)
 				if !ok || p.WorkItemID == "" {
+					return
+				}
+				// 助理接入（v4 §4.2 resetIdleWorkItem 裁决）：代理任务
+				// （assistant_claim）不触发引擎闲置复位——它不是引擎闲置；
+				// "只结算不推进"（工单留 in_progress）时 reset 的 status
+				// guard 会把工单打回 todo，与代理语义相悖。分流凭 payload
+				// 的 originator_source（TaskPayload 新增字段，零值不改既有
+				// 发射面形状）。
+				if orchapp.SrcAssistantClaimIs(p.OriginatorSource) {
 					return
 				}
 				// 流程内工作项跳过 idle reset（§3.1 #3 二次修订）：出口态恰为
@@ -271,6 +281,15 @@ func main() {
 	workspacehttp.Mount(api, idDeps.WorkspaceMountDeps())
 
 	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db), roleOf(db))
+	// 助理 MCP 面（v4 §3）：复用 workhttp 的同一批 service 实例（业务层一套
+	// ——事件/outbox/触发行为与网页天然同构）+ orchestration 的 AssistantTask
+	// Service。限流按 PAT 维度挂粗闸（复用 WebhookRateLimiter 的窗口语义；
+	// 独立实例，与 webhook 公开面的计数隔离——两类流量的形态不可比）。
+	mountAssistantMCP(api, authGuardMw, db, bus, assistantSvc,
+		workDeps.WorkItems, workDeps.Comments, workDeps.Catalog,
+		idMemberCheck(db), roleOf(db),
+		autobhttp.NewWebhookRateLimiter(redisCli, autobhttp.DefaultWebhookRateConfig(),
+			autobhttp.ParseTrustedProxies(cfg.TrustedProxies)))
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
@@ -367,6 +386,8 @@ func main() {
 		return dispatcher.RunWithMetrics(ctx, metricsReg)
 	})
 	workersReg.AddFunc("liveness-sweeper", sweeper.Run)
+	// 超时挂起 sweeper（助理接入 W1）：4h running 代理任务 → stalled+交还。
+	workersReg.AddFunc("assistant-stalled-sweeper", stalledSweeper.Run)
 	workersReg.Start(ctx)
 
 	errCh := make(chan error, 1)

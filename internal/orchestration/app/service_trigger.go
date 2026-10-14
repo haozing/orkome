@@ -119,6 +119,12 @@ func (s *TriggerService) loadFacts(ctx context.Context, workspaceID string, agen
 		if !ok {
 			return false
 		}
+		// 助理接入（v4 §4.1 触发豁免修正）：proxy 行 owner=user，若按
+		// private+owner 直判会让"用户本人评论"被当成该用户 proxy agent
+		// 的属主调用而误豁免/误触发。proxy 行不参与触发面——一律不可调用。
+		if agent.RuntimeKind == "assistant_proxy" {
+			return false
+		}
 		return InvocationAllowed(agent, targets[agent.ID], actorID)
 	}, nil
 }
