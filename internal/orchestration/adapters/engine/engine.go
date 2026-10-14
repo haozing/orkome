@@ -237,7 +237,11 @@ func (e *EinoEngine) run(ctx context.Context, task orchapp.Task, agent orchapp.A
 			}
 		}
 	}
-	user := strings.TrimSpace(assembleUserPrompt(task, history, session) + "\n" + squadBrief)
+	// Project Workflow 阶段简报（W3）：trigger=workflow_stage 的任务注入
+	//（stageBriefing 内部自行判型，非流程任务返回空串零影响；squad 执行者
+	// 场景与 squadBrief 共存——leader 既看小队简报也看阶段简报）。
+	stageBrief := stageBriefing(task)
+	user := strings.TrimSpace(assembleUserPrompt(task, history, session) + "\n" + squadBrief + "\n" + stageBrief)
 
 	var handlers []adk.ChatModelAgentMiddleware
 	if e.SupplementClaimer != nil || e.TaskStatus != nil {

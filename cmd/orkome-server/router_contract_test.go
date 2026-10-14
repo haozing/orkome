@@ -113,6 +113,14 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/projects/search"},
 	{"GET", "/projects/{id}/resources"}, {"POST", "/projects/{id}/resources"},
 	{"PUT", "/projects/{id}/resources/{resourceId}"}, {"DELETE", "/projects/{id}/resources/{resourceId}"},
+
+	// work：项目流程定义面（迁移 1044 / docs/wf-interfaces-frozen.md §3 W1）。
+	{"PUT", "/projects/{id}/workflow"}, {"GET", "/projects/{id}/workflow"},
+	{"DELETE", "/projects/{id}/workflow"},
+	{"POST", "/projects/{id}/workflow/enable"}, {"POST", "/projects/{id}/workflow/disable"},
+	// work：工单流程状态面（§3 W2；GET state 未挂，W3 前端联调评估后补登记）。
+	{"POST", "/work-items/{id}/workflow/start"}, {"POST", "/work-items/{id}/workflow/restart"},
+	{"DELETE", "/work-items/{id}/workflow"},
 	{"GET", "/work-item-statuses"}, {"POST", "/work-item-statuses"},
 	{"PATCH", "/work-item-statuses/{statusKey}"},
 	{"POST", "/work-item-statuses/reorder"},
@@ -331,6 +339,7 @@ func buildTestAPIRouter() *http.ServeMux {
 		WorkItems: &workapp.WorkItemService{}, Comments: &workapp.CommentService{},
 		SourceCtx: &workapp.SourceContextService{},
 		Catalog:   &workapp.CatalogService{},
+		Workflow:  workapp.NewWorkflowService(nil, nil), // 生产 wiring 装配非 nil → /api/projects/{id}/workflow×5
 		Views: &workapp.ViewService{}, Search: &workapp.SearchService{},
 		Timeline:    func(context.Context, string, int, string) ([]workapp.TimelineEntry, error) { return nil, nil },
 		Subscribers: func(context.Context, string) ([]workapp.Subscriber, error) { return nil, nil },

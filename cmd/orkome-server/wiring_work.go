@@ -99,6 +99,11 @@ func wiringWork(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, reg *Workers, me
 			c.SetOutbox(rec, db.Within)
 			return c
 		}(),
+		Workflow: func() *app.WorkflowService {
+			w := app.NewWorkflowService(repo, bus)
+			w.SetOutbox(rec, db.Within)
+			return w
+		}(),
 		Views:       app.NewViewService(repo),
 		Search:      app.NewSearchService(repo),
 		Timeline:    repo.ListTimeline,

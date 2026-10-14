@@ -86,6 +86,10 @@ func main() {
 	idDeps := wiringIdentity(log, db, redisCli, cfg)
 	workDeps := wiringWork(log, db, bus, workersReg, idMemberCheck(db), cfg.JWTSecret)
 	dispatcher, sweeper, orchHTTPDeps, orchEnq, orchEng, batchSvc, batchRegistry := wiringOrchestration(log, db, bus, cfg, idMemberCheck(db))
+	// Project Workflow 推进引擎装配（W2）：双门铃订阅 + 派发矩阵 + 防失控联动
+	//（必须在 wiringWork 之后——消费 workDeps.Workflow；wiring_orchestration
+	// 之后——持有 orchEnq）。
+	wiringWorkflow(log, db, bus, workDeps.Workflow, orchEnq)
 	sweeper.Metrics = metricsReg
 
 	{
@@ -395,6 +399,13 @@ func decodeOutboxPayload(event string, raw []byte) any {
 		}
 	case events.CommentCreated, events.CommentUpdated, events.CommentDeleted:
 		var p events.CommentPayload
+		if json.Unmarshal(raw, &p) == nil {
+			return p
+		}
+	case events.WorkItemCreated, events.WorkItemUpdated, events.WorkItemUpdatedByAgent, events.WorkItemDeleted:
+		// W2 workflow 双门铃（契约 §4.1 relay 解码注记）：work_item 系事件经
+		// relay 重放时补解码，监听器从 payload 取 work_item_id。
+		var p events.WorkItemPayload
 		if json.Unmarshal(raw, &p) == nil {
 			return p
 		}
