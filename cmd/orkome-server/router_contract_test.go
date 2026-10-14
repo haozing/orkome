@@ -118,7 +118,8 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"PUT", "/projects/{id}/workflow"}, {"GET", "/projects/{id}/workflow"},
 	{"DELETE", "/projects/{id}/workflow"},
 	{"POST", "/projects/{id}/workflow/enable"}, {"POST", "/projects/{id}/workflow/disable"},
-	// work：工单流程状态面（§3 W2；GET state 未挂，W3 前端联调评估后补登记）。
+	// work：工单流程状态面（§3 W2；GET state 已挂——WorkflowPanel 消费）。
+	{"GET", "/work-items/{id}/workflow"},
 	{"POST", "/work-items/{id}/workflow/start"}, {"POST", "/work-items/{id}/workflow/restart"},
 	{"DELETE", "/work-items/{id}/workflow"},
 	{"GET", "/work-item-statuses"}, {"POST", "/work-item-statuses"},

@@ -110,3 +110,13 @@ func (d Deps) handleDetachWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// GET /api/work-items/{workItemId}/workflow → {"state":{...}|null}（契约 §3）
+func (d Deps) handleGetWorkflowState(w http.ResponseWriter, r *http.Request) {
+	st, err := d.Workflow.StateOf(r.Context(), wsID(r), r.PathValue("workItemId"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	webx.WriteJSON(w, http.StatusOK, map[string]any{"state": st})
+}

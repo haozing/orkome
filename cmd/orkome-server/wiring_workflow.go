@@ -203,10 +203,29 @@ SELECT EXISTS(
 
 	bus.On(eventbus.PhaseProject, func(ctx context.Context, e events.Envelope) {
 		switch e.Event {
+		case events.WorkItemCreated:
+			// auto 模式自动进入（设计 §4.6）：建单挂项目即 Start（幂等静默：
+			// 非流程单/无定义/manual/未启用都不动）。挂载项目的 PATCH 场景
+			// 由 WorkItemUpdated 分支兜底——updated 路径先跑 MaybeAutoStart
+			// （无 state 且符合 auto 条件才进），再走常规推进裁决。
+			p, ok := e.Payload.(events.WorkItemPayload)
+			if !ok {
+				return
+			}
+			if err := wfSvc.MaybeAutoStart(ctx, e.WorkspaceID, p.ID, e.ActorUserID); err != nil {
+				log.Warn("workflow auto start failed", "work_item", p.ID, "err", err)
+			}
 		case events.WorkItemUpdated, events.WorkItemUpdatedByAgent:
 			p, ok := e.Payload.(events.WorkItemPayload)
 			if !ok {
 				return
+			}
+			if e.Event == events.WorkItemUpdated {
+				// 挂载项目的 PATCH（project_id 从空到有）：MaybeAutoStart 幂等，
+				// 已在途/已完成/manual 都是无操作。
+				if err := wfSvc.MaybeAutoStart(ctx, e.WorkspaceID, p.ID, e.ActorUserID); err != nil {
+					log.Warn("workflow auto start (attach) failed", "work_item", p.ID, "err", err)
+				}
 			}
 			advance(ctx, e, p.ID)
 		case events.TaskCompleted, events.TaskFailed, events.TaskCancelled:

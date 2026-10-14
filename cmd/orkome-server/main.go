@@ -95,6 +95,7 @@ func main() {
 	{
 		enq := orchEnq
 		wiSvc := workDeps.WorkItems
+		wfSvc := workDeps.Workflow
 		orepo := orchpgrepo.New(db)
 		bus.On(eventbus.PhaseCascade, func(ctx context.Context, e events.Envelope) {
 			switch e.Event {
@@ -107,6 +108,15 @@ func main() {
 			case events.TaskCompleted:
 				p, ok := e.Payload.(orchapp.TaskPayload)
 				if !ok || p.WorkItemID == "" {
+					return
+				}
+				// 流程内工作项跳过 idle reset（§3.1 #3 二次修订）：出口态恰为
+				// in_progress 时，结算 cascade 里 reset 先于推进监听器消费，
+				// 会把 agent 刚打的出口态打回 todo——TryAdvance 裁决条件 1
+				// 随即不成立，流程卡在当前阶段（真机 E2E 实证）。"两序皆安全"
+				// 的原论证漏算了同 cascade 内 handler 注册顺序；流程单子的
+				// 状态回落由流程自己的返工语义（§4.5）与人工拖单负责。
+				if wfSvc != nil && wfSvc.HasActiveWorkflowState(ctx, e.WorkspaceID, p.WorkItemID) {
 					return
 				}
 				resetIdleWorkItem(ctx, wiSvc, orepo, e.WorkspaceID, p.WorkItemID)

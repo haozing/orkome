@@ -436,6 +436,37 @@ func (s *WorkflowService) stageExec(def *WorkflowDefinition, stage *WorkflowStag
 	}
 }
 
+// MaybeAutoStart auto 模式的自动进入（设计 §4.6）：work_item.created（或挂载
+// 项目的 PATCH）后由 wiring 层调用。非流程单/无定义/未启用/manual 模式一律
+// 静默返回 nil——调用方无需预判。Start 自身幂等（已有 state 原样返回），
+// 事件重复投递安全。actorUserID 传 e.ActorUserID（创建者）；系统事件缺省
+// 为空时回落流程 created_by（Start 落 transition_log 需要非空 actor）。
+func (s *WorkflowService) MaybeAutoStart(ctx context.Context, ws, workItemID, actorUserID string) error {
+	wi, ok, err := s.repo.GetWorkItem(ctx, ws, workItemID)
+	if err != nil || !ok || wi.ProjectID == "" {
+		return err
+	}
+	def, err := s.repo.GetWorkflow(ctx, ws, wi.ProjectID)
+	if err != nil || def == nil || !def.Enabled || def.TriggerMode != "auto" {
+		return err
+	}
+	actor := actorUserID
+	if actor == "" {
+		actor = def.CreatedBy
+	}
+	_, err = s.Start(ctx, ws, workItemID, actor)
+	return err
+}
+
+// HasActiveWorkflowState 该工单是否存在未完结的流程光标（finished_at IS NULL）。
+// 供 main.go 的 resetIdleWorkItem 让位判断（§3.1 #3 二次修订）：流程内工单的
+// 状态回落由流程自己的返工语义管，idle reset 不得触碰——否则出口态恰为
+// in_progress 时，结算 cascade 里 reset 先于推进门铃消费，出口态被打回 todo。
+func (s *WorkflowService) HasActiveWorkflowState(ctx context.Context, ws, workItemID string) bool {
+	st, err := s.repo.GetWorkflowState(ctx, ws, workItemID)
+	return err == nil && st != nil && st.FinishedAt == nil
+}
+
 // projectAssignee assignee 投影：agent→'agent'、squad→'squad'、none→'none'+清 id。
 // expectedRevision=0（流程是权威写侧，不做版本博弈——并发由 state CAS 仲裁）。
 // 返回投影后的工单（供 wiEvent 事件负载）。

@@ -163,7 +163,8 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 		reg("DELETE /api/projects/{projectId}/workflow", d.handleDeleteWorkflow)
 		reg("POST /api/projects/{projectId}/workflow/enable", d.setWorkflowEnabled(true))
 		reg("POST /api/projects/{projectId}/workflow/disable", d.setWorkflowEnabled(false))
-		// W2 状态面（工作项侧；GET state 留 W3 前端联调评估）。
+		// W2 状态面（工作项侧）+ GET state（契约 §3；WorkflowPanel 消费）。
+		reg("GET /api/work-items/{workItemId}/workflow", d.handleGetWorkflowState)
 		reg("POST /api/work-items/{workItemId}/workflow/start", d.handleStartWorkflow)
 		reg("POST /api/work-items/{workItemId}/workflow/restart", d.handleRestartWorkflow)
 		reg("DELETE /api/work-items/{workItemId}/workflow", d.handleDetachWorkflow)
