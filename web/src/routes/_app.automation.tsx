@@ -101,7 +101,7 @@ export function AutomationPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const autopilots = useQuery({ queryKey: ['autopilots'], queryFn: listAutopilots })
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const [feedback, setFeedback] = useState<TriggerFeedback | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -270,7 +270,7 @@ export function CreateAutopilotDialog({
   const [cron, setCron] = useState('')
   const [timezone, setTimezone] = useState('')
   const [workItemId, setWorkItemId] = useState('')
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const workItems = useQuery({
     queryKey: ['work-items', 'automation-options'],
     queryFn: () => listWorkItems({ limit: 100 }),

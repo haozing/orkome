@@ -40,7 +40,7 @@ function useAssigneeLabel() {
   const { t } = useTranslation()
   const workspaceId = useWorkspaceStore((s) => s.currentId) ?? ''
   const members = useQuery(membersQueryOptions(workspaceId))
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   return (item: WorkItem): string => {
     if (item.assignee_type === 'user' && item.assignee_id) {
       const m = members.data?.find((x) => x.user_id === item.assignee_id)

@@ -37,7 +37,7 @@ export function CreateWorkItemDialog({ open, onOpenChange, onCreated }: CreateWo
     enabled: open,
   })
   const members = useQuery(membersQueryOptions(workspaceId))
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const statusName = (key: string) => {
     const def = statuses.data?.find((s) => s.key === key)
     return def ? (def.is_builtin ? t(statusMetaOf(def.key).labelKey) : def.name) : key

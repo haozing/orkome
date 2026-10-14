@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, Activity } from 'lucide-react'
 import { listTimeline } from '@/api/work'
 import { PageLoading } from '@/components/ui/states'
+import { useAgentNameMap } from '@/components/task-status-badge'
 import { useTranslation } from 'react-i18next'
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString(document.documentElement.lang === 'zh' ? 'zh-CN' : 'en-US', {
@@ -13,6 +14,8 @@ function formatTime(iso: string) {
 }
 export function TimelineList({ workItemId }: { workItemId: string }) {
   const { t } = useTranslation()
+  // 时间线 actor 可能是助理代理行（assistant_proxy，"张三(AI 代)"）——名字映射需含代理行。
+  const agentNames = useAgentNameMap()
   const timeline = useQuery({
     queryKey: ['work-item', workItemId, 'timeline'],
     queryFn: () => listTimeline(workItemId),
@@ -36,12 +39,13 @@ export function TimelineList({ workItemId }: { workItemId: string }) {
               <Activity className="size-3" aria-hidden="true" />
             )}
             <span className="font-medium text-zinc-600 dark:text-zinc-300">
+              {/* actor 名 fallback 链：user→「用户」；agent→名字映射（含代理行
+                  可读名）→「Agent」+ID 前 6 位（映射缺失时的兜底）。 */}
               {entry.actor_type === 'user'
                 ? t('comment.user')
                 : entry.actor_type === 'agent'
-                  ? 'Agent'
+                  ? `Agent ${agentNames.get(entry.actor_id ?? '') ?? `${(entry.actor_id ?? '').slice(0, 6)}…`}`
                   : entry.actor_type || t('timeline.system')}
-              {entry.actor_id ? ` ${entry.actor_id.slice(0, 6)}…` : ''}
             </span>
             <span>{formatTime(entry.created_at)}</span>
           </p>

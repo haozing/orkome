@@ -21,7 +21,7 @@ function SquadsPage() {
   const squads = useQuery({ queryKey: ['squads'], queryFn: listSquads })
   const agents = useQuery({
     queryKey: ['agents'],
-    queryFn: listAgents,
+    queryFn: () => listAgents(),
     staleTime: 60000,
   })
   const agentName = new Map((agents.data ?? []).map((a) => [a.id, a.name]))

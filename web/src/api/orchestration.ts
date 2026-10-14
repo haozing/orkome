@@ -113,6 +113,13 @@ export interface Agent {
   created_at: string
   conversation_starters?: ConversationStarter[]
   invocation_targets?: InvocationTarget[]
+  /**
+   * 运行时类型（docs/assistant-access-design-2026-10-14.md §4.1）：
+   * engine=引擎执行 | external=外部工人（退役中）| assistant_proxy=助理代理行。
+   * 代理行代表"用户自己的 AI 助理"（姓名渲染、@mention 候选），不可指派；
+   * 后端可能不发该字段（旧响应），故可选——缺省按非 proxy 处理。
+   */
+  runtime_kind?: string
 }
 export interface AgentInput {
   name: string
@@ -123,11 +130,20 @@ export interface AgentInput {
   conversation_starters?: ConversationStarter[]
   invocation_targets?: InvocationTarget[]
 }
-export async function listAgents(): Promise<Agent[]> {
+/**
+ * GET /api/agents 列表。默认过滤 runtime_kind='assistant_proxy' 的代理行
+ * （设计 v4 §4.1：代理行代表用户自己的 AI 助理，不是可指派/可选择的对象，
+ * 智能体列表页、@mention 候选、自动化/工作流配置等消费方都不该看到它）；
+ * 需要"看到代理行"的渲染面（任务面板/时间线/汇报的名字映射）传
+ * includeAssistantProxy: true。过滤收口在 API 函数内——十几处消费方一处改。
+ */
+export async function listAgents(opts: { includeAssistantProxy?: boolean } = {}): Promise<Agent[]> {
   const res = await api.get<{
     agents: Agent[] | null
   }>('/api/agents')
-  return res.agents ?? []
+  const rows = res.agents ?? []
+  if (opts.includeAssistantProxy) return rows
+  return rows.filter((a) => a.runtime_kind !== 'assistant_proxy')
 }
 export async function getAgent(id: string): Promise<Agent> {
   return api.get<Agent>(`/api/agents/${id}`)

@@ -41,7 +41,7 @@ export function AssigneeRow({ item }: { item: WorkItem }) {
   const { t } = useTranslation()
   const workspaceId = useWorkspaceStore((s) => s.currentId) ?? ''
   const members = useQuery(membersQueryOptions(workspaceId))
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const update = useFieldUpdate(item)
   const resolveName = (userId?: string) => {
     if (!userId) return ''

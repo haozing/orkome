@@ -144,7 +144,7 @@ function EditorBody({
     queryFn: listStatuses,
     staleTime: 60000,
   })
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const squads = useQuery({ queryKey: ['squads'], queryFn: listSquads, staleTime: 60000 })
 
   const invalidate = () =>

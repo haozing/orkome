@@ -129,7 +129,7 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
   const [name, setName] = useState(squad.name)
   const [instructions, setInstructions] = useState(squad.instructions)
   const [leaderId, setLeaderId] = useState(squad.leader_agent_id || '')
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const activeAgents = (agents.data ?? []).filter((a) => !a.archived)
   const save = useMutation({
     mutationFn: () =>
@@ -432,7 +432,7 @@ function AddMemberDialog({
   const [agentId, setAgentId] = useState('')
   const [role, setRole] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const candidates = (agents.data ?? []).filter((a) => !a.archived && !existingIds.has(a.id))
   const add = useMutation({
     mutationFn: () => addSquadMember(squadId, agentId, role),

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Check, Copy } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   createToken,
@@ -10,36 +10,41 @@ import {
   type PatSecret,
   type PatToken,
 } from '@/api/identity'
-import { listAgents } from '@/api/orchestration'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-// 开放接入（底部平台段）：外部 AI 客户端经 MCP + agent 绑定凭证接入工作区。
-// 与「工具集成」（/tools，消费方：智能体连外部 MCP server）方向相反、受众
-// 不同，故分两页。三条事实（此前页面与实现脱节，2026-10-14 对齐）：
-// ①端点是 per-workspace 的 /api/mcp/w/{ws}/agent（无全局 /mcp）；
-// ②工具是服务端真实注册的 9 个（此前列的 5 个"即将上线"从未存在）；
-// ③认证材料是 agent 绑定的 runtime credential——普通用户 PAT 过不了
-//   runtime fence，本页提供铸造/列出/撤销全流程。
+// 助理接入页（docs/assistant-access-design-2026-10-14.md §五，v4 纯助理）：
+// 外部 AI 客户端（Claude Code / Codex / 任意 MCP 客户端）用「用户自己的 PAT」
+// 经 per-workspace 端点 /api/mcp/w/{ws}/me 接入——AI 以用户身份干活，作者=用户。
+// 与「工具集成」（/tools，消费方：智能体连外部 MCP server）方向相反、受众不同，
+// 故分两页。工人接入段（agent 选择器/铸造 runtime credential/撤销列表）已随 v4
+// 工人模型退役整体删除。
 export const Route = createFileRoute('/_app/access')({
   component: AccessPage,
 })
 
-// 工具清单：与 cmd/orkome-server/wiring_mcp.go 的 addReadTools/addLoopTools
-// 注册面一一对应（名字与语义，页面不导入服务端包，改动需双方同步）。
-const MCP_TOOLS = [
-  { name: 'list_my_work_items', desc: 'mcp.toolListMyWorkItems' },
-  { name: 'get_work_item', desc: 'mcp.toolGetWorkItemBrief' },
-  { name: 'get_task', desc: 'mcp.toolGetTask' },
-  { name: 'get_task_messages', desc: 'mcp.toolGetTaskMessages' },
-  { name: 'claim_task', desc: 'mcp.toolClaimTask' },
-  { name: 'report_progress', desc: 'mcp.toolReportProgress' },
-  { name: 'complete_task', desc: 'mcp.toolCompleteTask' },
-  { name: 'fail_task', desc: 'mcp.toolFailTask' },
-  { name: 'post_comment', desc: 'mcp.toolPostComment' },
-] as const
+// 工具清单：助理 MCP 端点注册的 14 个真实工具（设计 v4 §3.2 表格），
+// 名字与后端注册面一一对应（页面不导入服务端包，改动需双方同步）。
+// 分四组展示：读 5 + 写 3 + 任务协议 5 + 恢复 1；无"即将上线"徽标。
+const MCP_TOOLS: { name: string; desc: string; group: 'read' | 'write' | 'protocol' | 'recover' }[] =
+  [
+    { name: 'list_work_items', desc: 'mcp.toolListWorkItems', group: 'read' },
+    { name: 'get_work_item', desc: 'mcp.toolGetWorkItem', group: 'read' },
+    { name: 'list_projects', desc: 'mcp.toolListProjects', group: 'read' },
+    { name: 'list_labels', desc: 'mcp.toolListLabels', group: 'read' },
+    { name: 'list_statuses', desc: 'mcp.toolListStatuses', group: 'read' },
+    { name: 'create_work_item', desc: 'mcp.toolCreateWorkItem', group: 'write' },
+    { name: 'update_work_item', desc: 'mcp.toolUpdateWorkItem', group: 'write' },
+    { name: 'add_comment', desc: 'mcp.toolAddComment', group: 'write' },
+    { name: 'list_my_claims', desc: 'mcp.toolListMyClaims', group: 'protocol' },
+    { name: 'claim_work_item', desc: 'mcp.toolClaimWorkItem', group: 'protocol' },
+    { name: 'report_progress', desc: 'mcp.toolReportProgress', group: 'protocol' },
+    { name: 'complete_work_item', desc: 'mcp.toolCompleteWorkItem', group: 'protocol' },
+    { name: 'fail_work_item', desc: 'mcp.toolFailWorkItem', group: 'protocol' },
+    { name: 'get_my_running_tasks', desc: 'mcp.toolGetMyRunningTasks', group: 'recover' },
+  ]
 const CARD_CLASS = 'rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
 const CARD_TITLE_CLASS = 'mb-1 text-sm font-semibold'
 const CARD_DESC_CLASS = 'mb-3 text-xs text-zinc-500 dark:text-zinc-400'
@@ -94,38 +99,8 @@ const TTL_OPTIONS = [
   { value: 180 * 86400, key: 'mcp.ttl180' },
 ] as const
 
-// ---- runtime credential（agent 绑定凭证）----
-
-interface RuntimeCred {
-  id: string
-  name: string
-  pat_prefix: string
-  revoked: boolean
-  created_at: string
-  revoked_at?: string
-}
-
-function useRuntimeCredentials(agentId: string | null, wsId: string | null) {
-  return useQuery({
-    queryKey: ['runtime-credentials', wsId, agentId],
-    queryFn: async (): Promise<RuntimeCred[]> => {
-      const res = await apiGet<{ items: RuntimeCred[] | null }>(
-        `/api/workspaces/${wsId}/agents/${agentId}/runtime-credentials`,
-      )
-      return res.items ?? []
-    },
-    enabled: !!agentId && !!wsId,
-  })
-}
-
-// 轻量 api 封装：workspace 从当前上下文带（页面在 _app 布局内，client 已注）。
-// 不引 packs.ts 的 api 是因为这里 base 是同源的 @ploykit/client——直接复用。
-import { api } from '@ploykit/client'
-function apiGet<T>(path: string): Promise<T> {
-  return api.get<T>(path)
-}
-
-function AccessPage() {
+// 导出供测试直接渲染（同 _app.automation 的 AutomationPage 模式）。
+export function AccessPage() {
   const { t, i18n } = useTranslation()
   const fmtTime = (iso?: string): string => {
     if (!iso) return '—'
@@ -167,53 +142,11 @@ function AccessPage() {
     create.mutate()
   }
 
-  // ---- runtime credential 段状态 ----
+  // 端点按当前工作区拼真实值（workspace 在 URL path，设计 v4 §3.1——不采用
+  // "工具参数携带 ws"）。无工作区上下文时退回 {workspaceId} 占位。
   const wsId = useWorkspaceStore((s) => s.currentId)
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents })
-  const externalAgents = useMemo(
-    () => (agents.data ?? []).filter((a) => !a.archived),
-    [agents.data],
-  )
-  const [agentId, setAgentId] = useState<string>('')
-  const activeAgent = agentId || externalAgents[0]?.id || ''
-  const creds = useRuntimeCredentials(activeAgent || null, wsId)
-  const [rcName, setRcName] = useState('')
-  const [rcSecret, setRcSecret] = useState<string | null>(null)
-  const [rcErr, setRcErr] = useState<string | null>(null)
-  const [confirmingCredId, setConfirmingCredId] = useState<string | null>(null)
-  const invalidateCreds = () =>
-    queryClient.invalidateQueries({ queryKey: ['runtime-credentials', wsId, activeAgent] })
-  const mint = useMutation({
-    mutationFn: async () => {
-      const res = await api.post<{ token: string }>(
-        `/api/agents/${activeAgent}/runtime-credentials`,
-        { name: rcName.trim() },
-      )
-      return res
-    },
-    onSuccess: (res) => {
-      setRcSecret(res.token)
-      setRcName('')
-      setRcErr(null)
-      void invalidateCreds()
-    },
-    onError: (e: Error) => setRcErr(e.message),
-  })
-  const revokeCred = useMutation({
-    mutationFn: async (credId: string) => {
-      await api.delete(
-        `/api/workspaces/${wsId}/agents/${activeAgent}/runtime-credentials/${credId}`,
-      )
-    },
-    onSuccess: () => {
-      setConfirmingCredId(null)
-      void invalidateCreds()
-    },
-    onError: (e: Error) => setRcErr(e.message),
-  })
-
-  // 接入配置以真实端点为准；令牌占位与 PAT 段一致。
-  const mcpUrl = `${window.location.origin}/api/mcp/w/{workspaceId}/agent`
+  const wsSegment = wsId || '{workspaceId}'
+  const mcpUrl = `${window.location.origin}/api/mcp/w/${wsSegment}/me`
   const codexConf = [
     '[mcp_servers.orkome]',
     `url = "${mcpUrl}"`,
@@ -243,6 +176,14 @@ function AccessPage() {
     'Accept: application/json, text/event-stream',
   ].join('\n')
 
+  // 工具清单按"读/写/任务协议/恢复"分组（与设计 v4 §3.2 的四组一一对应）。
+  const toolGroups: { key: 'read' | 'write' | 'protocol' | 'recover'; titleKey: string }[] = [
+    { key: 'read', titleKey: 'mcp.toolsGroupRead' },
+    { key: 'write', titleKey: 'mcp.toolsGroupWrite' },
+    { key: 'protocol', titleKey: 'mcp.toolsGroupProtocol' },
+    { key: 'recover', titleKey: 'mcp.toolsGroupRecover' },
+  ]
+
   return (
     <div className="space-y-8">
       <div>
@@ -250,7 +191,7 @@ function AccessPage() {
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('access.pageIntro')}</p>
       </div>
 
-      {/* 第 1 段：三步接入 */}
+      {/* 第 1 段：三步接入（v4 §五①）+ 接单一句话 */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">{t('mcp.connectTitle')}</h2>
         <ol className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
@@ -258,157 +199,40 @@ function AccessPage() {
           <li>{t('access.step2')}</li>
           <li>{t('access.step3')}</li>
         </ol>
+        <p className={CARD_DESC_CLASS}>{t('access.claimHint')}</p>
         <Snippet title="Codex" file="~/.codex/config.toml" code={codexConf} />
         <Snippet title="Claude Code" file=".mcp.json" code={claudeConf} />
         <Snippet title={t('mcp.genericClient')} code={genericConf} />
         <p className={CARD_DESC_CLASS}>{t('mcp.replaceTokenHint')}</p>
       </section>
 
-      {/* 第 2 段：工具清单（与服务端注册面一致） */}
+      {/* 第 2 段：工具清单（14 个真实注册面，按 读/写/任务协议/恢复 分组） */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('mcp.toolsTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('mcp.toolsDesc')}</p>
-        <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-          {MCP_TOOLS.map((tool) => (
-            <li key={tool.name} className="flex flex-col gap-0.5">
-              <code className="font-mono text-xs font-medium">{tool.name}</code>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t(tool.desc)}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* 第 3 段：接入凭证（agent 绑定 runtime credential——本页的主角） */}
-      <section className={CARD_CLASS}>
-        <h2 className={CARD_TITLE_CLASS}>{t('mcp.credentialsTitle')}</h2>
-        <p className={CARD_DESC_CLASS}>{t('access.rcDesc')}</p>
-
-        {externalAgents.length === 0 ? (
-          <p className="text-sm text-zinc-500">{t('access.noExternalAgents')}</p>
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <label className="text-sm text-zinc-600 dark:text-zinc-300" htmlFor="rc-agent">
-                {t('access.rcAgentLabel')}
-              </label>
-              <select
-                id="rc-agent"
-                value={activeAgent}
-                onChange={(e) => {
-                  setAgentId(e.target.value)
-                  setRcSecret(null)
-                  setConfirmingCredId(null)
-                }}
-                className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                {externalAgents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
+        <div className="space-y-4" data-testid="access-tool-list">
+          {toolGroups.map((group) => (
+            <div key={group.key}>
+              <p className="mb-1.5 text-xs font-semibold text-zinc-400">
+                {t(group.titleKey)}（{MCP_TOOLS.filter((tool) => tool.group === group.key).length}）
+              </p>
+              <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {MCP_TOOLS.filter((tool) => tool.group === group.key).map((tool) => (
+                  <li key={tool.name} className="flex flex-col gap-0.5">
+                    <code className="font-mono text-xs font-medium">{tool.name}</code>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {t(tool.desc)}
+                    </span>
+                  </li>
                 ))}
-              </select>
+              </ul>
             </div>
-
-            {rcSecret && (
-              <div
-                role="status"
-                className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950"
-              >
-                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
-                  {t('access.rcCreatedOnce')}
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white px-3 py-2 font-mono text-xs dark:bg-zinc-900">
-                    {rcSecret}
-                  </code>
-                  <CopyButton text={rcSecret} />
-                  <Button variant="ghost" size="sm" onClick={() => setRcSecret(null)}>
-                    {t('common.ok')}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <Input
-                value={rcName}
-                onChange={(e) => setRcName(e.target.value)}
-                placeholder={t('access.rcNamePlaceholder')}
-                maxLength={100}
-                className="min-w-0 flex-1"
-              />
-              <Button
-                onClick={() => rcName.trim() && mint.mutate()}
-                disabled={!rcName.trim() || mint.isPending}
-              >
-                {mint.isPending ? t('access.rcMinting') : t('access.rcMint')}
-              </Button>
-            </div>
-            {rcErr && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{rcErr}</p>}
-
-            <div className="mt-4 border-t border-zinc-200 dark:border-zinc-800">
-              {creds.isPending && <p className="pt-3 text-sm text-zinc-500">{t('common.loading')}</p>}
-              {creds.data && creds.data.length === 0 && (
-                <p className="pt-3 text-sm text-zinc-500">{t('access.rcEmpty')}</p>
-              )}
-              {creds.data &&
-                creds.data.length > 0 && (
-                  <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    {creds.data.map((c) => (
-                      <div key={c.id} className="py-2.5">
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <span className="text-sm font-medium">{c.name}</span>
-                            <span className="ml-2 font-mono text-xs text-zinc-400">
-                              {c.pat_prefix}…
-                            </span>
-                          </div>
-                          <Badge variant={c.revoked ? 'neutral' : 'success'}>
-                            {t(c.revoked ? 'mcp.tokRevoked' : 'mcp.tokActive')}
-                          </Badge>
-                          {!c.revoked &&
-                            (confirmingCredId === c.id ? (
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="danger"
-                                  size="sm"
-                                  disabled={revokeCred.isPending}
-                                  onClick={() => revokeCred.mutate(c.id)}
-                                >
-                                  {t('mcp.confirmRevoke')}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setConfirmingCredId(null)}
-                                >
-                                  {t('common.cancel')}
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 dark:text-red-400"
-                                onClick={() => setConfirmingCredId(c.id)}
-                              >
-                                {t('mcp.revoke')}
-                              </Button>
-                            ))}
-                        </div>
-                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          {t('mcp.tokenMeta', { created: fmtTime(c.created_at), used: '—' })}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-            </div>
-          </>
-        )}
+          ))}
+        </div>
       </section>
 
-      {/* 第 4 段：平台 PAT（管理台用，非 MCP 客户端凭证） */}
+      {/* 第 3 段：访问凭证 = 个人访问令牌 PAT（v4 §五③：本页主角）。
+          AI 客户端持 PAT = 账号完整权限（设计 v4 §3.3），文案明示。 */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('access.patTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('access.patDesc')}</p>
@@ -496,7 +320,11 @@ function AccessPage() {
                             >
                               {t('mcp.confirmRevoke')}
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => setConfirmingId(null)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setConfirmingId(null)}
+                            >
                               {t('common.cancel')}
                             </Button>
                           </div>
@@ -527,7 +355,7 @@ function AccessPage() {
         </div>
       </section>
 
-      {/* 一键接入命令（Claude Code CLI，可执行级） */}
+      {/* 第 4 段：一键接入命令（Claude Code CLI，可执行级；v4 §五④） */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('access.oneCmdTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('access.oneCmdDesc')}</p>

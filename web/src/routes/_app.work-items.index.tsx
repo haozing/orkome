@@ -58,7 +58,7 @@ function WorkItemsPage() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: listProjects })
   const statuses = useQuery({ queryKey: ['work-item-statuses'], queryFn: listStatuses })
   const members = useQuery(membersQueryOptions(workspaceId))
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const filters: WorkItemListFilters = {
     project: search.project,
     search: search.q,

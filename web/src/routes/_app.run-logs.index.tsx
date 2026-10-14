@@ -48,7 +48,7 @@ function RunLogsPage() {
   const [openTask, setOpenTask] = useState<WorkspaceTaskRow | null>(null)
   const patchSearch = (patch: RunLogSearch) =>
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const list = useInfiniteQuery({
     queryKey: ['workspace-tasks', { status, agent_id: agentId }],
     queryFn: ({ pageParam }: { pageParam?: string }) =>

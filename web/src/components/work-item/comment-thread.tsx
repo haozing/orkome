@@ -40,7 +40,7 @@ export function CommentThread({ workItemId }: { workItemId: string }) {
   })
   const workspaceId = useWorkspaceStore((s) => s.currentId) ?? ''
   const members = useQuery(membersQueryOptions(workspaceId))
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents, staleTime: 60000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents(), staleTime: 60000 })
   const mentionItems = (): MentionItem[] => [
     ...(members.data ?? []).map((m) => ({
       id: m.user_id,

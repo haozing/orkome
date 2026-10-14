@@ -19,7 +19,7 @@ function AgentsPage() {
   const navigate = useNavigate()
   const [filter, setFilter] = useState<Filter>('all')
   const [createOpen, setCreateOpen] = useState(false)
-  const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => listAgents() })
   const working = useQuery({ queryKey: ['working-agents'], queryFn: listWorkingAgents })
   const activeCount = new Map((working.data ?? []).map((w) => [w.agent_id, w.active]))
   const rows = (agents.data ?? []).filter((a) =>
