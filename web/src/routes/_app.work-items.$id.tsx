@@ -144,9 +144,10 @@ export function WorkItemDetailPage() {
           </div>
         </div>
 
-        {/* 流程区块（W3 追加，设计 §6.2 触点 2）：数据源 start/restart 响应 + WS 桥刷新 */}
-        <WorkflowPanel workItemId={id} projectId={wi.project_id ?? ''} />
+        {/* 属性区在上（最高频编辑入口），流程光标卡在其下（2026-10-14 裁决：
+            流程是"动态化的状态+负责人"，常驻侧栏但不抢占属性首位） */}
         <InfoPanel item={wi} />
+        <WorkflowPanel workItemId={id} projectId={wi.project_id ?? ''} />
       </div>
     </div>
   )
