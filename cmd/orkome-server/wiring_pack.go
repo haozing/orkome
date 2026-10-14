@@ -175,15 +175,19 @@ func (a packCredentialsPort) Create(ctx context.Context, ws, provider, secret, c
 }
 
 // packMCPPort 把 MCPServerService.Create 适配成 installer 的 MCP 端口：
-// credID 非空时构造密封引用——语义照抄 handlers_mcp.go 的 mcpWire.toModel：
-// credentials 是 map（pg 层 sealCreds 密封成 {"sealed":...} 信封），引用形状
-// {"credential_id": <id>}（引擎侧 RuntimeConfig["credential_id"] 同款）。
+// bearerSecret 非空时构造 {"headers":{"Authorization":"Bearer <secret>"}} 信封
+//（引擎 mcpHeadersOf 只认 headers 键——MCP 链路上 {"credential_id":id} 引用
+// 无解引用点，真机 payload pack 探针 401 实证；凭证本体仍照常入密封库留作
+// 审计/轮换底账）。credentials 是 map（pg 层 sealCreds 密封成 {"sealed":...} 信封）。
 type packMCPPort struct{ svc *orchapp.MCPServerService }
 
-func (a packMCPPort) Create(ctx context.Context, ws string, m packapp.InstallMCP, credID, packID string) error {
+func (a packMCPPort) Create(ctx context.Context, ws string, m packapp.InstallMCP, credID, bearerSecret, packID string) error {
 	var creds map[string]any
-	if credID != "" {
-		creds = map[string]any{"credential_id": credID}
+	if bearerSecret != "" {
+		creds = map[string]any{
+			"credential_id": credID,
+			"headers":       map[string]any{"Authorization": "Bearer " + bearerSecret},
+		}
 	}
 	_, err := a.svc.Create(ctx, orchapp.WorkspaceMCP{
 		WorkspaceID: ws, Name: m.Name, Transport: m.Transport, URL: m.URL,

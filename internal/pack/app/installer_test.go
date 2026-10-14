@@ -55,7 +55,7 @@ func (p credPortFake) Create(_ context.Context, ws, provider, secret, createdBy 
 
 type mcpPortFake struct{ f *installFakes }
 
-func (p mcpPortFake) Create(_ context.Context, ws string, m InstallMCP, credID, packID string) error {
+func (p mcpPortFake) Create(_ context.Context, ws string, m InstallMCP, credID, bearerSecret, packID string) error {
 	// 失败键支持索引限定（"mcp[1]"）以测中途失败；裸 "mcp" 命中任意一次。
 	if err := p.f.fail["mcp"]; err != nil {
 		return err

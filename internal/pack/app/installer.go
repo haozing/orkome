@@ -101,9 +101,12 @@ type InstallPorts struct {
 		Create(ctx context.Context, ws, provider, secret, createdBy string) (id string, err error)
 	}
 	// MCP 注册一台 workspace MCP 服务器（credID 空串=无凭证关联；适配层
-	// 负责转本域模型并落 pack_id）。
+	// 负责转本域模型并落 pack_id）。bearerSecret 是凭证明文——引擎的 MCP
+	// 鉴权约定是 credentials 信封 {"headers":{"Authorization":"Bearer X"}}
+	//（mcpHeadersOf 只认 headers 键；{"credential_id":id} 引用形状在 MCP
+	// 链路无解引用点，真机 payload pack 探针 401 实证），适配层用它构造。
 	MCP interface {
-		Create(ctx context.Context, ws string, m InstallMCP, credID, packID string) error
+		Create(ctx context.Context, ws string, m InstallMCP, credID, bearerSecret, packID string) error
 	}
 	// Webhooks 建厂商事件订阅（返回订阅 id + 一次性 secret 明文）。
 	Webhooks interface {
@@ -133,6 +136,7 @@ func (s *PackService) Install(ctx context.Context, ws, userID string, spec Insta
 			return res, fmt.Errorf("install %s: step mcp[%d]: %w", spec.Name, i, err)
 		}
 		credID := ""
+		bearerSecret := ""
 		if m.Credential != nil {
 			if s.install.Credentials == nil {
 				return res, fmt.Errorf("install %s: step mcp[%d]: %w", spec.Name, i, errInstallCredentialsNotWired)
@@ -142,11 +146,12 @@ func (s *PackService) Install(ctx context.Context, ws, userID string, spec Insta
 				return res, fmt.Errorf("install %s: step mcp[%d]: create credential: %w", spec.Name, i, err)
 			}
 			credID = id
+			bearerSecret = m.Credential.Secret
 		}
 		if s.install.MCP == nil {
 			return res, fmt.Errorf("install %s: step mcp[%d]: %w", spec.Name, i, errInstallMCPNotWired)
 		}
-		if err := s.install.MCP.Create(ctx, ws, m, credID, pack.ID); err != nil {
+		if err := s.install.MCP.Create(ctx, ws, m, credID, bearerSecret, pack.ID); err != nil {
 			return res, fmt.Errorf("install %s: step mcp[%d]: register: %w", spec.Name, i, err)
 		}
 	}
