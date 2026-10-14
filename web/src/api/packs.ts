@@ -168,6 +168,10 @@ export interface PackSubscription {
   url: string
   event_types: string[]
   is_active: boolean
+  /** 订阅描述（可选；后端随行返回，老版本缺省） */
+  description?: string
+  /** 创建时间 ISO（可选；老版本缺省） */
+  created_at?: string
 }
 
 /** 详情聚合：本包创建的智能体（pack_id 命中，archived 软删）。 */

@@ -1,9 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, ChevronDown, HeartPulse, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  HeartPulse,
+  Pause,
+  Play,
+  Radio,
+  RotateCw,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getPack, listWorkspaceMcp, probeWorkspaceMcpTools, type PackDetail } from '@/api/packs'
+import {
+  listWebhookDeliveries,
+  listWebhookEvents,
+  pingWebhookSubscription,
+  redeliverWebhookDelivery,
+  rotateWebhookSecret,
+  setWebhookSubscriptionActive,
+  type WebhookDelivery,
+} from '@/api/webhooks'
 import { ServerToolsPanel } from '@/components/packs-sections'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,8 +39,8 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 // Pack 详情页五区块视图（Pack 一等公民化 P1，docs/pack-first-class-design-2026-10-13.md §2.3）：
 //   ① 概览（版本/安装时间/健康态）② 工具（存档清单 + 逐服务器实时探针）
-//   ③ 事件（订阅列表，投递统计 P2 占位）④ 界面（控制台入口 + slots）
-//   ⑤ 资产（agents 含 archived 灰显 + skills 名单）。
+//   ③ 事件（订阅列表 + ping/轮换密钥/暂停恢复/投递日志 + 事件目录）
+//   ④ 界面（控制台入口 + slots）⑤ 资产（agents 含 archived 灰显 + skills 名单）。
 // 卸载 P1 只弹 CLI 命令提示（不调接口，server 端卸载在 P2/R4）。
 // 独立成组件文件的原因同 task-transcript-drawer：router 插件的
 // autoCodeSplitting 会拆走路由模块的非 Route 导出，页面级组件测试须从这里引用。
@@ -247,40 +267,25 @@ export function PackDetailView({ packId }: { packId: string }) {
         </div>
       </SectionBlock>
 
-      {/* ③ 事件：订阅列表 + 投递统计 P2 占位 */}
+      {/* ③ 事件：订阅列表 + 管理动作 + 事件目录 */}
       <SectionBlock title={t('packs2.eventsTitle')}>
         <div className="space-y-2">
-          <Badge variant="warning">{t('packs2.deliveryStatsSoon')}</Badge>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('packs2.eventsHint')}</p>
           {d.subscriptions.length === 0 ? (
             <p className="text-sm text-zinc-500">{t('packs2.eventsEmpty')}</p>
           ) : (
             <ul className="divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
               {d.subscriptions.map((sub) => (
-                <li
+                <PackSubscriptionRow
                   key={sub.subscription_id}
-                  className="space-y-1 px-3 py-2.5 text-sm"
-                  data-testid="pack-sub-row"
-                >
-                  <p className="flex flex-wrap items-center gap-2">
-                    <code className="min-w-0 truncate font-mono text-xs">{sub.url}</code>
-                    <Badge
-                      variant={sub.is_active ? 'success' : 'neutral'}
-                      className="ml-auto shrink-0"
-                    >
-                      {t(sub.is_active ? 'packs2.eventActive' : 'packs2.eventInactive')}
-                    </Badge>
-                  </p>
-                  <p className="flex flex-wrap gap-1">
-                    {sub.event_types.map((et) => (
-                      <Badge key={et} variant="neutral">
-                        {et}
-                      </Badge>
-                    ))}
-                  </p>
-                </li>
+                  sub={sub}
+                  workspaceId={workspaceId}
+                  fmtDate={fmtDate}
+                />
               ))}
             </ul>
           )}
+          <PackEventsCatalog workspaceId={workspaceId} />
         </div>
       </SectionBlock>
 
@@ -409,6 +414,367 @@ export function PackDetailView({ packId }: { packId: string }) {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** 订阅行 ping 按钮的三态：空闲 / 进行中 / 结果短暂标注（成功/失败）。 */
+type PingState = 'idle' | 'running' | 'ok' | 'fail'
+
+/**
+ * 区块③的单订阅行：URL + 描述/创建日期 + 事件类型徽标 + 管理动作
+ * （ping / 轮换密钥 / 暂停恢复 / 投递日志）。动作均 admin 权限，member
+ * 403 时只做行内错误标注（与页面"不隐藏权限"的现有做法一致）。
+ */
+function PackSubscriptionRow({
+  sub,
+  workspaceId,
+  fmtDate,
+}: {
+  sub: PackDetail['subscriptions'][number]
+  workspaceId: string | null
+  fmtDate: (iso: string) => string
+}) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const ws = workspaceId ?? ''
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['pack'] })
+  const [actionErr, setActionErr] = useState<string | null>(null)
+  const [ping, setPing] = useState<PingState>('idle')
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [rotatedSecret, setRotatedSecret] = useState<string | null>(null)
+  const [deliveriesOpen, setDeliveriesOpen] = useState(false)
+
+  const doPing = async () => {
+    if (!workspaceId || ping === 'running') return
+    setPing('running')
+    try {
+      await pingWebhookSubscription(ws, sub.subscription_id)
+      setPing('ok')
+    } catch {
+      setPing('fail')
+      setActionErr(t('packs2.subActionFailed'))
+    } finally {
+      // 结果只在按钮上短暂停留，随后回到空闲态
+      setTimeout(() => setPing('idle'), 2000)
+    }
+  }
+
+  const doRotate = useMutation({
+    mutationFn: () => rotateWebhookSecret(ws, sub.subscription_id),
+    onSuccess: (res) => {
+      setRotatedSecret(res.secret)
+      setActionErr(null)
+    },
+    onError: () => setActionErr(t('packs2.subActionFailed')),
+  })
+
+  const doToggle = useMutation({
+    mutationFn: () => setWebhookSubscriptionActive(ws, sub.subscription_id, !sub.is_active),
+    onSuccess: () => {
+      setActionErr(null)
+      refresh()
+    },
+    onError: () => setActionErr(t('packs2.subActionFailed')),
+  })
+
+  return (
+    <li
+      className="space-y-1.5 px-3 py-2.5 text-sm"
+      data-testid="pack-sub-row"
+      data-subscription-id={sub.subscription_id}
+    >
+      <p className="flex flex-wrap items-center gap-2">
+        <code className="min-w-0 truncate font-mono text-xs">{sub.url}</code>
+        <Badge variant={sub.is_active ? 'success' : 'neutral'} className="ml-auto shrink-0">
+          {t(sub.is_active ? 'packs2.eventActive' : 'packs2.eventInactive')}
+        </Badge>
+      </p>
+      {sub.description && <p className="text-xs text-zinc-500 dark:text-zinc-400">{sub.description}</p>}
+      {sub.created_at && (
+        <p className="text-xs text-zinc-400">{t('packs2.subCreatedAt', { date: fmtDate(sub.created_at) })}</p>
+      )}
+      <p className="flex flex-wrap gap-1">
+        {sub.event_types.map((et) => (
+          <Badge key={et} variant="neutral">
+            {et}
+          </Badge>
+        ))}
+      </p>
+      <p className="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!workspaceId || ping === 'running'}
+          data-testid="pack-sub-ping"
+          onClick={() => void doPing()}
+        >
+          <HeartPulse className="size-3" aria-hidden="true" />
+          {ping === 'running'
+            ? t('packs2.subPinging')
+            : ping === 'ok'
+              ? t('packs2.subPingOk')
+              : ping === 'fail'
+                ? t('packs2.subPingFail')
+                : t('packs2.subPing')}
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!workspaceId || doRotate.isPending}
+          data-testid="pack-sub-rotate"
+          onClick={() => {
+            setRotatedSecret(null)
+            setRotateOpen(true)
+            doRotate.mutate()
+          }}
+        >
+          <RotateCw className="size-3" aria-hidden="true" />
+          {t('packs2.subRotate')}
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!workspaceId || doToggle.isPending}
+          data-testid="pack-sub-toggle"
+          onClick={() => doToggle.mutate()}
+        >
+          {sub.is_active ? (
+            <>
+              <Pause className="size-3" aria-hidden="true" />
+              {t('packs2.subPause')}
+            </>
+          ) : (
+            <>
+              <Play className="size-3" aria-hidden="true" />
+              {t('packs2.subResume')}
+            </>
+          )}
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          data-testid="pack-sub-deliveries"
+          onClick={() => setDeliveriesOpen(true)}
+        >
+          {t('packs2.subDeliveries')}
+        </Button>
+        {actionErr && (
+          <span className="text-xs text-red-600 dark:text-red-400" data-testid="pack-sub-error">
+            {actionErr}
+          </span>
+        )}
+      </p>
+      {/* 轮换密钥：两段式——未拿到新密钥前是确认警示，拿到后展示一次性明文 */}
+      <Dialog open={rotateOpen} onOpenChange={(next) => (!next ? setRotateOpen(false) : undefined)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('packs2.rotateTitle')}</DialogTitle>
+            <DialogDescription>
+              {rotatedSecret ? t('packs2.rotateOnceDesc') : t('packs2.rotateConfirmDesc')}
+            </DialogDescription>
+          </DialogHeader>
+          {rotatedSecret ? (
+            <div className="flex items-center gap-2" data-testid="pack-rotate-secret">
+              <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs whitespace-nowrap dark:border-zinc-700 dark:bg-zinc-900">
+                {rotatedSecret}
+              </code>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                aria-label={t('common.copy')}
+                onClick={() => void navigator.clipboard.writeText(rotatedSecret)}
+              >
+                <Copy className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <Radio className="size-3.5 shrink-0" aria-hidden="true" />
+              {doRotate.isPending ? t('packs2.rotateRotating') : t('packs2.rotateWarning')}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setRotateOpen(false)}>
+              {t('common.close')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {deliveriesOpen && (
+        <PackDeliveriesDialog
+          workspaceId={workspaceId}
+          subscriptionId={sub.subscription_id}
+          fmtDate={fmtDate}
+          onClose={() => setDeliveriesOpen(false)}
+        />
+      )}
+    </li>
+  )
+}
+
+/** 投递状态 → 徽标色：delivered 绿 / pending 黄 / dead 红，其余中性。 */
+function deliveryStatusVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (status === 'delivered') return 'success'
+  if (status === 'pending') return 'warning'
+  if (status === 'dead') return 'danger'
+  return 'neutral'
+}
+
+/** 投递日志 Dialog：按当前订阅过滤，dead/pending(重试过) 行可重放。 */
+function PackDeliveriesDialog({
+  workspaceId,
+  subscriptionId,
+  fmtDate,
+  onClose,
+}: {
+  workspaceId: string | null
+  subscriptionId: string
+  fmtDate: (iso: string) => string
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const deliveries = useQuery({
+    queryKey: ['webhook-deliveries', workspaceId],
+    queryFn: () => listWebhookDeliveries(workspaceId as string),
+    enabled: !!workspaceId,
+  })
+  const redeliver = useMutation({
+    mutationFn: (id: string) => redeliverWebhookDelivery(workspaceId as string, id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['webhook-deliveries', workspaceId] }),
+  })
+  const rows = (deliveries.data ?? []).filter((dl) => dl.subscription_id === subscriptionId)
+  // 可重放：已死，或仍在重试但已尝试超过一次
+  const canRedeliver = (dl: WebhookDelivery) => dl.status === 'dead' || (dl.status === 'pending' && dl.attempts > 1)
+  return (
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('packs2.deliveriesTitle')}</DialogTitle>
+          <DialogDescription>{t('packs2.deliveriesDesc', { n: rows.length })}</DialogDescription>
+        </DialogHeader>
+        {deliveries.isPending ? (
+          <p className="text-sm text-zinc-500">{t('packs2.deliveriesLoading')}</p>
+        ) : deliveries.isError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {t('packs2.deliveriesFailed')}
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-zinc-500">{t('packs2.deliveriesEmpty')}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs" data-testid="pack-deliveries-table">
+              <thead>
+                <tr className="border-b border-zinc-200 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColEvent')}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColStatus')}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColAttempts')}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColCode')}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColError')}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t('packs2.deliveriesColTime')}</th>
+                  <th className="py-1.5 font-medium" aria-label={t('common.actions')} />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((dl) => (
+                  <tr
+                    key={dl.id}
+                    className="border-b border-zinc-100 align-top last:border-b-0 dark:border-zinc-800/60"
+                    data-testid="pack-delivery-row"
+                  >
+                    <td className="py-1.5 pr-3 font-mono">{dl.event_type}</td>
+                    <td className="py-1.5 pr-3">
+                      <Badge variant={deliveryStatusVariant(dl.status)}>{dl.status}</Badge>
+                    </td>
+                    <td className="py-1.5 pr-3">{dl.attempts}</td>
+                    <td className="py-1.5 pr-3 font-mono">{dl.last_status_code ?? '–'}</td>
+                    <td className="max-w-40 truncate py-1.5 pr-3 text-zinc-500 dark:text-zinc-400" title={dl.last_error ?? undefined}>
+                      {dl.last_error || '–'}
+                    </td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-500 dark:text-zinc-400">
+                      {fmtDate(dl.delivered_at ?? dl.created_at)}
+                    </td>
+                    <td className="py-1.5">
+                      {canRedeliver(dl) && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={redeliver.isPending}
+                          data-testid="pack-delivery-redeliver"
+                          onClick={() => redeliver.mutate(dl.id)}
+                        >
+                          <RotateCw className="size-3" aria-hidden="true" />
+                          {t('packs2.deliveriesRedeliver')}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>
+            {t('common.close')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** 事件目录：底部一行可展开，平铺全部可订阅事件类型（member 可读）。 */
+function PackEventsCatalog({ workspaceId }: { workspaceId: string | null }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const events = useQuery({
+    queryKey: ['webhook-events', workspaceId],
+    queryFn: () => listWebhookEvents(workspaceId as string),
+    enabled: open && !!workspaceId,
+  })
+  return (
+    <div className="pt-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-expanded={open}
+        data-testid="pack-events-catalog"
+        disabled={!workspaceId}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? (
+          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="size-3.5 text-zinc-400" aria-hidden="true" />
+        )}
+        {t('packs2.catalogToggle')}
+      </Button>
+      {open && (
+        <div className="px-3 pb-2">
+          {events.isPending ? (
+            <p className="text-sm text-zinc-500">{t('packs2.catalogLoading')}</p>
+          ) : events.isError ? (
+            <p className="text-sm text-red-600 dark:text-red-400">{t('packs2.catalogFailed')}</p>
+          ) : (events.data ?? []).length === 0 ? (
+            <p className="text-sm text-zinc-500">{t('packs2.catalogEmpty')}</p>
+          ) : (
+            <dl className="grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+              {events.data!.map((ev) => (
+                <div key={ev.type} className="flex items-baseline gap-2" data-testid="pack-event-def">
+                  <dt className="shrink-0">
+                    <Badge variant="neutral" className="font-mono">
+                      {ev.type}
+                    </Badge>
+                  </dt>
+                  <dd className="min-w-0 text-zinc-500 dark:text-zinc-400">{ev.description}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -175,9 +175,15 @@ describe('/packs/$packId detail (five sections)', () => {
     // ④ slots 行（slot 标识 + 高度）
     expect(screen.getByTestId('pack-slot-row').textContent).toContain('workitem.detail.tab')
     expect(screen.getByTestId('pack-slot-row').textContent).toContain('420px')
-    // ③ 订阅 URL + types + active
+    // ③ 订阅 URL + types + active（方向说明替代了旧的"投递统计即将上线"占位）
     expect(screen.getByTestId('pack-sub-row').textContent).toContain('workitem.completed')
-    expect(screen.getByText('Delivery stats coming soon')).toBeInTheDocument()
+    expect(screen.getByTestId('pack-sub-row').textContent).toContain('Active')
+    expect(screen.getByTestId('pack-sub-ping')).toBeInTheDocument()
+    expect(screen.getByTestId('pack-sub-rotate')).toBeInTheDocument()
+    expect(screen.getByTestId('pack-sub-toggle')).toBeInTheDocument()
+    expect(screen.getByTestId('pack-sub-deliveries')).toBeInTheDocument()
+    expect(screen.getByTestId('pack-events-catalog')).toBeInTheDocument()
+    expect(screen.getByText(/workspace Webhook management/)).toBeInTheDocument()
     // ⑤ agents（archived 灰显行带后缀）与 skills
     const agentRows = screen.getAllByTestId('pack-agent-row')
     expect(agentRows.some((r) => r.textContent!.includes('blogger'))).toBe(true)
