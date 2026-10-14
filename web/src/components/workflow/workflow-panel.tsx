@@ -64,14 +64,14 @@ export function WorkflowPanel({ workItemId, projectId }: { workItemId: string; p
 
   if (state.isPending) {
     return (
-      <section aria-label={t('workflow.panel.title')} className="border-zinc-200 pb-4 pl-5 dark:border-zinc-800">
+      <section aria-label={t('workflow.panel.title')} className="pb-4">
         <PageLoading label={t('workflow.loading')} className="py-4" />
       </section>
     )
   }
   if (state.isError) {
     return (
-      <section aria-label={t('workflow.panel.title')} className="border-zinc-200 pb-4 pl-5 dark:border-zinc-800">
+      <section aria-label={t('workflow.panel.title')} className="pb-4">
         <PanelTitle />
         <p role="alert" className="px-2 text-xs text-red-600 dark:text-red-400">
           {state.error instanceof ApiError ? state.error.message : t('workflow.panel.loadFailed')}
@@ -80,7 +80,7 @@ export function WorkflowPanel({ workItemId, projectId }: { workItemId: string; p
     )
   }
   return (
-    <section aria-label={t('workflow.panel.title')} className="border-zinc-200 pb-4 pl-5 dark:border-zinc-800">
+    <section aria-label={t('workflow.panel.title')} className="pb-4">
       <PanelTitle />
       {state.data ? (
         <StateBody state={state.data} workItemId={workItemId} onSettle={settle} />
