@@ -930,7 +930,9 @@ func uninstall(ctx context.Context, c *apiClient, p *packSpec) error {
 }
 
 // packDetail 是 GET /api/packs/{id} 详情聚合（设计 §1.3）中 uninstall 需要的
-// 字段——CLI 只挑用得上的，多余字段忽略。
+// 字段——CLI 只挑用得上的，多余字段忽略。形状以服务端为准：列表包在
+// items、详情包 pack 对象、订阅键是 subscription_id（曾按旧想象形状
+// packs/id/subscriptions[].id 解析 → 永远 miss 走按名兜底、pack 行残留）。
 type packDetail struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -943,7 +945,22 @@ type packDetail struct {
 		ID string `json:"id"`
 	} `json:"skills"`
 	Subscriptions []struct {
+		ID string `json:"subscription_id"`
+	} `json:"subscriptions"`
+}
+
+// packDetailEnvelope 是详情聚合响应的真实顶层形状：{pack:{...}, agents, ...}。
+type packDetailEnvelope struct {
+	Pack packDetail `json:"pack"`
+	// 其余区块（agents/skills/subscriptions...）在顶层，与 pack 平级。
+	Agents        []struct {
 		ID string `json:"id"`
+	} `json:"agents"`
+	Skills []struct {
+		ID string `json:"id"`
+	} `json:"skills"`
+	Subscriptions []struct {
+		ID string `json:"subscription_id"`
 	} `json:"subscriptions"`
 }
 
@@ -951,20 +968,24 @@ type packDetail struct {
 // （列表端点不可用与空列表同归为 not found，走兜底）。
 func findPackByName(c *apiClient, name string) (packDetail, bool) {
 	var list struct {
-		Packs []struct {
+		Items []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
-		} `json:"packs"`
+		} `json:"items"`
 	}
 	if err := c.do("GET", "/api/packs", nil, &list); err != nil {
 		return packDetail{}, false
 	}
-	for _, it := range list.Packs {
+	for _, it := range list.Items {
 		if it.Name == name {
-			var detail packDetail
-			if err := c.do("GET", "/api/packs/"+it.ID, nil, &detail); err != nil || detail.ID == "" {
+			var env packDetailEnvelope
+			if err := c.do("GET", "/api/packs/"+it.ID, nil, &env); err != nil || env.Pack.ID == "" {
 				return packDetail{}, false
 			}
+			detail := env.Pack
+			detail.Agents = env.Agents
+			detail.Skills = env.Skills
+			detail.Subscriptions = env.Subscriptions
 			return detail, true
 		}
 	}
