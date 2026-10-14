@@ -160,6 +160,10 @@ func (f *fakeSkillsRepo) ListAgentSkills(_ context.Context, ws, agentID string) 
 func (f *fakeSkillsRepo) ListSkillAgents(_ context.Context, ws, skillID string) ([]SkillAgent, error) {
 	return nil, nil
 }
+func (f *fakeSkillsRepo) SetSkillPack(_ context.Context, ws, skillID string, packID *string) error {
+	f.bindingCalls = append(f.bindingCalls, "setpack:"+ws+"/"+skillID)
+	return nil
+}
 
 func zipBytes(t *testing.T, entries map[string]string) []byte {
 	t.Helper()

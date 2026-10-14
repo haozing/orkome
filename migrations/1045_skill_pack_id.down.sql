@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_skill_pack_id;
+ALTER TABLE skill DROP COLUMN IF EXISTS pack_id;

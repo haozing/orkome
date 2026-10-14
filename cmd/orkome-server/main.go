@@ -274,7 +274,10 @@ func main() {
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
-	packhttp.Mount(api, wiringPack(db, cfg, log, idMemberCheck(db), roleOf(db)), authGuardMw)
+	// webhooks 域先于 pack 装配：pack installer 的订阅端口要持有 framework
+	// WebhookService（CreateSubscription + 一次性 secret 回显）。
+	webhookDeps, webhookSvc := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), idDeps.Az, cfg)
+	packhttp.Mount(api, wiringPack(db, cfg, log, webhookSvc, idMemberCheck(db), roleOf(db)), authGuardMw)
 
 	// Commercial surfaces (P6-2): audit / quota usage / billing plans / admin.
 	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az, idDeps.Repo)
@@ -291,7 +294,6 @@ func main() {
 	autoDeps := wiringAutomation(ctx, log, db, bus, workersReg, cfg, redisCli)
 	autoDeps.MemberCheck = idMemberCheck(db)
 
-	webhookDeps := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), idDeps.Az, cfg)
 	webhookhttp.Mount(api, webhookDeps)
 
 	{

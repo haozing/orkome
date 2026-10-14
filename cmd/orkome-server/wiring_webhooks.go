@@ -36,7 +36,7 @@ func wiringWebhooks(
 	roleOf func(ctx context.Context, workspaceID, userID string) (string, error),
 	az *authz.Authorizer,
 	cfg *Config,
-) webhookhttp.Deps {
+) (webhookhttp.Deps, *webhookapp.WebhookService) {
 	catalog := orkomeEventCatalog()
 	svc := webhookapp.NewWebhookService(webhookpgrepo.New(db.Pool()), catalog, log, time.Now)
 	// Webhook signing secrets are sealed at rest (framework refuses plaintext).
@@ -84,7 +84,7 @@ func wiringWebhooks(
 		MemberCheck: webhookhttp.MemberLookup(lookup),
 		Log:         log,
 		Authz:       az,
-	}
+	}, svc
 }
 
 // orkomeEventCatalog registers the orkome Envelope event vocabulary

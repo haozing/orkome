@@ -442,6 +442,7 @@ func goldenMountPackAPI(t *testing.T, s *stack, loopGuard *egressx.Guard, whSvc 
 		}
 		var in struct {
 			Pack        string           `json:"pack"`
+			PackID      string           `json:"pack_id"`
 			Label       string           `json:"label"`
 			URLTemplate string           `json:"url_template"`
 			Slots       []orchapp.PackUISlot `json:"slots"`
@@ -450,7 +451,7 @@ func goldenMountPackAPI(t *testing.T, s *stack, loopGuard *egressx.Guard, whSvc 
 			webx.ErrValidation(w, "invalid JSON body")
 			return
 		}
-		if err := deps.PackUIEntries.UpsertWithSlots(r.Context(), goldenWS(r, s), in.Pack, in.Label, in.URLTemplate, in.Slots); err != nil {
+		if err := deps.PackUIEntries.UpsertWithSlots(r.Context(), goldenWS(r, s), in.Pack, in.PackID, in.Label, in.URLTemplate, in.Slots); err != nil {
 			goldenWriteErr(t, w, err)
 			return
 		}

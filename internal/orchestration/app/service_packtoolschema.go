@@ -27,6 +27,17 @@ const (
 	PackToolSchemaSourcePackYAML = "pack_yaml"
 )
 
+// PackToolSchemaDetail 是 pack 维度的 schema 明细读面（能力包平台化：
+// usage-document 渲染"工具契约"区块用）。OutputSchemaJSON 保留 jsonb 原文，
+// 不反序列化成 map——渲染层自行决定格式化或原样降级，避免有损往返。
+type PackToolSchemaDetail struct {
+	Server           string    `json:"server"`
+	ToolName         string    `json:"tool_name"`
+	Source           string    `json:"source"`
+	OutputSchemaJSON string    `json:"output_schema_json"`
+	InstalledAt      time.Time `json:"installed_at"`
+}
+
 type PackToolSchemaRepo interface {
 	// ReplacePackToolSchemas 幂等覆盖一个 pack（workspace+pack 维度）的全部存档行：
 	// 先删旧行再插入新行，以最新一次安装握手为准。

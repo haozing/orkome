@@ -60,9 +60,11 @@ var RouteContract = map[string][]string{
 	"notification_framework": { // ploykit notifyhttp.Mount via filtered router; product supersedes its list/{id}/read/{id}/archive/GET-prefs
 		"GET /notifications/badge", "POST /notifications/read-all", "PUT /notification-preferences/{type}",
 	},
-	"pack": { // pack 一等公民化 P1（W1-2）：读 member / 写 admin
+	"pack": { // pack 一等公民化 P1（W1-2）+ 平台化：读 member / 写 admin
 		"GET /packs", "GET /packs/{packId}", "PUT /packs (admin)", "DELETE /packs/{packId} (admin)",
 		"PUT /packs/{packId}/subscriptions (admin)",
+		"POST /packs/install (admin)", "GET /packs/{packId}/usage-document",
+		"POST /agents/{agentId}/pack (admin)", "POST /skills/{skillId}/pack (admin)",
 	},
 	"content": {
 		"POST /upload-file", "GET/DELETE /attachments/{id}", "GET .../download|content|signed-download",

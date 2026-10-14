@@ -74,6 +74,11 @@ type Repo interface {
 	ListAgentSkills(ctx context.Context, ws, agentID string) ([]AgentSkill, error)
 
 	ListSkillAgents(ctx context.Context, ws, skillID string) ([]SkillAgent, error)
+
+	// SetSkillPack 挂载/卸载技能的能力包归属（packID nil = 卸下）。
+	// pack 的存在性归属校验在 pack 域 HTTP 层（Packs.Owns），此处只保
+	// skill 自身的 ws 归属（跨区 404）。
+	SetSkillPack(ctx context.Context, ws, skillID string, packID *string) error
 }
 
 type SkillService struct{ repo Repo }
@@ -729,4 +734,14 @@ func (s *SkillService) ListSkillAgents(ctx context.Context, ws, skillID string) 
 		list = []SkillAgent{}
 	}
 	return list, nil
+}
+
+// SetSkillPack 挂载/卸载技能的能力包归属（能力包平台化，迁移 1045）。
+// 先过 ws 归属闸（Get 跨区 404），再透传 repo——模式同上方绑定五连的
+// requireWsAgent 链，纵深防御由 UPDATE 的 workspace_id 限定二次收口。
+func (s *SkillService) SetSkillPack(ctx context.Context, ws, skillID string, packID *string) error {
+	if _, err := s.Get(ctx, ws, skillID); err != nil {
+		return err
+	}
+	return s.repo.SetSkillPack(ctx, ws, skillID, packID)
 }

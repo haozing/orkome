@@ -154,6 +154,8 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/packs"}, {"PUT", "/packs"},
 	{"GET", "/packs/{packId}"}, {"DELETE", "/packs/{packId}"},
 	{"PUT", "/packs/{packId}/subscriptions"},
+	{"POST", "/packs/install"}, {"GET", "/packs/{packId}/usage-document"},
+	{"POST", "/agents/{agentId}/pack"}, {"POST", "/skills/{skillId}/pack"},
 
 	{"GET", "/workspaces/{workspaceId}/webhooks/events"},
 	{"GET", "/workspaces/{workspaceId}/webhooks/deliveries"},

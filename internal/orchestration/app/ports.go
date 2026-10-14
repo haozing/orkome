@@ -292,6 +292,9 @@ type Repo interface {
 	ListAgents(ctx context.Context, workspaceID string) ([]Agent, error)
 	ListAllAgents(ctx context.Context) ([]Agent, error)
 	ArchiveAgent(ctx context.Context, workspaceID, id string, archived bool) error
+	// SetAgentPack 挂载/卸载 agent 的能力包归属（能力包平台化，1042 的
+	// pack_id 列；packID nil = 卸下）。ws 限定 + rows affected 收口在实现内。
+	SetAgentPack(ctx context.Context, workspaceID, agentID string, packID *string) error
 	UpdateAgent(ctx context.Context, a Agent) (Agent, bool, error)
 	CancelAgentTasks(ctx context.Context, workspaceID, agentID string) (int, error)
 

@@ -7,7 +7,11 @@ package pgrepo
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 )
 
@@ -52,6 +56,54 @@ func (r *Repo) ListAgentsByPack(ctx context.Context, wsID, packID string) ([]orc
 			return nil, err
 		}
 		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// SetAgentPack 挂载/卸载 agent 的能力包归属（1042 的 agent.pack_id 列）。
+// packID nil = 置 NULL（卸下）；非 nil = 直接 UPDATE。ws 限定 + rows affected
+// 收口与 ArchiveAgent 同款：跨区一律 404，不泄露存在性。非法 uuid 字面量
+//（22P02）映射 400——pack pgrepo 的 invalidUUID 同策略。
+func (r *Repo) SetAgentPack(ctx context.Context, wsID, agentID string, packID *string) error {
+	tag, err := r.q(ctx).Exec(ctx, `
+UPDATE agent SET pack_id=$3
+WHERE workspace_id=$1 AND id=$2`, wsID, agentID, packID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return apierr.NewValidation("invalid agent or pack id")
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierr.New(apierr.NotFound, "agent not found in this workspace")
+	}
+	return nil
+}
+
+// ListPackToolSchemasDetailed 按 pack_id 读存档行，带 output_schema 原文
+//（能力包平台化：usage-document 渲染"工具契约"区块需要完整输出契约，
+// ListPackToolSchemasByPack 那份不含）。OutputSchemaJSON 是 jsonb 的原样
+// 文本——格式化/降级由 pack 域渲染层决定，这里不做反序列化有损转换。
+func (r *Repo) ListPackToolSchemasDetailed(ctx context.Context, wsID, packID string) ([]orchapp.PackToolSchemaDetail, error) {
+	rows, err := r.q(ctx).Query(ctx, `
+SELECT server, tool_name, source, coalesce(output_schema::text,''), installed_at
+FROM pack_tool_schema WHERE workspace_id=$1 AND pack_id=$2 ORDER BY server, tool_name`, wsID, packID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return nil, apierr.NewValidation("invalid pack id")
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	var out []orchapp.PackToolSchemaDetail
+	for rows.Next() {
+		var it orchapp.PackToolSchemaDetail
+		if err := rows.Scan(&it.Server, &it.ToolName, &it.Source, &it.OutputSchemaJSON, &it.InstalledAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
 	}
 	return out, rows.Err()
 }

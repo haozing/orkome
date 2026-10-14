@@ -94,6 +94,27 @@ func (r *Repo) DeleteSkill(ctx context.Context, ws, id string) error {
 	return err
 }
 
+// SetSkillPack 挂载/卸载技能的能力包归属（迁移 1045 的 pack_id 列）。
+// packID nil = 置 NULL（卸下）；非 nil = 校验 skill 在本工作区后 UPDATE。
+// ws 限定 + rows affected 收口与 SetAgentSkillEnabled 同款：跨区一律 404，
+// 不泄露存在性。非法 uuid 字面量（22P02）映射 400——pack repo 的 invalidUUID 同策略。
+func (r *Repo) SetSkillPack(ctx context.Context, ws, skillID string, packID *string) error {
+	tag, err := r.q(ctx).Exec(ctx, `
+UPDATE skill SET pack_id=$3
+WHERE workspace_id=$1 AND id=$2`, ws, skillID, packID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			return apierr.NewValidation("invalid skill or pack id")
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierr.New(apierr.NotFound, "skill not found in this workspace")
+	}
+	return nil
+}
+
 func (r *Repo) UpdateSkill(ctx context.Context, ws, id string, name, description *string) (app.Skill, bool, error) {
 	out, err := scanSkill(r.q(ctx).QueryRow(ctx, `
 UPDATE skill SET name=coalesce($3,name), description=coalesce($4,description)

@@ -92,12 +92,12 @@ type SkillRef struct {
 type PackDetail struct {
 	Pack
 
-	Servers     []MCPServerRef `json:"servers"`
-	ToolSchemas []ToolSchemaRef `json:"tool_schemas"`
-	UIEntry     *UIEntryInfo   `json:"ui_entry,omitempty"`
-	Subscriptions []SubRef     `json:"subscriptions"`
-	Agents      []AgentRef     `json:"agents"`
-	Skills      []SkillRef     `json:"skills"`
+	Servers       []MCPServerRef  `json:"servers"`
+	ToolSchemas   []ToolSchemaRef `json:"tool_schemas"`
+	UIEntry       *UIEntryInfo    `json:"ui_entry,omitempty"`
+	Subscriptions []SubRef        `json:"subscriptions"`
+	Agents        []AgentRef      `json:"agents"`
+	Skills        []SkillRef      `json:"skills"`
 }
 
 // Repo 是 pack 表自身的存储端口。
@@ -149,21 +149,34 @@ type SubscriptionLinker interface {
 // Ports 聚合全部跨域端口（组合根一次性注入；nil 端口的区块返回空，不报错——
 // 详情页五区块可独立缺失）。
 type Ports struct {
-	MCP      MCPServerReader
-	Tools    ToolSchemaReader
-	Agents   AgentReader
-	Skills   SkillReader
-	UIEntry  UIEntryReader
-	Subs     SubscriptionLinker
+	MCP   MCPServerReader
+	Tools ToolSchemaReader
+	// ToolDetails 是 usage-document 的 schema 明细读端口（带 output_schema
+	// 原文）；nil 时文档"工具契约"区块给空态句。详情页不消费它。
+	ToolDetails ToolSchemaDetailReader
+	Agents      AgentReader
+	Skills      SkillReader
+	UIEntry     UIEntryReader
+	Subs        SubscriptionLinker
 }
 
 // PackService 是 pack 聚合根的服务面。
 type PackService struct {
 	repo  Repo
 	ports Ports
+	// install 是安装编排端口（能力包平台化）；nil 端口在 Install 需要它时报错。
+	install InstallPorts
 }
 
-func NewPackService(repo Repo, ports Ports) *PackService { return &PackService{repo: repo, ports: ports} }
+func NewPackService(repo Repo, ports Ports) *PackService {
+	return &PackService{repo: repo, ports: ports}
+}
+
+// WithInstallPorts 注入安装编排端口（返回同指针，链式装配）。
+func (s *PackService) WithInstallPorts(p InstallPorts) *PackService {
+	s.install = p
+	return s
+}
 
 // List 返回工作区全部 pack 及资产计数（列表页）。
 func (s *PackService) List(ctx context.Context, ws string) ([]PackSummary, error) {

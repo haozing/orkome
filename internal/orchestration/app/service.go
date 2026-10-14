@@ -303,6 +303,17 @@ func (s *AgentService) Archive(ctx context.Context, workspaceID, id string, arch
 	return nil
 }
 
+// SetAgentPack 挂载/卸载 agent 的能力包归属（能力包平台化，1042 的
+// agent.pack_id 列；packID nil = 卸下）。先过 Get 的 ws 归属闸（跨区 404），
+// repo 的 UPDATE 再带 workspace_id 限定二次收口。pack 本体的存在性校验在
+// pack 域 HTTP 层（Packs.Owns），本域不反向依赖 pack（arch iron law）。
+func (s *AgentService) SetAgentPack(ctx context.Context, workspaceID, agentID string, packID *string) error {
+	if _, err := s.Get(ctx, workspaceID, agentID); err != nil {
+		return err
+	}
+	return s.repo.SetAgentPack(ctx, workspaceID, agentID, packID)
+}
+
 func (s *AgentService) CancelTasks(ctx context.Context, workspaceID, id string) (int, error) {
 	if _, err := s.Get(ctx, workspaceID, id); err != nil {
 		return 0, err
