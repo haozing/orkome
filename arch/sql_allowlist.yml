@@ -27,6 +27,10 @@ table_owners:
     - work_item_source_context
     - comment
     - comment_reaction
+    - project_workflow
+    - workflow_stage
+    - work_item_workflow_state
+    - workflow_transition_log
   orchestration:
     - agent
     - agent_credential

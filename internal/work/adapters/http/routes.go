@@ -19,6 +19,8 @@ type Deps struct {
 	Views     *app.ViewService
 	Search    *app.SearchService
 
+	Workflow *app.WorkflowService
+
 	SourceCtx   *app.SourceContextService
 	Timeline    func(ctx context.Context, workItemID string, limit int, before string) ([]app.TimelineEntry, error)
 	Subscribers func(ctx context.Context, workItemID string) ([]app.Subscriber, error)
@@ -154,6 +156,18 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	reg("POST /api/projects/{projectId}/resources", d.handleCreateProjectResource)
 	reg("PUT /api/projects/{projectId}/resources/{resourceId}", d.handleUpdateProjectResource)
 	reg("DELETE /api/projects/{projectId}/resources/{resourceId}", d.handleDeleteProjectResource)
+
+	if d.Workflow != nil {
+		reg("PUT /api/projects/{projectId}/workflow", d.handleUpsertWorkflow)
+		reg("GET /api/projects/{projectId}/workflow", d.handleGetWorkflow)
+		reg("DELETE /api/projects/{projectId}/workflow", d.handleDeleteWorkflow)
+		reg("POST /api/projects/{projectId}/workflow/enable", d.setWorkflowEnabled(true))
+		reg("POST /api/projects/{projectId}/workflow/disable", d.setWorkflowEnabled(false))
+		// W2 状态面（工作项侧；GET state 留 W3 前端联调评估）。
+		reg("POST /api/work-items/{workItemId}/workflow/start", d.handleStartWorkflow)
+		reg("POST /api/work-items/{workItemId}/workflow/restart", d.handleRestartWorkflow)
+		reg("DELETE /api/work-items/{workItemId}/workflow", d.handleDetachWorkflow)
+	}
 	reg("GET /api/work-item-statuses", d.handleListStatuses)
 	reg("POST /api/work-item-statuses", d.handleCreateStatus)
 	reg("POST /api/work-item-statuses/reorder", d.handleReorderStatuses)

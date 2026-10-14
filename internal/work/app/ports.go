@@ -154,6 +154,77 @@ type Repo interface {
 	SetPropertyKey(ctx context.Context, workspaceID, id, key string, value json.RawMessage) (map[string]any, bool, error)
 
 	DeletePropertyKey(ctx context.Context, workspaceID, id, key string) (bool, error)
+
+	// —— Project Workflow 定义面（W1；docs/wf-interfaces-frozen.md §2）——
+	UpsertWorkflow(ctx context.Context, wsID, projectID string, in WorkflowUpsert) (*WorkflowDefinition, error)
+	GetWorkflow(ctx context.Context, wsID, projectID string) (*WorkflowDefinition, error)
+	DeleteWorkflow(ctx context.Context, wsID, projectID string) error
+	SetWorkflowEnabled(ctx context.Context, wsID, projectID string, enabled bool) (bool, error)
+
+	// —— Project Workflow 状态面（W2 追加段；契约 §2 的 W2 扩展，全部只摸
+	// work 域四张 workflow 表。裁决记录见 docs/wf-w2-notes.md §关键裁决）——
+	// GetWorkflowByID 按定义 ID 读（state 只存 workflow_id 软引用；无则 nil,nil）。
+	GetWorkflowByID(ctx context.Context, wsID, workflowID string) (*WorkflowDefinition, error)
+	// GetWorkflowState 读工单的推进光标（无则 nil,nil）。
+	GetWorkflowState(ctx context.Context, wsID, workItemID string) (*WorkflowStateRecord, error)
+	// InsertWorkflowState 建光标（UNIQUE work_item_id 兜底并发 Start：
+	// ON CONFLICT DO NOTHING，未插入时回读现存行 inserted=false）。
+	InsertWorkflowState(ctx context.Context, wsID string, in WorkflowStateInsert) (rec *WorkflowStateRecord, inserted bool, err error)
+	// AdvanceWorkflowStateCAS 推进乐观锁：stage 前进 + advance_count+1 +
+	// dispatch_count 清零 + entered_at=now，WHERE stage_id=fromStageID。
+	// affected=0（并发输家）→ (nil, false, nil)。
+	AdvanceWorkflowStateCAS(ctx context.Context, wsID, stateID, fromStageID, toStageID string) (*WorkflowStateRecord, bool, error)
+	// RestartWorkflowState 光标重置回入口阶段：计数清零、finished_at 置空、entered_at=now。
+	RestartWorkflowState(ctx context.Context, wsID, stateID, entryStageID string) (bool, error)
+	// FinishWorkflowState 终态化（completed/detached 共用）：finished_at=now()
+	// WHERE finished_at IS NULL（已终态返回 false，不重复写）。
+	FinishWorkflowState(ctx context.Context, wsID, stateID string) (bool, error)
+	// AdjWorkflowDispatchCount 派发计数增减（前置+1；blocked 未派出去回减）。
+	AdjWorkflowDispatchCount(ctx context.Context, wsID, stateID string, delta int) error
+	// AppendTransitionLog 推进流水一行（from/task_id 空串 = NULL）。
+	AppendTransitionLog(ctx context.Context, wsID string, e TransitionLogEntry) error
+	// AppendTransitionNote 在最新一条流水上追加 note（coalesced 标记用）。
+	AppendTransitionNote(ctx context.Context, wsID, stateID, note string) error
+}
+
+// WorkflowStateRecord work_item_workflow_state 行（状态面读写的中立形状；
+// service 组装 WorkflowState 契约形状，repo 不感知定义表）。
+type WorkflowStateRecord struct {
+	ID            string
+	WorkItemID    string
+	WorkflowID    string
+	StageID       string
+	EnteredAt     time.Time
+	DispatchCount int
+	AdvanceCount  int
+	FinishedAt    *time.Time
+}
+
+// WorkflowStateInsert 建光标入参。
+type WorkflowStateInsert struct {
+	WorkItemID string
+	WorkflowID string
+	StageID    string
+}
+
+// TransitionLogEntry workflow_transition_log 一行。
+type TransitionLogEntry struct {
+	StateID     string
+	FromStageID string // "" = NULL（进入入口阶段）
+	ToStageID   string
+	ActorType   string // agent|user|system
+	ActorID     string
+	TaskID      string // "" = NULL
+	Note        string
+}
+
+// WorkflowUpsert 流程定义整体替换的 repo 写入形状（stages 已排序已校验）。
+type WorkflowUpsert struct {
+	Name               string
+	TriggerMode        string
+	EntryStagePosition int
+	CreatedBy          string
+	Stages             []domain.WorkflowStageDef
 }
 
 type StatusDefPatch struct {
