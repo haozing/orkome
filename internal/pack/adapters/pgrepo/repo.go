@@ -114,11 +114,12 @@ func (r *Repo) UnlinkAll(ctx context.Context, packID string) error {
 }
 
 // ListByPack 聚合读：连接表 JOIN vendor webhook_subscription，返回详情页
-// 事件区块的订阅引用（URL/types/active）。本体行已被 vendor 删除时（连接表
-// 残留）给零值行——DELETE 残留由下次 uninstall 清理。
+// 事件区块的订阅引用（URL/types/active/description/created_at）。本体行已被
+// vendor 删除时（连接表残留）给零值行——DELETE 残留由下次 uninstall 清理。
 func (r *Repo) ListByPack(ctx context.Context, ws, packID string) ([]app.SubRef, error) {
 	rows, err := r.q(ctx).Query(ctx, `
-SELECT ps.subscription_id, coalesce(s.url,''), coalesce(s.event_types,'[]'::jsonb), coalesce(s.is_active,false)
+SELECT ps.subscription_id, coalesce(s.url,''), coalesce(s.event_types,'[]'::jsonb), coalesce(s.is_active,false),
+       coalesce(s.description,''), coalesce(s.created_at::text,'')
 FROM pack_subscription ps
 JOIN pack p ON p.id=ps.pack_id AND p.workspace_id=$1
 LEFT JOIN webhook_subscription s ON s.id::text=ps.subscription_id
@@ -134,7 +135,7 @@ WHERE ps.pack_id=$2 ORDER BY ps.subscription_id`, ws, packID)
 	for rows.Next() {
 		var ref app.SubRef
 		var types []byte
-		if err := rows.Scan(&ref.SubscriptionID, &ref.URL, &types, &ref.IsActive); err != nil {
+		if err := rows.Scan(&ref.SubscriptionID, &ref.URL, &types, &ref.IsActive, &ref.Description, &ref.CreatedAt); err != nil {
 			return nil, err
 		}
 		if len(types) > 0 {

@@ -64,11 +64,15 @@ type UIEntryInfo struct {
 }
 
 // SubRef 是详情页"事件"区块的订阅引用（pack_subscription → vendor webhook_subscription）。
+// 投递日志/轮换密钥/ping 等管理面在工作区 webhook 管理处，pack 侧只呈现
+// 归属关联（本体行被 vendor 删除时 Description/CreatedAt 为零值）。
 type SubRef struct {
 	SubscriptionID string   `json:"subscription_id"`
 	URL            string   `json:"url"`
 	EventTypes     []string `json:"event_types"`
 	IsActive       bool     `json:"is_active"`
+	Description    string   `json:"description,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
 }
 
 // AgentRef 是详情页"资产"区块的 agent 引用（agent.pack_id 命中行）。

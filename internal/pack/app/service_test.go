@@ -180,7 +180,8 @@ func TestGetAggregatesAllBlocks(t *testing.T) {
 	skills := &fakeSkills{refs: []SkillRef{{ID: "s1", Name: "write-post"}}}
 	ui := &fakeUI{entry: &UIEntryInfo{ID: "e1", Label: "Blog console", URLTemplate: "https://app.example?t={uiToken}",
 		Slots: []UISlotInfo{{Slot: "workitem.detail.tab", Label: "Article preview", URLTemplate: "https://app.example/{workItemId}", Height: 480}}}}
-	subs := &fakeSubs{refs: []SubRef{{SubscriptionID: "sub-1", URL: "https://hooks.example", EventTypes: []string{"work_item.completed"}, IsActive: true}}}
+	subs := &fakeSubs{refs: []SubRef{{SubscriptionID: "sub-1", URL: "https://hooks.example", EventTypes: []string{"work_item.completed"}, IsActive: true,
+		Description: "pack agentblog", CreatedAt: "2026-10-14 10:00:00"}}}
 
 	svc := NewPackService(repo, testPorts(mcp, tools, agents, skills, ui, subs))
 	p, err := svc.Upsert(ctx, "ws1", "agentblog", "0.1.0")
@@ -200,6 +201,8 @@ func TestGetAggregatesAllBlocks(t *testing.T) {
 	require.Equal(t, "workitem.detail.tab", d.UIEntry.Slots[0].Slot)
 	require.Len(t, d.Subscriptions, 1)
 	require.True(t, d.Subscriptions[0].IsActive)
+	require.Equal(t, "pack agentblog", d.Subscriptions[0].Description)
+	require.Equal(t, "2026-10-14 10:00:00", d.Subscriptions[0].CreatedAt)
 
 	// Get 未命中 → NotFound（跨 workspace 取别人的 pack 同样 404）。
 	_, err = svc.Get(ctx, "ws2", p.ID)

@@ -600,6 +600,10 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 			Subscription struct {
 				ID string `json:"id"`
 			} `json:"subscription"`
+			// Secret 是创建响应里唯一一次回显的验签密钥（服务端只存 sealx
+			// 封存版，此后任何接口不再返回）。丢掉它厂商接收端就无法验签，
+			// install 完成时必须完整打印给 pack 作者。
+			Secret string `json:"secret"`
 		}
 		if err := c.do("POST", "/api/workspaces/"+c.WS+"/webhooks/subscriptions",
 			map[string]any{"url": ev.URL, "events": ev.Types, "description": "pack " + p.Name}, &created); err != nil {
@@ -613,6 +617,10 @@ func install(ctx context.Context, c *apiClient, p *packSpec, creds map[string]st
 			return fmt.Errorf("link subscription %s to pack %s: %w", ev.URL, p.Name, err)
 		}
 		fmt.Printf("- subscription %s created (%d event types)\n", ev.URL, len(ev.Types))
+		fmt.Printf("  signing secret (shown once, give it to the receiver operator of %s):\n\n    %s\n\n", ev.URL, created.Secret)
+		if created.Secret == "" {
+			fmt.Printf("  ! server returned an empty signing secret — rotate-secret on %s to mint one\n", ev.URL)
+		}
 	}
 
 	if p.UI.Entry != nil && p.UI.Entry.URLTemplate != "" {
