@@ -43,6 +43,7 @@ import (
 	"orkome/internal/platform/flagsx"
 	"orkome/internal/platform/outboxx"
 	packhttp "orkome/internal/pack/adapters/http"
+	skillapp "orkome/internal/skills/app"
 	skillhttp "orkome/internal/skills/adapters/http"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
@@ -50,6 +51,11 @@ import (
 
 	"orkome/migrations"
 )
+
+// buildVersion is the /config version field, injectable at link time via
+// -ldflags "-X orkome/cmd/orkome-server.buildVersion=v1.2.3"; the dev default
+// keeps local runs distinguishable from release builds.
+var buildVersion = "dev"
 
 func main() {
 	cfg, err := ParseConfig()
@@ -281,12 +287,20 @@ func main() {
 	workspacehttp.Mount(api, idDeps.WorkspaceMountDeps())
 
 	mountAgentMCP(api, authGuardMw, db, bus, orchHTTPDeps.External, idMemberCheck(db), roleOf(db))
+	// content 附件域在助理 MCP 之前装配（get_work_item 的 attachments 清单面）。
+	contentDeps, intentW, err := wiringContent(log, db, cfg, idMemberCheck(db))
+	if err != nil {
+		log.Error("content wiring", "err", err)
+		os.Exit(1)
+	}
+	workersReg.Add(intentW)
 	// 助理 MCP 面（v4 §3）：复用 workhttp 的同一批 service 实例（业务层一套
 	// ——事件/outbox/触发行为与网页天然同构）+ orchestration 的 AssistantTask
 	// Service。限流按 PAT 维度挂粗闸（复用 WebhookRateLimiter 的窗口语义；
 	// 独立实例，与 webhook 公开面的计数隔离——两类流量的形态不可比）。
 	mountAssistantMCP(api, authGuardMw, db, bus, assistantSvc,
 		workDeps.WorkItems, workDeps.Comments, workDeps.Catalog,
+		skillapp.NewSkillService(skillRepoOf(db)), contentDeps.Attachments,
 		idMemberCheck(db), roleOf(db),
 		autobhttp.NewWebhookRateLimiter(redisCli, autobhttp.DefaultWebhookRateConfig(),
 			autobhttp.ParseTrustedProxies(cfg.TrustedProxies)))
@@ -342,12 +356,6 @@ func main() {
 	batchW := wiringBatch(log, bus, batchSvc, autoDeps.Wakeups, batchRegistry)
 	workersReg.AddFunc("batch-worker", batchW.Run)
 
-	contentDeps, intentW, err := wiringContent(log, db, cfg, idMemberCheck(db))
-	if err != nil {
-		log.Error("content wiring", "err", err)
-		os.Exit(1)
-	}
-	workersReg.Add(intentW)
 	skillRepo := skillRepoOf(db)
 	orchEng.Skills = skillSourceOf(skillRepo)
 	skillDeps := wiringSkills(db, cfg, idMemberCheck(db))
@@ -360,7 +368,9 @@ func main() {
 	identityhttp.Mount(root, idDeps.IdentityMountDeps(proxies))
 	idhttp.MountExtensions(root, authGuardMw, idDeps.Ext)
 	root.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{Extra: func() map[string]any {
-		return map[string]any{"product": "orkome"}
+		// product/version：version 由框架 /config 的 framework_version 之外承载
+		// 产品自有版本；ldflags 注入（framework_version 是 ploykit 0.7.0 起自带键）。
+		return map[string]any{"product": "orkome", "version": buildVersion}
 	}}))
 
 	// F21 fixed in ploykit v0.4.1 (statusRecorder passes Hijack through) —

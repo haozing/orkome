@@ -25,10 +25,12 @@ import (
 	"github.com/haozing/ploykit/platform/pg"
 	webx "github.com/haozing/ploykit/platform/webx"
 	autobhttp "orkome/internal/automation/adapters/http"
+	contentapp "orkome/internal/content/app"
 	"orkome/internal/contract/apierr"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
 	"orkome/internal/platform/eventbus"
+	skillapp "orkome/internal/skills/app"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
 )
@@ -36,13 +38,18 @@ import (
 // assistantMEDeps 助理端点的服务面。wiring 传入的 WorkItemService/
 // CommentService/CatalogService 与 REST/workhttp 面是同一实例（wire 的
 // workDeps 单例）——业务层一套，行为（事件/outbox/触发）天然同构。
+// skillSvc：技能/资料库读取（skill 即知识库裁决——绑不绑 agent 是自然分野，
+// 助理面按 workspace 级读，不感知绑定）。
 type assistantMEDeps struct {
 	orchRepo  *orchpgrepo.Repo
 	assistant *orchapp.AssistantTaskService
 	wiSvc     *workapp.WorkItemService
 	catSvc    *workapp.CatalogService
 	cmSvc     *workapp.CommentService
-	roleOf    func(ctx context.Context, workspaceID, userID string) (string, error)
+	skillSvc  *skillapp.SkillService
+	// attachments 工单附件只读清单（get_work_item 响应面）；上传/删除走 REST。
+	attachments *contentapp.AttachmentService
+	roleOf      func(ctx context.Context, workspaceID, userID string) (string, error)
 	// timeline work 域时间线读取（wiring 注入 wRepo.ListTimeline 绑定）。
 	timeline func(ctx context.Context, wiID string, limit int, before string) ([]workapp.TimelineEntry, error)
 }
@@ -52,14 +59,16 @@ type assistantMEDeps struct {
 func mountAssistantMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 	db *pg.DB, bus *eventbus.Bus, assistant *orchapp.AssistantTaskService,
 	wiSvc *workapp.WorkItemService, cmSvc *workapp.CommentService, catSvc *workapp.CatalogService,
+	skillSvc *skillapp.SkillService, attachments *contentapp.AttachmentService,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
 	roleOf func(ctx context.Context, workspaceID, userID string) (string, error),
 	rl *autobhttp.WebhookRateLimiter) {
 	d := &assistantMEDeps{
-		orchRepo:  orchpgrepo.New(db),
-		assistant: assistant,
-		wiSvc:     wiSvc, catSvc: catSvc, cmSvc: cmSvc,
-		roleOf: roleOf,
+		orchRepo:    orchpgrepo.New(db),
+		assistant:   assistant,
+		wiSvc:       wiSvc, catSvc: catSvc, cmSvc: cmSvc, skillSvc: skillSvc,
+		attachments: attachments,
+		roleOf:      roleOf,
 		// workpgrepo 不进 deps：时间线是唯一读面，绑函数注入。
 		timeline: (&workTimelineSrc{DB: db}).ListTimeline,
 	}
@@ -247,6 +256,26 @@ func (d *assistantMEDeps) addReadTools(s *server.MCPServer) {
 		if wi.Outcome != nil {
 			outcome = map[string]any{"summary": wi.Outcome.Summary, "task_id": wi.Outcome.TaskID}
 		}
+		// 附件清单（只读）：REST /api/attachments/{id}/content 与本端点同凭证
+		// （PAT + X-Workspace-Id 头），外部客户端可直接按 URL 拉取。
+		atts, err := d.attachments.ListByHost(ctx, ws, "work_item", wi.ID)
+		if err != nil {
+			return errResultMe(err)
+		}
+		type attRow struct {
+			ID          string `json:"id"`
+			Filename    string `json:"filename"`
+			ContentType string `json:"content_type"`
+			SizeBytes   int64  `json:"size_bytes"`
+			ContentURL  string `json:"content_url"`
+		}
+		attOut := make([]attRow, 0, len(atts))
+		for _, a := range atts {
+			attOut = append(attOut, attRow{
+				ID: a.ID, Filename: a.Filename, ContentType: a.ContentType,
+				SizeBytes: a.SizeBytes, ContentURL: "/api/attachments/" + a.ID + "/content",
+			})
+		}
 		return jsonTextMe(map[string]any{
 			"work_item": map[string]any{
 				"id": wi.ID, "number": wi.Number, "title": wi.Title,
@@ -257,6 +286,7 @@ func (d *assistantMEDeps) addReadTools(s *server.MCPServer) {
 			"active_task_id": activeTaskID,
 			"recent_tasks":   tr,
 			"timeline":       tl,
+			"attachments":    attOut,
 		})
 	})
 
@@ -326,6 +356,48 @@ func (d *assistantMEDeps) addReadTools(s *server.MCPServer) {
 			out = append(out, row{Key: d.Key, Name: d.Name, Category: d.Category, Position: d.Position})
 		}
 		return jsonTextMe(map[string]any{"statuses": out})
+	})
+
+	// —— 技能/资料库读取（skill 即知识库裁决）：workspace 级，与 agent 绑定无关。
+	s.AddTool(mcp.NewTool("list_skills",
+		mcp.WithDescription("list workspace skills & docs (markdown knowledge base: SOPs, manuals, reference docs; read_skill(name) for content)"),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		ws, _, err := principalOf(ctx)
+		if err != nil {
+			return errResultMe(err)
+		}
+		skills, err := d.skillSvc.List(ctx, ws)
+		if err != nil {
+			return errResultMe(err)
+		}
+		type row struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		out := make([]row, 0, len(skills))
+		for _, sk := range skills {
+			out = append(out, row{Name: sk.Name, Description: sk.Description})
+		}
+		return jsonTextMe(map[string]any{"skills": out})
+	})
+
+	s.AddTool(mcp.NewTool("read_skill",
+		mcp.WithDescription("read the SKILL.md main file of a workspace skill/doc by name (markdown knowledge base lookup)"),
+		mcp.WithString("name", mcp.Required(), mcp.Description("skill name from list_skills")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		ws, _, err := principalOf(ctx)
+		if err != nil {
+			return errResultMe(err)
+		}
+		name := strings.TrimSpace(req.GetString("name", ""))
+		if name == "" {
+			return errResultMe(apierr.NewValidation("name required"))
+		}
+		content, err := d.skillSvc.MainByName(ctx, ws, name)
+		if err != nil {
+			return errResultMe(err)
+		}
+		return mcp.NewToolResultText(content), nil
 	})
 }
 

@@ -124,6 +124,8 @@ func contentTypeFor(filename, given string) string {
 		return "image/gif"
 	case ".txt":
 		return "text/plain"
+	case ".md", ".markdown":
+		return "text/markdown"
 	case ".pdf":
 		return "application/pdf"
 	}
