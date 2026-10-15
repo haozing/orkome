@@ -128,30 +128,38 @@ describe('work-item detail tabs: dynamic slot tabs (four touchpoints)', () => {
     expect(validate({})).toEqual({})
   })
 
-  it('no slots → exactly the six static tabs (reports + batches added)', async () => {
+  it('no slots → exactly the seven static tabs (attachments added)', async () => {
     server.use(http.get('/api/ui-entries', () => HttpResponse.json({ items: [ENTRY_WITH_SLOTS({ slots: [] })] })))
     renderPage()
     expect(await screen.findByRole('tab', { name: 'Details' })).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map((t) => t.textContent)).toEqual(['Details', 'Reports', 'Sub items', 'Executions', 'Batch', 'Timeline'])
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      'Details',
+      'Reports',
+      'Sub items',
+      'Executions',
+      'Batch',
+      'Attachments',
+      'Timeline',
+    ])
     expect(screen.queryByTestId('pack-slot-frame')).toBeNull()
   })
 
-  it('empty ui-entries response → six static tabs', async () => {
+  it('empty ui-entries response → seven static tabs', async () => {
     server.use(http.get('/api/ui-entries', () => HttpResponse.json({ items: [] })))
     renderPage()
     await screen.findByRole('tab', { name: 'Timeline' })
-    expect(screen.getAllByRole('tab')).toHaveLength(6)
+    expect(screen.getAllByRole('tab')).toHaveLength(7)
   })
 
   it('slots present → pack tab appears and renders PackSlotFrame when selected', async () => {
     server.use(http.get('/api/ui-entries', () => HttpResponse.json({ items: [ENTRY_WITH_SLOTS()] })))
     const { rerender } = renderPage()
 
-    // 静态 4 + 动态 1，slot label 用 pack 提供文案。
+    // 静态 7 + 动态 1，slot label 用 pack 提供文案。
     // Base UI Tab 不把 value 落 DOM——tab 身份经点击行为断言（patchSearch 强转 pack:*）。
     await screen.findByRole('tab', { name: 'Article preview' })
-    expect(screen.getAllByRole('tab')).toHaveLength(7)
+    expect(screen.getAllByRole('tab')).toHaveLength(8)
     expect(screen.queryByTestId('pack-slot-frame')).toBeNull()
 
     await clickTabAndSync('Article preview')

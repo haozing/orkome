@@ -13,6 +13,7 @@ import (
 )
 
 type Deps struct {
+	// Chat 已退役：nil = /api/chat/* 不挂载（见 Mount 注释）。
 	Chat *app.ChatService
 
 	QuickActions *app.QuickActionService
@@ -73,47 +74,53 @@ func decode[T any](w http.ResponseWriter, r *http.Request) (*T, bool) {
 	return &in, true
 }
 
+// Mount 挂载 conversation 域的 HTTP 面。
+//
+// chat（直聊会话）已退役（2026-10-15 裁决：对话长在工单上——评论 @agent
+// 派活、supplement 纠正、汇报 tab 看过程，不养独立聊天室）：Chat 为 nil 时
+// /api/chat/* 整块不挂，代码与表结构留仓沉睡（同工人模型先例；e2e harness
+// 仍自行传 Chat 以保引擎覆盖）。quick-actions 属同域独立服务——后端已就绪、
+// Web 产品面待消费——不受 Chat nil 影响。
 func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
-	if d.Chat == nil {
-		return
-	}
 	reg := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, auth(webx.RequireAuth(d.memberMW(h))))
 	}
-	reg("POST /api/chat/sessions", d.handleCreateSession)
-	reg("GET /api/chat/sessions", d.handleListSessions)
+	if d.Chat != nil {
+		reg("POST /api/chat/sessions", d.handleCreateSession)
+		reg("GET /api/chat/sessions", d.handleListSessions)
 
-	reg("GET /api/chat/history", d.handleChatHistory)
-	reg("GET /api/chat/thread", d.handleChatThread)
+		reg("GET /api/chat/history", d.handleChatHistory)
+		reg("GET /api/chat/thread", d.handleChatThread)
 
-	reg("GET /api/chat/pending-tasks", d.handlePendingTasks)
-	reg("GET /api/chat/pending-tasks/has-any", d.handlePendingHasAny)
-	if d.Pins != nil {
-		reg("GET /api/chat/pinned-agents", d.handlePinList)
-		reg("POST /api/chat/pinned-agents", d.handlePinAdd)
-		reg("DELETE /api/chat/pinned-agents", d.handlePinDelete)
-	}
-	reg("GET /api/chat/sessions/{sessionId}", d.handleGetSession)
-	reg("PATCH /api/chat/sessions/{sessionId}", d.handleUpdateSession)
-	reg("DELETE /api/chat/sessions/{sessionId}", d.handleDeleteSession)
-	reg("POST /api/chat/sessions/{sessionId}/pin", d.handlePin(true))
-	reg("POST /api/chat/sessions/{sessionId}/unpin", d.handlePin(false))
-	reg("POST /api/chat/sessions/{sessionId}/archive", d.handleArchive(true))
-	reg("POST /api/chat/sessions/{sessionId}/unarchive", d.handleArchive(false))
-	reg("POST /api/chat/sessions/{sessionId}/messages", d.handleSendMessage)
-	reg("GET /api/chat/sessions/{sessionId}/messages", d.handleListMessages)
-	if d.TaskStatus != nil {
-		reg("GET /api/chat/sessions/{sessionId}/pending-task", d.handlePendingTask)
-	}
-	if d.Canceller != nil {
-		reg("DELETE /api/chat/sessions/{sessionId}/pending-task", d.handleCancel)
-		reg("DELETE /api/chat/sessions/{sessionId}/queued-tasks", d.handleCancel)
-	}
+		reg("GET /api/chat/pending-tasks", d.handlePendingTasks)
+		reg("GET /api/chat/pending-tasks/has-any", d.handlePendingHasAny)
+		if d.Pins != nil {
+			reg("GET /api/chat/pinned-agents", d.handlePinList)
+			reg("POST /api/chat/pinned-agents", d.handlePinAdd)
+			reg("DELETE /api/chat/pinned-agents", d.handlePinDelete)
+		}
+		reg("GET /api/chat/sessions/{sessionId}", d.handleGetSession)
+		reg("PATCH /api/chat/sessions/{sessionId}", d.handleUpdateSession)
+		reg("DELETE /api/chat/sessions/{sessionId}", d.handleDeleteSession)
+		reg("POST /api/chat/sessions/{sessionId}/pin", d.handlePin(true))
+		reg("POST /api/chat/sessions/{sessionId}/unpin", d.handlePin(false))
+		reg("POST /api/chat/sessions/{sessionId}/archive", d.handleArchive(true))
+		reg("POST /api/chat/sessions/{sessionId}/unarchive", d.handleArchive(false))
+		reg("POST /api/chat/sessions/{sessionId}/messages", d.handleSendMessage)
+		reg("GET /api/chat/sessions/{sessionId}/messages", d.handleListMessages)
+		if d.TaskStatus != nil {
+			reg("GET /api/chat/sessions/{sessionId}/pending-task", d.handlePendingTask)
+		}
+		if d.Canceller != nil {
+			reg("DELETE /api/chat/sessions/{sessionId}/pending-task", d.handleCancel)
+			reg("DELETE /api/chat/sessions/{sessionId}/queued-tasks", d.handleCancel)
+		}
 
-	reg("POST /api/chat/sessions/{sessionId}/queued-tasks/{taskId}/prioritize", d.handlePrioritize)
-	reg("POST /api/chat/sessions/{sessionId}/read", d.handleRead)
-	reg("GET /api/chat/sessions/{sessionId}/draft-restores", d.handleGetDraft)
-	reg("DELETE /api/chat/sessions/{sessionId}/draft-restores", d.handleDiscardDraft)
+		reg("POST /api/chat/sessions/{sessionId}/queued-tasks/{taskId}/prioritize", d.handlePrioritize)
+		reg("POST /api/chat/sessions/{sessionId}/read", d.handleRead)
+		reg("GET /api/chat/sessions/{sessionId}/draft-restores", d.handleGetDraft)
+		reg("DELETE /api/chat/sessions/{sessionId}/draft-restores", d.handleDiscardDraft)
+	}
 	if d.QuickActions != nil {
 		reg("GET /api/quick-actions", d.handleQAList)
 		reg("POST /api/quick-actions", d.handleQACreate)

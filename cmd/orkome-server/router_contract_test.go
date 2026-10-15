@@ -208,21 +208,8 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"POST", "/tasks/{taskId}/approve"}, {"POST", "/tasks/{taskId}/deny"},
 	{"GET", "/tasks/{taskId}/interrupt"},
 
-	{"GET", "/chat/sessions"}, {"POST", "/chat/sessions"},
-	{"GET", "/chat/sessions/{sessionId}"},
-	{"PATCH", "/chat/sessions/{sessionId}"}, {"DELETE", "/chat/sessions/{sessionId}"},
-	{"POST", "/chat/sessions/{sessionId}/pin"}, {"POST", "/chat/sessions/{sessionId}/unpin"},
-	{"POST", "/chat/sessions/{sessionId}/archive"}, {"POST", "/chat/sessions/{sessionId}/unarchive"},
-	{"POST", "/chat/sessions/{sessionId}/messages"}, {"GET", "/chat/sessions/{sessionId}/messages"},
-	{"GET", "/chat/sessions/{sessionId}/pending-task"}, {"DELETE", "/chat/sessions/{sessionId}/pending-task"},
-	{"DELETE", "/chat/sessions/{sessionId}/queued-tasks"},
-	{"POST", "/chat/sessions/{sessionId}/queued-tasks/{taskId}/prioritize"},
-	{"GET", "/chat/pending-tasks"}, {"GET", "/chat/pending-tasks/has-any"},
-	{"GET", "/chat/pinned-agents"}, {"POST", "/chat/pinned-agents"},
-	{"DELETE", "/chat/pinned-agents"},
-	{"POST", "/chat/sessions/{sessionId}/read"},
-	{"GET", "/chat/sessions/{sessionId}/draft-restores"}, {"DELETE", "/chat/sessions/{sessionId}/draft-restores"},
-	{"GET", "/chat/history"}, {"GET", "/chat/thread"},
+	// chat（直聊会话）HTTP 面已退役（2026-10-15 裁决）：端点不挂载、
+	// 契约表不登记；服务与表留仓沉睡，e2e harness 自挂以保引擎覆盖。
 	{"GET", "/quick-actions"}, {"POST", "/quick-actions"},
 	{"PATCH", "/quick-actions/{id}"}, {"DELETE", "/quick-actions/{id}"},
 	{"POST", "/work-items/{id}/quick-actions/{quickActionId}/run"},
@@ -379,11 +366,11 @@ func buildTestAPIRouter() *http.ServeMux {
 			return nil, apierr.New(apierr.NotFound, "x")
 		},
 	}, auth)
+	// 镜像生产 wiring：chat 退役后 Mount 只收到 QuickActions（Chat nil →
+	// /api/chat/* 不挂载，reverse walk 据此要求契约表也不登记 chat 行）。
 	convhttp.Mount(r, convhttp.Deps{
-		Chat: &convapp.ChatService{}, QuickActions: &convapp.QuickActionService{},
-		Pins:        &convapp.PinService{},
-		MemberCheck: member, TaskStatus: func(context.Context, string, string) (string, string, bool, error) { return "", "", false, nil },
-		Canceller: stubCanceller{},
+		QuickActions: &convapp.QuickActionService{},
+		MemberCheck:  member,
 	}, auth)
 	notifhttp.Mount(r, notifhttp.Deps{Notification: &notifapp.NotificationService{}, Prefs: &notifapp.PreferenceService{}}, auth)
 	packhttp.Mount(r, packhttp.Deps{Packs: &packapp.PackService{}, MemberCheck: member}, auth)
@@ -447,12 +434,6 @@ func buildTestAPIRouter() *http.ServeMux {
 	// /uploads/* 静态面（LOCAL 模式，root 挂载）同样纳入枚举对账。
 	contenthttp.MountUploads(r, contentDeps)
 	return r
-}
-
-type stubCanceller struct{}
-
-func (stubCanceller) CancelChatTask(context.Context, string, string) (string, string, bool, error) {
-	return "", "", false, nil
 }
 
 // TestRouteContract resolves every declared route against the mounted mux.

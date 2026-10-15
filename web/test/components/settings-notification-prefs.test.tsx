@@ -2,10 +2,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { SettingsPage } from '@/routes/_app.settings'
 import { server } from '../msw'
+
+// 路由页导入链经 settings/shared.ts 拉入 router-singleton → routeTree（全路由
+// 循环导入），模块级 createFileRoute 注册在此环境下解析出 undefined。桩掉单例
+// 切断循环——本测试只关心设置页区块行为，不消费真实 router。
+vi.mock('@/router-singleton', () => ({ router: { navigate: vi.fn() } }))
 
 // settings 通知偏好区块（wave3 P2）：三组静音的读-改-写——渲染当前值
 // （空组用后端默认值）、开关切换只 PATCH 被改键、成功/失败反馈。

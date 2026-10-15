@@ -1,11 +1,29 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { AccessPage } from '@/routes/_app.access'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { server } from '../msw'
+
+// 路由页导入链经 TokensSection → settings/shared.ts 拉入 router-singleton →
+// routeTree（全路由循环导入），模块级 createFileRoute 注册在此环境下解析出
+// undefined。桩掉单例切断循环——本测试只关心接入页文案与 PAT 区块行为。
+vi.mock('@/router-singleton', () => ({ router: { navigate: vi.fn() } }))
+// AccessPage 内的 <Link> 需要 RouterProvider 上下文；页面测试裸渲染时降级为
+// 静态 <a>（导航行为不属于本测试断言面）。
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  return {
+    ...actual,
+    Link: ({ to, children, ...rest }: { to: string; children?: React.ReactNode }) => (
+      <a href={to} {...rest}>
+        {children}
+      </a>
+    ),
+  }
+})
 
 // 助理接入页 v4（docs/assistant-access-design-2026-10-14.md §五）重写后的回归面：
 // ①工人接入段（agent 选择器/铸造 runtime credential）整体消失——v4 删除，不再回归；

@@ -112,16 +112,6 @@ var registryPos3 = []iface{
 	{Method: http.MethodGet, Path: "/api/agent-activity-30d", Domain: "orchestration", Auth: authMember, WantStatus: http.StatusOK},
 	{Method: http.MethodGet, Path: "/api/deliveries", Domain: "automation", Auth: authMember, WantStatus: http.StatusOK},
 
-	{Method: http.MethodPost, Path: "/api/chat/sessions/{sessionId}/read", Domain: "conversation", Auth: authMember,
-		Setup:      func(w *world) string { return "/api/chat/sessions/" + w.ensureChatSession() + "/read" },
-		WantStatus: http.StatusOK},
-	{Method: http.MethodPost, Path: "/api/chat/sessions/{sessionId}/archive", Domain: "conversation", Auth: authMember,
-		Setup:      func(w *world) string { return "/api/chat/sessions/" + w.ensureChatSession() + "/archive" },
-		WantStatus: http.StatusOK},
-	{Method: http.MethodGet, Path: "/api/chat/thread", Domain: "conversation", Auth: authMember,
-		Setup:      func(w *world) string { return "/api/chat/thread?session_id=" + w.ensureChatSession() },
-		WantStatus: http.StatusOK},
-
 	{Method: http.MethodGet, Path: "/api/autopilots/{autopilotId}/collaborators", Domain: "automation", Auth: authMember,
 		Setup:      func(w *world) string { return "/api/autopilots/" + w.ensureAutopilot() + "/collaborators" },
 		WantStatus: http.StatusOK},

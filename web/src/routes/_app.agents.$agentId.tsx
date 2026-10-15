@@ -225,9 +225,8 @@ function BaseInfoForm({ agent }: { agent: Agent }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
-  const [starters, setStarters] = useState<string[]>(
-    (agent.conversation_starters ?? []).map((s) => s.label),
-  )
+  // PUT 省略 conversation_starters：后端 nil=保留现值（service.go:150）。
+  // 该字段的编辑面原属直聊会话（已摘除），字段留仓沉睡。
   const save = useMutation({
     mutationFn: () =>
       updateAgent(agent.id, {
@@ -236,20 +235,13 @@ function BaseInfoForm({ agent }: { agent: Agent }) {
         runtime_config: agent.runtime_config,
         max_concurrent_tasks: agent.max_concurrent_tasks,
         visibility: agent.visibility,
-        conversation_starters: starters
-          .filter((s) => s.trim() !== '')
-          .map((s) => ({ label: s.trim() })),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
       void queryClient.invalidateQueries({ queryKey: ['agents'] })
     },
   })
-  const dirty =
-    name !== agent.name ||
-    description !== agent.description ||
-    starters.filter((s) => s.trim()).join('\n') !==
-      (agent.conversation_starters ?? []).map((s) => s.label).join('\n')
+  const dirty = name !== agent.name || description !== agent.description
   return (
     <form
       className="space-y-4"
@@ -281,44 +273,6 @@ function BaseInfoForm({ agent }: { agent: Agent }) {
           rows={6}
           className={TEXTAREA_CLASS}
         />
-      </div>
-
-      <div>
-        <span className={LABEL_CLASS}>{t('agents.startersLabel')}</span>
-        <div className="space-y-2">
-          {starters.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input
-                aria-label={t('agents.starterN', { n: i + 1 })}
-                value={s}
-                maxLength={80}
-                onChange={(e) =>
-                  setStarters((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))
-                }
-                placeholder={t('agents.starterPlaceholder')}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="shrink-0 text-red-600 dark:text-red-400"
-                onClick={() => setStarters((prev) => prev.filter((_, j) => j !== i))}
-              >
-                {t('common.remove')}
-              </Button>
-            </div>
-          ))}
-          {starters.length < 3 && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setStarters((p) => [...p, ''])}
-            >
-              {t('agents.addStarter')}
-            </Button>
-          )}
-        </div>
       </div>
 
       {save.error && (

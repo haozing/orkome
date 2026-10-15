@@ -262,55 +262,6 @@ var registryPos4 = []iface{
 
 		WantStatus: http.StatusCreated},
 
-	{Method: http.MethodPost, Path: "/api/chat/sessions", Domain: "conversation", Auth: authMember,
-		Body:       func() any { return map[string]string{"agent_id": gAgent(), "title": "last-session"} },
-		WantStatus: http.StatusCreated},
-	{Method: http.MethodPost, Path: "/api/chat/sessions/{sessionId}/messages", Domain: "conversation", Auth: authMember,
-		Body: func() any { return map[string]string{"content": "final batch message"} },
-
-		Setup: func(w *world) string {
-			rec := w.st.do("owner", http.MethodPost, "/api/chat/sessions", map[string]string{
-				"agent_id": w.ensureAgent(), "title": "final batch message session",
-			}, nil)
-			require.Equal(w.t, http.StatusCreated, rec.Code, rec.Body.String())
-			return "/api/chat/sessions/" + decodeJSON(w.t, rec)["id"].(string) + "/messages"
-		},
-		WantStatus: http.StatusCreated},
-	{Method: http.MethodDelete, Path: "/api/chat/sessions/{sessionId}", Domain: "conversation", Auth: authMember,
-		Setup:      func(w *world) string { return "/api/chat/sessions/" + w.ensureChatSession() },
-		WantStatus: http.StatusOK},
-	{Method: http.MethodPost, Path: "/api/chat/sessions/{sessionId}/unarchive", Domain: "conversation", Auth: authMember,
-
-		Setup: func(w *world) string {
-			rec := w.st.do("owner", http.MethodPost, "/api/chat/sessions", map[string]string{
-				"agent_id": w.ensureAgent(), "title": "final batch archive session",
-			}, nil)
-			require.Equal(w.t, http.StatusCreated, rec.Code, rec.Body.String())
-			sid := decodeJSON(w.t, rec)["id"].(string)
-			rec = w.st.do("owner", http.MethodPost,
-				fmt.Sprintf("/api/chat/sessions/%s/archive", sid), nil, nil)
-			require.Equal(w.t, http.StatusOK, rec.Code, rec.Body.String())
-			return fmt.Sprintf("/api/chat/sessions/%s/unarchive", sid)
-		},
-		WantStatus: http.StatusOK},
-	{Method: http.MethodPost, Path: "/api/chat/sessions/{sessionId}/unpin", Domain: "conversation", Auth: authMember,
-		Setup: func(w *world) string {
-			rec := w.st.do("owner", http.MethodPost, "/api/chat/sessions", map[string]string{
-				"agent_id": w.ensureAgent(), "title": "final batch pinned session",
-			}, nil)
-			require.Equal(w.t, http.StatusCreated, rec.Code, rec.Body.String())
-			return "/api/chat/sessions/" + decodeJSON(w.t, rec)["id"].(string) + "/unpin"
-		},
-		WantStatus: http.StatusOK},
-	{Method: http.MethodPost, Path: "/api/chat/pinned-agents", Domain: "conversation", Auth: authMember,
-		Body:       func() any { return map[string]string{"agent_id": gAgent()} },
-		WantStatus: http.StatusCreated},
-	{Method: http.MethodGet, Path: "/api/chat/pinned-agents", Domain: "conversation", Auth: authMember, WantStatus: http.StatusOK},
-	{Method: http.MethodGet, Path: "/api/chat/pending-tasks/has-any", Domain: "conversation", Auth: authMember, WantStatus: http.StatusOK},
-	{Method: http.MethodGet, Path: "/api/chat/sessions/{sessionId}/pending-task", Domain: "conversation", Auth: authMember,
-		Setup:      func(w *world) string { return "/api/chat/sessions/" + w.ensureChatSession() + "/pending-task" },
-		WantStatus: http.StatusOK, ListLike: true},
-
 	{Method: http.MethodPost, Path: "/api/skills", Domain: "skills", Auth: authMember,
 		Body:       func() any { return map[string]string{"name": "final batch new skill", "description": "x"} },
 		WantStatus: http.StatusCreated},

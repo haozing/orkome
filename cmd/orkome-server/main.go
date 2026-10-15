@@ -153,7 +153,7 @@ func main() {
 	}
 	orchHTTPDeps.RetrySourceContext = retrySourceContext(db, workDeps.SourceCtx)
 	orchHTTPDeps.Builder = orchapp.NewAgentBuilderService(orchpgrepo.New(db))
-	convDeps := wiringConversation(log, db, bus, orchEng, orchEnq, orchHTTPDeps.Settle, idMemberCheck(db))
+	convDeps := wiringConversation(log, db, orchEnq, idMemberCheck(db))
 
 	// FP-20 F1/F3 订阅 fence：task/chat scope 的实体→工作区归属校验。
 	orchRepo := orchpgrepo.New(db)
@@ -173,15 +173,12 @@ func main() {
 	}, idDeps.PAT, cfg, redisCli, workersReg)
 	wsHub.Metrics = metricsReg
 
-	// W2-1 chat:done creator 定向：帧不再进 workspace 广播，改经 notification
-	// ×6 帧同款 notifUserFrames 适配器 SendToUser 投给会话 creator（结算侧
-	// completed/failed + 会话侧 cancel 终态两个发射口共用一个适配器）。
-	// 注：本段属 wave2-chat 对 FixD 波次文件（cmd/orkome-server）的最小增量
-	// 接线，交接见 docs/fix-wave2-chat-2026-10-12.md §6。
+	// W2-1 chat:done creator 定向（结算侧发射口）：chat HTTP 面已退役
+	// （wiring_conversation.go 头注），此口保留给存量在途任务收尾——新任务
+	// 不再产生 chat_session_id，帧不会再发射。
 	if settle := orchHTTPDeps.Settle; settle != nil {
 		settle.SetChatDonePush(notifUserFrames{cast: wsCast})
 	}
-	convDeps.Chat.SetUserFrames(notifUserFrames{cast: wsCast})
 
 	orchEng.InterimPush = func(wsID, taskID, kind, content string) {
 		b, _ := json.Marshal(map[string]any{"kind": kind, "content": content, "task_id": taskID})
