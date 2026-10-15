@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   getWorkItem,
+  listProjects,
   listStatuses,
   listWorkItems,
   type WorkItem,
@@ -122,6 +123,54 @@ function useBuiltinStatusLabel() {
     fallback ??
     item.status
 }
+// 项目行：可换项目（PATCH project_id；挂上有流程的项目时 autostart 由后端
+// 幂等兜底，前端只管改字段）。无项目选项 = 清空归属（脱离流程是服务端语义）。
+export function ProjectRow({ item }: { item: WorkItem }) {
+  const { t } = useTranslation()
+  const update = useFieldUpdate(item)
+  const projects = useQuery({ queryKey: ['projects'], queryFn: listProjects, staleTime: 60000 })
+  const current = projects.data?.find((p) => p.id === item.project_id)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className={ROW_CLASS}>
+        <span className="shrink-0 text-muted-foreground">{t('work.projectRow')}</span>
+        <span className={VALUE_CLASS}>
+          <span
+            className="size-2 shrink-0 rounded-[3px] bg-indigo-500"
+            aria-hidden="true"
+            data-project-dot
+          />
+          <span className={VALUE_TEXT_CLASS}>
+            {current?.name ?? (item.project_id ? item.project_id.slice(0, 8) + '…' : t('work.noProject'))}
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 text-zinc-400" aria-hidden="true" />
+        </span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuItem
+          onClick={() => {
+            if (item.project_id) update.mutate({ project_id: '' })
+          }}
+        >
+          <Checkmark on={!item.project_id} />
+          {t('work.noProject')}
+        </DropdownMenuItem>
+        {(projects.data ?? []).map((p) => (
+          <DropdownMenuItem
+            key={p.id}
+            onClick={() => {
+              if (p.id !== item.project_id) update.mutate({ project_id: p.id })
+            }}
+          >
+            <Checkmark on={p.id === item.project_id} />
+            {p.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function StatusRow({ item }: { item: WorkItem }) {
   const { t } = useTranslation()
   const catalog = useStatusCatalog()

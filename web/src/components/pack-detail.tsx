@@ -288,7 +288,19 @@ export function PackDetailView({ packId }: { packId: string }) {
       {/* ③ 事件：订阅列表 + 管理动作 + 事件目录 */}
       <SectionBlock title={t('packs2.eventsTitle')}>
         <div className="space-y-2">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('packs2.eventsHint')}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t('packs2.eventsHint')}{' '}
+            {/* 订阅本体的家（settings 域设计 §3.6）：锚点 id="webhooks" 由
+                settings 壳工作区区合入时保证。 */}
+            <Link
+              to="/settings"
+              hash="webhooks"
+              className="text-primary underline-offset-2 hover:underline"
+              data-testid="pack-subscriptions-manage-link"
+            >
+              {t('packs2.manageInSettings')}
+            </Link>
+          </p>
           {d.subscriptions.length === 0 ? (
             <p className="text-sm text-zinc-500">{t('packs2.eventsEmpty')}</p>
           ) : (

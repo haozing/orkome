@@ -6,6 +6,7 @@ import {
   DateRow,
   ParentRow,
   PriorityRow,
+  ProjectRow,
   StatusRow,
 } from '@/components/work-item/property-rows'
 import { WorkflowPanel } from '@/components/workflow/workflow-panel'
@@ -40,18 +41,13 @@ export function InfoPanel({ item, workItemId, projectId }: { item: WorkItem; wor
       {workItemId && <WorkflowPanel workItemId={workItemId} projectId={projectId ?? ''} />}
       <div className="mt-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
         <h2 className="px-2 pb-1 text-xs font-medium text-zinc-400">{t('work.properties')}</h2>
+      <ProjectRow item={item} />
       <StatusRow item={item} />
       <PriorityRow item={item} />
       <AssigneeRow item={item} />
       <DateRow item={item} field="start_date" label={t('work.startDate')} />
       <DateRow item={item} field="due_date" label={t('work.dueDate')} />
       <ParentRow item={item} />
-
-      <InfoRow label={t('work.projectRow')}>
-        <span className="text-zinc-400">
-          {item.project_id ? item.project_id.slice(0, 8) + '…' : t('work.noProject')}
-        </span>
-      </InfoRow>
 
       <h2 className="px-2 pt-4 pb-1 text-xs font-medium text-zinc-400">{t('work.details')}</h2>
       <InfoRow label={t('work.creator')}>{creatorLabel}</InfoRow>

@@ -4,11 +4,11 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '../msw'
 import { aggregateHealth, PackDetailView } from '@/components/pack-detail'
-import { PacksPageView } from '@/components/packs-page'
+import { PacksCardsSection } from '@/components/packs-sections'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // Pack 一等公民化 P1 页面钉子（pack-first-class-design-2026-10-13.md §5 验收）：
-// ① /packs 列表三态（含 CLI 引导空态、行=名/版本/日期/三计数）；
+// ① 集成页包卡片区三态（/packs 列表并入 /tools 后由 PacksCardsSection 承载）；
 // ② /packs/$packId 五区块渲染 + 探活三态聚合（aggregateHealth 纯函数）+
 //    卸载 P1 只弹 CLI 提示（不打接口）。
 // setup.ts 固定 i18n=en，断言用英文 packs2.* 文案。
@@ -100,20 +100,19 @@ describe('aggregateHealth (probe three-state rollup)', () => {
 })
 
 describe('/packs list (three states)', () => {
-  it('empty: onboarding copy + pack-provision install command block', async () => {
+  it('empty: short empty copy + install wizard link (CLI block retired with /packs page merge)', async () => {
     server.use(http.get('/api/packs', () => HttpResponse.json({ items: [] })))
-    render_ui(<PacksPageView />)
+    render_ui(<PacksCardsSection />)
     expect(await screen.findByText('No packs installed yet')).toBeInTheDocument()
-    const cmd = screen.getByTestId('packs-install-cmd')
-    expect(cmd.textContent).toContain('pack-provision install')
-    // 平台化 P2：头部安装入口（向导页）
+    // 合并后空态不再放 CLI 命令块——安装走头部向导入口
+    expect(screen.queryByTestId('packs-install-cmd')).not.toBeInTheDocument()
     expect(screen.getByTestId('packs-install-link')).toBeInTheDocument()
     expect(screen.getByTestId('packs-install-link').getAttribute('to')).toBe('/packs/install')
   })
 
   it('rows: name, version, asset counts; click-through to detail', async () => {
     server.use(http.get('/api/packs', () => HttpResponse.json({ items: [PACK()] })))
-    render_ui(<PacksPageView />)
+    render_ui(<PacksCardsSection />)
     const row = await screen.findByTestId('packs2-row')
     expect(row.textContent).toContain('agentblog')
     expect(row.textContent).toContain('v0.1.0')
@@ -131,7 +130,7 @@ describe('/packs list (three states)', () => {
         HttpResponse.json({ error: 'E_DB', message: 'boom' }, { status: 500 }),
       ),
     )
-    render_ui(<PacksPageView />)
+    render_ui(<PacksCardsSection />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 })

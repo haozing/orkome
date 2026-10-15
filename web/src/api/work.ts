@@ -116,6 +116,8 @@ export interface WorkItemPatch {
   due_date?: string
   start_date?: string
   parent_work_item_id?: string
+  /** 换项目/清空归属（''）。挂上有流程的项目时 autostart 由后端幂等兜底。 */
+  project_id?: string
   outcome?: WorkItemOutcome
 }
 export function updateWorkItem(id: string, patch: WorkItemPatch, expectedRevision: number) {
