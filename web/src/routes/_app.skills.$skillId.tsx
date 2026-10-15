@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, FilePlus2, Loader2, RotateCw, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   deleteSkill,
@@ -19,6 +19,9 @@ import { Input } from '@/components/ui/input'
 import { PageError, PageLoading } from '@/components/ui/states'
 import { ApiError } from '@ploykit/client'
 import { cn } from '@/lib/utils'
+const RichEditor = lazy(() =>
+  import('@/components/editor/rich-editor').then((m) => ({ default: m.RichEditor })),
+)
 export const Route = createFileRoute('/_app/skills/$skillId')({
   component: SkillDetailPage,
 })
@@ -195,6 +198,7 @@ function SkillDetailPage() {
             {creating ? (
               <NewFileForm
                 skillId={skillId}
+                isMainSkill={!list.some((f) => f.path === 'SKILL.md')}
                 onSaved={() => {
                   setCreating(false)
                   invalidateFiles()
@@ -206,6 +210,7 @@ function SkillDetailPage() {
                 key={active.id + ':' + (files.data.manifest_sha256 ?? '')}
                 skillId={skillId}
                 file={active}
+                skillName={s.name}
                 onSaved={invalidateFiles}
               />
             ) : (
@@ -291,45 +296,103 @@ function FileRow({
 function FileEditor({
   skillId,
   file,
+  skillName,
   onSaved,
 }: {
   skillId: string
   file: SkillFile
+  skillName: string
   onSaved: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [content, setContent] = useState(file.content)
   const isMain = file.path === 'SKILL.md'
+  const isMarkdown = file.path.endsWith('.md')
+
+  // SKILL.md 分区编辑：frontmatter（--- 头）是元数据不是正文——富文本会把
+  // `---` 渲染成分割线、`name: x` 渲染成标题。头部拆出来独立编辑（两个
+  // 小输入框），正文进 RichEditor；保存时自动拼回，用户不需要懂 frontmatter。
+  const parsed = isMain ? splitFrontmatter(file.content) : null
+  const [fmName, setFmName] = useState(parsed?.name ?? '')
+  const [fmDesc, setFmDesc] = useState(parsed?.description ?? '')
+  const [body, setBody] = useState(parsed?.body ?? file.content)
+
   const save = useMutation({
-    mutationFn: () => putSkillFile(skillId, file.path, content),
+    mutationFn: () => {
+      const content = isMain
+        ? `---\nname: ${fmName.trim() || skillName}\n${fmDesc.trim() ? `description: ${fmDesc.trim()}\n` : ''}---\n\n${body}`
+        : body
+      return putSkillFile(skillId, file.path, content)
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['skill-files', skillId] })
       onSaved()
     },
   })
+  const dirty = isMain
+    ? body !== (parsed?.body ?? '') || fmName !== (parsed?.name ?? '') || fmDesc !== (parsed?.description ?? '')
+    : body !== file.content
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="font-mono text-xs text-zinc-500">{file.path}</p>
-        <Button
-          size="sm"
-          disabled={content === file.content || save.isPending}
-          onClick={() => save.mutate()}
-        >
+        <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? t('common.saving') : t('common.save')}
         </Button>
       </div>
-      {isMain && content && !hasFrontmatter(content) && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{t('skills.frontmatterHint')}</p>
+
+      {isMain && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="skill-fm-name" className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+              {t('skills.fmName')}
+            </label>
+            <Input
+              id="skill-fm-name"
+              value={fmName}
+              maxLength={100}
+              onChange={(e) => setFmName(e.target.value)}
+              className="font-mono text-xs"
+            />
+          </div>
+          <div>
+            <label htmlFor="skill-fm-desc" className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+              {t('skills.fmDesc')}
+            </label>
+            <Input
+              id="skill-fm-desc"
+              value={fmDesc}
+              maxLength={500}
+              onChange={(e) => setFmDesc(e.target.value)}
+            />
+          </div>
+        </div>
       )}
-      <textarea
-        aria-label={t('skills.editFileAria', { path: file.path })}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        spellCheck={false}
-        className="h-[26rem] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-      />
+
+      {isMarkdown ? (
+        <div className="min-h-[22rem] rounded-md border border-zinc-200 dark:border-zinc-800">
+          <Suspense
+            fallback={<div className="p-3 text-sm text-zinc-400">{t('work.editorLoading')}</div>}
+          >
+            <RichEditor
+              content={body}
+              onChange={setBody}
+              placeholder={t('skills.fileContentPlaceholder')}
+              ariaLabel={t('skills.editFileAria', { path: file.path })}
+              minRows={16}
+              bubbleMenu={false}
+            />
+          </Suspense>
+        </div>
+      ) : (
+        <textarea
+          aria-label={t('skills.editFileAria', { path: file.path })}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          spellCheck={false}
+          className="h-[26rem] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+        />
+      )}
       {save.error && (
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">
           {save.error instanceof ApiError ? save.error.message : t('common.saveFailed')}
@@ -338,19 +401,46 @@ function FileEditor({
     </div>
   )
 }
+
+/** 拆 SKILL.md 的 frontmatter 头（---\nname: x\ndescription: y\n---）。
+ *  无头/头不完整时 name/description 为空串、body 返回原文（服务端
+ *  ParseFrontmatter 同款宽松解析）。 */
+function splitFrontmatter(content: string): { name: string; description: string; body: string } {
+  if (!content.startsWith('---')) return { name: '', description: '', body: content }
+  const rest = content.slice(3)
+  const end = rest.indexOf('\n---')
+  if (end < 0) return { name: '', description: '', body: content }
+  let name = ''
+  let description = ''
+  for (const line of rest.slice(0, end).split('\n')) {
+    const i = line.indexOf(':')
+    if (i <= 0) continue
+    const k = line.slice(0, i).trim()
+    const v = line.slice(i + 1).trim()
+    if (k === 'name') name = v
+    if (k === 'description') description = v
+  }
+  const body = rest.slice(end + 4).replace(/^\n+/, '')
+  return { name, description, body }
+}
 function NewFileForm({
   skillId,
+  isMainSkill,
   onSaved,
   onCancel,
 }: {
   skillId: string
+  isMainSkill: boolean
   onSaved: () => void
   onCancel: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [path, setPath] = useState('')
-  const [content, setContent] = useState('')
+  const [path, setPath] = useState(isMainSkill ? 'SKILL.md' : '')
+  const [content, setContent] = useState(
+    isMainSkill ? `---\nname: \ndescription: \n---\n\n` : '',
+  )
+  const [isMarkdown, setIsMarkdown] = useState(isMainSkill)
   const create = useMutation({
     mutationFn: () => putSkillFile(skillId, path.trim(), content),
     onSuccess: () => {
@@ -359,6 +449,9 @@ function NewFileForm({
     },
   })
   const pathValid = path.trim() !== '' && !path.includes('..') && !path.startsWith('/')
+  // 路径变化时同步编辑器形态（md → 富文本，其余 → 代码 textarea）
+  const pathIsMd = path.trim().endsWith('.md')
+  if (pathIsMd !== isMarkdown) setIsMarkdown(pathIsMd)
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -382,14 +475,31 @@ function NewFileForm({
           </Button>
         </div>
       </div>
-      <textarea
-        aria-label={t('skills.newFileContent')}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        spellCheck={false}
-        placeholder={t('skills.fileContentPlaceholder')}
-        className="h-72 w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-      />
+      {isMarkdown ? (
+        <div className="min-h-72 rounded-md border border-zinc-200 dark:border-zinc-800">
+          <Suspense
+            fallback={<div className="p-3 text-sm text-zinc-400">{t('work.editorLoading')}</div>}
+          >
+            <RichEditor
+              content={content}
+              onChange={setContent}
+              placeholder={t('skills.fileContentPlaceholder')}
+              ariaLabel={t('skills.newFileContent')}
+              minRows={14}
+              bubbleMenu={false}
+            />
+          </Suspense>
+        </div>
+      ) : (
+        <textarea
+          aria-label={t('skills.newFileContent')}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          spellCheck={false}
+          placeholder={t('skills.fileContentPlaceholder')}
+          className="h-72 w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+        />
+      )}
       {create.error && (
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">
           {create.error instanceof ApiError ? create.error.message : t('skills.createFailed')}
@@ -397,9 +507,6 @@ function NewFileForm({
       )}
     </div>
   )
-}
-function hasFrontmatter(content: string): boolean {
-  return content.startsWith('---') && content.slice(3).includes('name:')
 }
 function BoundAgentsBar({ skillId }: { skillId: string }) {
   const { t } = useTranslation()

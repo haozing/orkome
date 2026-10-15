@@ -4,12 +4,15 @@ import { setWorkspaceIdProvider } from '@ploykit/client'
 import { bridgeWsToQuery, type WsInvalidationRule } from '@ploykit/hooks/ws-query-bridge'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { setAuditExportWorkspaceProvider } from '@/api/audit'
 import '@/i18n'
 import { createQueryClient } from '@/lib/query'
-import { createAppRouter } from '@/router'
+import { router } from '@/router-singleton'
 import { wsClient } from '@/realtime/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 setWorkspaceIdProvider(() => useWorkspaceStore.getState().currentId)
+// 审计 CSV 导出走裸 fetch（浏览器下载导航带不上 apiFetch 的动态头），workspace 头在此注入
+setAuditExportWorkspaceProvider(() => useWorkspaceStore.getState().currentId ?? '')
 const queryClient = createQueryClient()
 const wsInvalidationRules: readonly WsInvalidationRule[] = [
   { match: /^work_item:/, invalidate: [['work-items'], ['work-item']] },
@@ -43,7 +46,6 @@ const bridgeQueryClient = {
   },
 } as unknown as QueryClient
 bridgeWsToQuery(wsClient, bridgeQueryClient, wsInvalidationRules)
-const router = createAppRouter(queryClient)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
