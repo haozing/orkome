@@ -1,24 +1,60 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Switch } from '@base-ui/react/switch'
 import { ApiError } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
 import {
   MUTABLE_NOTIFICATION_TYPES,
   getNotificationPreferences,
   patchNotificationPreferences,
 } from '@/api/notification'
 import { configQueryOptions, meQueryOptions } from '@/api/identity'
+import { AuditSection } from '@/components/settings/audit-section'
+import { InvitationsBanner } from '@/components/settings/invitations-banner'
+import { MembersSection } from '@/components/settings/members-section'
+import { ProfileSection } from '@/components/settings/profile-section'
+import { SecuritySection } from '@/components/settings/security-section'
+import { TokensSection } from '@/components/settings/tokens-section'
+import { WebhookSubscriptionsSection } from '@/components/settings/webhook-subscriptions-section'
+import { WorkspaceOverviewSection } from '@/components/settings/workspace-overview-section'
+import { Switch } from '@base-ui/react/switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import { PageError, PageLoading } from '@/components/ui/states'
 import { switchWorkspace } from '@/services/workspace-switch'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useState } from 'react'
 
 export const Route = createFileRoute('/_app/settings')({
   component: SettingsPage,
 })
+
+// 分区锚点（design §1.3/§二：单页 + 左侧 sticky 锚点导航，滚动定位纯 CSS）。
+const SECTION_CLASS = 'scroll-mt-16 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
+
+function AnchorNav() {
+  const { t } = useTranslation()
+  const items = [
+    { href: '#account', label: t('settings.nav.account') },
+    { href: '#workspace', label: t('settings.nav.workspace') },
+    { href: '#server', label: t('settings.nav.server') },
+  ]
+  return (
+    <nav aria-label={t('settings.title')} className="sticky top-4 self-start">
+      <ul className="space-y-1 text-sm">
+        {items.map((item) => (
+          <li key={item.href}>
+            <a
+              href={item.href}
+              className="block rounded-md px-2 py-1 text-zinc-500 outline-none hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -26,38 +62,52 @@ export function SettingsPage() {
   const config = useQuery(configQueryOptions)
   const me = useQuery(meQueryOptions)
   const currentId = useWorkspaceStore((s) => s.currentId)
+  const current = me.data?.workspaces.find((ws) => ws.id === currentId)
   const unauthenticated = me.error instanceof ApiError && me.error.status === 401
   return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-        <h2 className="mb-3 text-sm font-semibold">{t('settings.server')}</h2>
-        {config.isPending && <PageLoading label={t('settings.connecting')} className="pt-2" />}
-        {config.data && (
-          <p className="font-mono text-sm">
-            {t('settings.version')}{' '}
-            <span className="text-zinc-500">{config.data.version || 'unknown'}</span>
-          </p>
-        )}
-        {config.error && (
-          <PageError
-            title={t('settings.unreachable')}
-            message={t('settings.unreachableDesc')}
-            onRetry={() => void config.refetch()}
-            className="pt-4"
-          />
-        )}
-      </section>
+    <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+      <AnchorNav />
+      <div className="min-w-0 flex-1 space-y-6">
+        {/* ---- 【账户】 ---- */}
+        <div id="account" className={`${SECTION_CLASS} space-y-4`}>
+          <h2 className="text-sm font-semibold">{t('settings.nav.account')}</h2>
+          <InvitationsBanner />
+          {unauthenticated ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-zinc-500">{t('settings.notLoggedIn')}</p>
+              <Link to="/login">
+                <Button size="sm">{t('settings.goLogin')}</Button>
+              </Link>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {me.data && <div className="pb-4"><ProfileSection user={me.data.user} /></div>}
+              {me.isPending && (
+                <div className="py-4">
+                  <PageLoading label={t('settings.loadingSession')} />
+                </div>
+              )}
+              <div className="py-4"><SecuritySection /></div>
+              {/* 偏好端点要求登录会话（webx.RequireAuth），未登录时整块隐藏避免常驻报错 */}
+              {me.data && <div className="pt-4"><NotificationPreferencesSection /></div>}
+            </div>
+          )}
+        </div>
 
-      <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-        <h2 className="mb-3 text-sm font-semibold">{t('settings.session')}</h2>
-        {me.isPending && <PageLoading label={t('settings.loadingSession')} className="pt-2" />}
-        {me.data && (
-          <div className="space-y-2 text-sm">
-            <p>
-              {me.data.user.display_name || me.data.user.email}
-              <span className="ml-2 text-zinc-500">{me.data.user.email}</span>
-            </p>
-            {me.data.workspaces.length > 0 ? (
+        <div id="tokens" className={`${SECTION_CLASS} space-y-3`}>
+          <h2 className="text-sm font-semibold">{t('settings.tokens.title')}</h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settings.tokens.desc')}</p>
+          <TokensSection />
+        </div>
+
+        {/* ---- 【工作区】 ---- */}
+        <div id="workspace" className={`${SECTION_CLASS} space-y-3`}>
+          <h2 className="text-sm font-semibold">{t('settings.nav.workspace')}</h2>
+          {me.data && me.data.workspaces.length > 0 && (
+            <div className="space-y-2 text-sm">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {t('settings.workspaceHint')}
+              </p>
               <div className="flex flex-wrap gap-1">
                 {me.data.workspaces.map((ws) => (
                   <Button
@@ -71,34 +121,42 @@ export function SettingsPage() {
                   </Button>
                 ))}
               </div>
-            ) : (
-              <PageEmpty
-                title={t('settings.noWorkspace')}
-                description={t('settings.noWorkspaceDesc')}
-                action={
-                  <Link to="/onboarding">
-                    <Button size="sm" variant="outline">
-                      {t('settings.goCreate')}
-                    </Button>
-                  </Link>
-                }
-                className="pt-2"
+            </div>
+          )}
+          {me.data && current && (
+            <div className="space-y-6">
+              <WorkspaceOverviewSection
+                workspaceId={current.id}
+                workspace={current}
+                role={current.role}
               />
-            )}
-          </div>
-        )}
-        {unauthenticated && (
-          <div className="space-y-2 text-sm">
-            <p className="text-zinc-500">{t('settings.notLoggedIn')}</p>
-            <Link to="/login">
-              <Button size="sm">{t('settings.goLogin')}</Button>
-            </Link>
-          </div>
-        )}
-      </section>
+              <MembersSection workspaceId={current.id} role={current.role} />
+              <WebhookSubscriptionsSection workspaceId={current.id} role={current.role} />
+              <AuditSection workspaceId={current.id} />
+            </div>
+          )}
+        </div>
 
-      {/* 偏好端点要求登录会话（webx.RequireAuth），未登录时整块隐藏避免常驻报错 */}
-      {me.data && <NotificationPreferencesSection />}
+        {/* ---- 【服务端】 ---- */}
+        <div id="server" className={`${SECTION_CLASS} space-y-3`}>
+          <h2 className="text-sm font-semibold">{t('settings.nav.server')}</h2>
+          {config.isPending && <PageLoading label={t('settings.connecting')} className="pt-2" />}
+          {config.data && (
+            <p className="font-mono text-sm">
+              {t('settings.version')}{' '}
+              <span className="text-zinc-500">{config.data.version || 'unknown'}</span>
+            </p>
+          )}
+          {config.error && (
+            <PageError
+              title={t('settings.unreachable')}
+              message={t('settings.unreachableDesc')}
+              onRetry={() => void config.refetch()}
+              className="pt-4"
+            />
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -461,4 +519,3 @@ function NotificationPreferencesSection() {
     </section>
   )
 }
-

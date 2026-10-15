@@ -33,6 +33,90 @@ export interface Me {
   user: User
   workspaces: Workspace[]
 }
+// ---- 账户侧设置域（design settings-domain §3.1–§3.3/§3.5，wire 形状照抄 ploykit 0.7.0） ----
+
+/** PATCH /auth/me → app.User（v0.7.0 部分化语义：指针字段——undefined=保留现值，
+ *  avatar_url 显式空串=清空，两字段都缺=400）。调用方只传要改的字段。 */
+export function updateProfile(patch: { display_name?: string; avatar_url?: string }) {
+  return api.patch<User>('/auth/me', patch)
+}
+
+/** GET /auth/mfa/status → {enabled, pending}。 */
+export function getMfaStatus() {
+  return api.get<{ enabled: boolean; pending: boolean }>('/auth/mfa/status')
+}
+
+/** POST /auth/mfa/enroll → {otpauth_uri, secret, issuer}（secret 一次性明文）。 */
+export function mfaEnroll() {
+  return api.post<{ otpauth_uri: string; secret: string; issuer: string }>('/auth/mfa/enroll', {})
+}
+
+/** POST /auth/mfa/enable body {code} → {backup_codes: string[]}（一次性明文）。 */
+export function mfaEnable(code: string) {
+  return api.post<{ backup_codes: string[] }>('/auth/mfa/enable', { code })
+}
+
+/** POST /auth/mfa/disable（无 body）→ {disabled:true}；吊销全部 session 含当前。 */
+export function mfaDisable() {
+  return api.post<{ disabled: boolean }>('/auth/mfa/disable', {})
+}
+
+/** 一条登录会话（GET /auth/sessions 元素）。 */
+export interface SessionInfo {
+  id: string
+  ip_hash: string
+  user_agent: string
+  last_seen_at: string
+  expires_at: string
+  created_at: string
+  current: boolean
+  impersonated_by?: string
+}
+
+/** GET /auth/sessions → 裸数组（无信封，可能 null，归一 []）。 */
+export async function listSessions(): Promise<SessionInfo[]> {
+  const items = await api.get<SessionInfo[] | null>('/auth/sessions')
+  return items ?? []
+}
+
+/** DELETE /auth/sessions/{id} → 204。 */
+export function revokeSession(id: string) {
+  return api.delete<void>(`/auth/sessions/${id}`)
+}
+
+/** DELETE /auth/sessions → 200 {"status":"ok"}，清 cookie：调用方须走登出流程。 */
+export function revokeAllSessions() {
+  return api.delete<{ status: string }>('/auth/sessions')
+}
+
+/** 我的待处理邀请（收件方视角，Invitation + workspace_name/slug）。 */
+export interface MyInvitation {
+  id: string
+  workspace_id: string
+  email: string
+  role: string
+  status: string
+  expires_at: string
+  created_at: string
+  workspace_name: string
+  workspace_slug: string
+}
+
+/** GET /api/invitations/mine → 裸数组（可能 null，归一 []）。 */
+export async function listMyInvitations(): Promise<MyInvitation[]> {
+  const items = await api.get<MyInvitation[] | null>('/api/invitations/mine')
+  return items ?? []
+}
+
+/** POST /api/invitations/{id}/accept → Workspace；成功后调用方刷新 me 缓存。 */
+export function acceptInvitation(id: string) {
+  return api.post<Workspace>(`/api/invitations/${id}/accept`, {})
+}
+
+/** POST /api/invitations/{id}/decline → {"status":"ok"}。 */
+export function declineInvitation(id: string) {
+  return api.post<{ status: string }>(`/api/invitations/${id}/decline`, {})
+}
 export function getServerConfig() {
   return api.get<ServerConfig>('/config')
 }
@@ -149,4 +233,34 @@ export const tokensQueryOptions: UseQueryOptions<
 > = queryOptions({
   queryKey: ['tokens'] as const,
   queryFn: listTokens,
+})
+
+export const sessionsQueryOptions: UseQueryOptions<
+  SessionInfo[],
+  Error,
+  SessionInfo[],
+  readonly ['sessions']
+> = queryOptions({
+  queryKey: ['sessions'] as const,
+  queryFn: listSessions,
+})
+
+export const mfaStatusQueryOptions: UseQueryOptions<
+  { enabled: boolean; pending: boolean },
+  Error,
+  { enabled: boolean; pending: boolean },
+  readonly ['mfa-status']
+> = queryOptions({
+  queryKey: ['mfa-status'] as const,
+  queryFn: getMfaStatus,
+})
+
+export const myInvitationsQueryOptions: UseQueryOptions<
+  MyInvitation[],
+  Error,
+  MyInvitation[],
+  readonly ['my-invitations']
+> = queryOptions({
+  queryKey: ['my-invitations'] as const,
+  queryFn: listMyInvitations,
 })

@@ -13,6 +13,7 @@ import (
 	identitypg "github.com/haozing/ploykit/identity/adapters/pgrepo"
 	fwapp "github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/pg"
+	"github.com/haozing/ploykit/platform/sealx"
 	"github.com/haozing/ploykit/platform/webx"
 	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
 	workspacepg "github.com/haozing/ploykit/workspace/adapters/pgrepo"
@@ -34,6 +35,7 @@ type fwIdentity struct {
 	Sessions *fwapp.SessionService
 	Tokens   *fwapp.TokenService
 	Account  *fwapp.AccountService
+	MFA      *fwapp.MFAService
 	WS       *wsapp.WorkspaceService
 	WSRepo   *workspacepg.Repo
 	Az       *authz.Authorizer
@@ -57,7 +59,11 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 		sender = email.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser,
 			Pass: cfg.SMTPPass, From: cfg.SMTPFrom, TLS: cfg.SMTPTLS}
 	default:
-		log.Info("email channel: dev log (verification code logged)")
+		if cfg.IsProd() {
+			log.Warn("email channel: dev log — verification codes are written to server logs in plain text; set RESEND_API_KEY or SMTP_* for team deployments")
+		} else {
+			log.Info("email channel: dev log (verification code logged)")
+		}
 		sender = email.DevLog{Log: log}
 	}
 
@@ -87,6 +93,18 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 		LinkBaseURL:  cfg.AccountLinkBaseURL,
 	}, time.Now)
 
+	// MFA（TOTP + 备份码）：seal key 从 JWT_SECRET 域分离派生（domain "mfa"），
+	// 不与 ENGINE_CREDENTIAL_MASTER_KEY 等其他域共用原始密钥。派生失败（secret
+	// 为空）时留 MFA 为 nil——identityhttp.Deps.MFA 为 nil 即不挂 MFA 路由，
+	// 能力缺席而非半可用（routes.go:26-28 语义）。
+	var mfa *fwapp.MFAService
+	mfaSecrets, err := sealx.NewSecrets(sealx.DeriveKey(cfg.JWTSecret, "mfa"))
+	if err != nil {
+		log.Error("mfa seal key derivation failed; /auth/mfa/* routes stay unmounted", "err", err)
+	} else {
+		mfa = fwapp.NewMFAService(repo, sessions, mfaSecrets, "orkome", time.Now)
+	}
+
 	catalog := authz.NewCatalog(append(authz.DefaultPerms(),
 		// orkome product permission points (rebase plan Appendix B)
 		"work:read", "work:write", "work:delete", "work:move", "work:catalog",
@@ -106,7 +124,7 @@ func wiringIdentity(log *slog.Logger, db *pg.DB, redisCli redis.UniversalClient,
 	repoX := idpgrepo.New(db)
 	id := &fwIdentity{
 		Repo: repo, Sessions: sessions, Tokens: tokens, WS: ws, WSRepo: wsRepo, Az: az, Auth: auth,
-		Account: account,
+		Account: account, MFA: mfa,
 		Ext: idhttp.Deps{
 			Repo:     repoX,
 			Pins:     idapp.NewPinService(repoX),
@@ -144,6 +162,7 @@ func (id *fwIdentity) IdentityMountDeps(proxies []*net.IPNet) identityhttp.Deps 
 		AuthCfg: id.Auth, Sessions: id.Repo, PATs: id.Repo,
 		SessionsSvc: id.Sessions, Tokens: id.Tokens,
 		Account: id.Account, // FP-16 P1-1：账号五端点的 nil 守卫在此收口
+		MFA:     id.MFA,     // nil=不挂 /auth/mfa/*（能力缺席语义，见构造处）
 		TrustedProxies: proxies,
 	}
 }
