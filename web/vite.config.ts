@@ -45,7 +45,6 @@ export default defineConfig({
       '/auth': { target: apiTarget, changeOrigin: true, configure: stripOrigin },
       '/config': { target: apiTarget, changeOrigin: true, configure: stripOrigin },
       '/uploads': { target: apiTarget, changeOrigin: true },
-      '/avatars': { target: apiTarget, changeOrigin: true },
       '/ws': { target: apiTarget, ws: true },
     },
   },

@@ -89,8 +89,11 @@ func ParseConfig() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET is a known weak value, refusing to start")
 	}
 	if c.CredentialMasterKey != "" {
-		if len(c.CredentialMasterKey) < 32 {
-			return nil, fmt.Errorf("ENGINE_CREDENTIAL_MASTER_KEY must be ≥32 bytes")
+		// sealx 是 AES-256：恰好 32 字节原始字符串（sealx.New）。之前只查
+		// ≥32，44 字符 base64 / 64 字符 hex 能过这关、到启动后段才以
+		// "got 44" 报错——在解析层一次说清格式。
+		if len(c.CredentialMasterKey) != 32 {
+			return nil, fmt.Errorf("ENGINE_CREDENTIAL_MASTER_KEY must be exactly 32 raw ASCII characters (AES-256 key, NOT hex or base64 encoded), got %d", len(c.CredentialMasterKey))
 		}
 		if strings.Contains(c.CredentialMasterKey, "changeme") || strings.Contains(c.CredentialMasterKey, "secret-secret") {
 			return nil, fmt.Errorf("ENGINE_CREDENTIAL_MASTER_KEY is a known weak value, refusing to start")

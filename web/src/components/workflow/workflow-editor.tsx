@@ -2,12 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Switch } from '@base-ui/react/switch'
 import { ApiError } from '@ploykit/client'
 import { listAgents } from '@/api/orchestration'
 import { listSquads } from '@/api/squads'
 import { listStatuses, type WorkItemStatus } from '@/api/work'
 import { statusMetaOf } from '@/components/work-item/meta'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { PageLoading } from '@/components/ui/states'
 import {
   deleteWorkflow,
@@ -24,17 +38,11 @@ import { cn } from '@/lib/utils'
 
 // 项目流程编辑器（设计 §6.2 触点 1 / 契约 §6 W1 前端交付）。
 // 阶段卡片本地编辑（position 重排只在内存），保存时按契约 §3 形状整体 PUT。
-// 后端 W1 并行开发中：api/workflow.ts 置 USE_MOCK=true 即可用本地假数据联 UI。
+// 字段组件全部走 ui/ 原语（Input/Select/Textarea/Switch/AlertDialog，shadcn
+// token 化），本文件不再维护裸输入框 CLASS 常量。
 
 const CARD_CLASS = 'rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
 const LABEL_CLASS = 'mb-1 block text-xs text-zinc-500'
-const INPUT_CLASS =
-  'border-input focus-visible:border-ring dark:bg-input/30 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none aria-invalid:border-red-500'
-const SELECT_CLASS =
-  'h-8 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
-const TEXTAREA_CLASS =
-  'w-full resize-y rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
-const CHECK_CLASS = 'size-3.5 shrink-0 accent-zinc-700 dark:accent-zinc-300'
 
 interface EditorStage {
   /** 本地编辑键；提交时重算 position，不随请求发出。 */
@@ -294,37 +302,37 @@ function EditorBody({
               <label htmlFor="workflow-name" className={LABEL_CLASS}>
                 {t('workflow.nameLabel')}
               </label>
-              <input
+              <Input
                 id="workflow-name"
                 value={name}
                 maxLength={100}
                 onChange={(e) => setName(e.target.value)}
-                className={INPUT_CLASS}
               />
             </div>
             <div className="w-40">
               <label htmlFor="workflow-trigger" className={LABEL_CLASS}>
                 {t('workflow.triggerMode')}
               </label>
-              <select
+              <Select
                 id="workflow-trigger"
                 value={triggerMode}
                 onChange={(e) => setTriggerMode(e.target.value as WorkflowTriggerMode)}
-                className={SELECT_CLASS}
               >
                 <option value="auto">{t('workflow.triggerAuto')}</option>
                 <option value="manual">{t('workflow.triggerManual')}</option>
-              </select>
+              </Select>
             </div>
-            <div className="flex items-center gap-2 pb-0.5">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2 pb-1.5">
+              <Switch.Root
                 id="workflow-enabled"
                 checked={enabled}
                 disabled={toggleEnabled.isPending}
-                onChange={(e) => toggleEnabled.mutate(e.target.checked)}
-                className={CHECK_CLASS}
-              />
+                onCheckedChange={(checked) => toggleEnabled.mutate(checked)}
+                aria-label={t('workflow.enabled')}
+                className="relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full border border-transparent transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:bg-primary data-unchecked:bg-input data-disabled:cursor-not-allowed data-disabled:opacity-50 dark:data-unchecked:bg-input/80"
+              >
+                <Switch.Thumb className="pointer-events-none block size-4 rounded-full bg-background ring-0 transition-transform data-checked:translate-x-[calc(100%-2px)] data-unchecked:translate-x-0 dark:data-checked:bg-primary-foreground dark:data-unchecked:bg-foreground" />
+              </Switch.Root>
               <label htmlFor="workflow-enabled" className="text-sm">
                 {t('workflow.enabled')}
               </label>
@@ -379,24 +387,32 @@ function EditorBody({
         <p className="text-xs text-emerald-600 dark:text-emerald-400">{t('workflow.saved')}</p>
       )}
 
-      {confirmDelete && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/40">
-          <p className="text-sm">{t('workflow.deleteConfirm')}</p>
-          <div className="mt-2 flex gap-2">
-            <Button
-              size="sm"
-              className="bg-red-600 text-white hover:bg-red-500"
+      <AlertDialog
+        open={confirmDelete}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDelete(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>{t('workflow.deleteConfirm')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('workflow.deleteIrreversibleHint')}
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
               disabled={remove.isPending}
-              onClick={() => remove.mutate()}
+              onClick={(e) => {
+                e.preventDefault()
+                remove.mutate()
+              }}
             >
               {remove.isPending ? t('workflow.deleting') : t('common.confirm')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </div>
-      )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -465,21 +481,30 @@ function StageCard({
   const stageError = stageErrors.get(stage.key)
   const isEntry = entryPosition === index + 1
   return (
-    <li className={CARD_CLASS}>
-      <div className="mb-2 flex items-center gap-2">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-zinc-100 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+    <li
+      className={cn(
+        CARD_CLASS,
+        'space-y-3 transition-colors',
+        isEntry && 'border-zinc-300 dark:border-zinc-600',
+      )}
+    >
+      {/* 卡头：序号徽标 + 入口单选 + 重排/删除操作（右对齐 icon 组） */}
+      <div className="flex items-center gap-2">
+        <Badge variant={isEntry ? 'default' : 'secondary'} className="shrink-0 font-mono">
           {index + 1}
-        </span>
-        <label className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+        </Badge>
+        <label className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
           <input
             type="radio"
             name="workflow-entry-stage"
             checked={isEntry}
             onChange={() => onEntry(index + 1)}
-            className={CHECK_CLASS}
+            className="size-3.5 shrink-0 accent-zinc-700 dark:accent-zinc-300"
             aria-label={t('workflow.stage.entryAria', { n: index + 1 })}
           />
-          {t('workflow.stage.entryMark')}
+          <span className={cn(isEntry && 'font-medium text-zinc-700 dark:text-zinc-200')}>
+            {t('workflow.stage.entryMark')}
+          </span>
         </label>
         <div className="ml-auto flex items-center gap-0.5">
           <Button
@@ -503,6 +528,7 @@ function StageCard({
           <Button
             variant="ghost"
             size="icon-xs"
+            className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
             aria-label={t('workflow.stage.remove')}
             onClick={() => onRemove(stage.key)}
           >
@@ -516,16 +542,15 @@ function StageCard({
           <label htmlFor={`wf-stage-name-${stage.key}`} className={LABEL_CLASS}>
             {t('workflow.stage.name')}
           </label>
-          <input
+          <Input
             id={`wf-stage-name-${stage.key}`}
             value={stage.name}
             maxLength={100}
             aria-invalid={stageError === 'nameRequired'}
             onChange={(e) => onPatch(stage.key, { name: e.target.value })}
-            className={INPUT_CLASS}
           />
           {stageError === 'nameRequired' && (
-            <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-1 text-xs text-destructive">
               {t('workflow.stage.nameRequired')}
             </p>
           )}
@@ -534,24 +559,23 @@ function StageCard({
           <label htmlFor={`wf-stage-exit-${stage.key}`} className={LABEL_CLASS}>
             {t('workflow.stage.exitStatus')}
           </label>
-          <select
+          <Select
             id={`wf-stage-exit-${stage.key}`}
             value={stage.exitStatusKey}
             onChange={(e) => onPatch(stage.key, { exitStatusKey: e.target.value })}
-            className={SELECT_CLASS}
           >
             {exitStatusOptions.map((s) => (
               <option key={s.key} value={s.key}>
                 {statusName(s.key)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div>
           <label htmlFor={`wf-stage-executor-${stage.key}`} className={LABEL_CLASS}>
             {t('workflow.stage.executor')}
           </label>
-          <select
+          <Select
             id={`wf-stage-executor-${stage.key}`}
             value={stage.executorType}
             onChange={(e) => {
@@ -559,26 +583,24 @@ function StageCard({
               // 换执行者类型时清 executor_id，避免把 agent id 残留给 squad。
               onPatch(stage.key, { executorType: type, executorId: '' })
             }}
-            className={SELECT_CLASS}
           >
             <option value="agent">{t('workflow.stage.executorAgent')}</option>
             <option value="squad">{t('workflow.stage.executorSquad')}</option>
             <option value="none">{t('workflow.stage.executorNone')}</option>
-          </select>
+          </Select>
         </div>
       </div>
 
       {stage.executorType === 'agent' && (
-        <div className="mt-3">
+        <div>
           <label htmlFor={`wf-stage-agent-${stage.key}`} className={LABEL_CLASS}>
             {t('workflow.stage.pickAgent')}
           </label>
-          <select
+          <Select
             id={`wf-stage-agent-${stage.key}`}
             value={stage.executorId}
             aria-invalid={stageError === 'executorRequired'}
             onChange={(e) => onPatch(stage.key, { executorId: e.target.value })}
-            className={SELECT_CLASS}
           >
             <option value="">{t('workflow.stage.pickAgentPlaceholder')}</option>
             {agents
@@ -588,25 +610,24 @@ function StageCard({
                   {a.name}
                 </option>
               ))}
-          </select>
+          </Select>
           {stageError === 'executorRequired' && (
-            <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-1 text-xs text-destructive">
               {t('workflow.stage.executorRequired')}
             </p>
           )}
         </div>
       )}
       {stage.executorType === 'squad' && (
-        <div className="mt-3">
+        <div>
           <label htmlFor={`wf-stage-squad-${stage.key}`} className={LABEL_CLASS}>
             {t('workflow.stage.pickSquad')}
           </label>
-          <select
+          <Select
             id={`wf-stage-squad-${stage.key}`}
             value={stage.executorId}
             aria-invalid={stageError === 'executorRequired'}
             onChange={(e) => onPatch(stage.key, { executorId: e.target.value })}
-            className={SELECT_CLASS}
           >
             <option value="">{t('workflow.stage.pickSquadPlaceholder')}</option>
             {squads.map((s) => (
@@ -614,32 +635,33 @@ function StageCard({
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
           {stageError === 'executorRequired' && (
-            <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-1 text-xs text-destructive">
               {t('workflow.stage.executorRequired')}
             </p>
           )}
         </div>
       )}
       {stage.executorType === 'none' && (
-        <p className="mt-3 text-xs text-zinc-400">{t('workflow.stage.noneHint')}</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('workflow.stage.noneHint')}</p>
       )}
 
-      <div className="mt-3">
+      <div>
         <label htmlFor={`wf-stage-instr-${stage.key}`} className={LABEL_CLASS}>
           {t('workflow.stage.instruction')}
         </label>
-        <textarea
+        <Textarea
           id={`wf-stage-instr-${stage.key}`}
           value={stage.instruction}
           rows={2}
           maxLength={4000}
           placeholder={t('workflow.stage.instrPlaceholder')}
           onChange={(e) => onPatch(stage.key, { instruction: e.target.value })}
-          className={TEXTAREA_CLASS}
         />
-        <p className="mt-1 text-xs text-zinc-400">{t('workflow.stage.instrHint')}</p>
+        <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+          {t('workflow.stage.instrHint')}
+        </p>
       </div>
     </li>
   )

@@ -1,0 +1,85 @@
+# Orkome 单二进制生产反代样例(nginx)。
+#
+# 路径契约:后端所有路由都挂在自身前缀下,没有任何一层剥前缀——vite dev
+# 代理(web/vite.config.ts)也是原样透传,dev 与生产同构。
+# 最大的坑:`proxy_pass http://upstream/;`(带尾斜杠/URI)会剥掉 location
+# 匹配的前缀,所有请求 404。以下所有 proxy_pass 一律不带 URI。
+#
+# 后端前缀全集(main.go / ploykit routes):
+#   /api/       业务 API + /api/admin + /api/pins + /api/avatars(后端自带前缀)
+#   /auth/      登录/验证码/OAuth start+callback/会话
+#   /config     前端引导配置(GET /config)
+#   /uploads/   附件静态文件
+#   /ws         实时推送 websocket
+#   /webhooks/  autopilot 公开入站(HMAC 防护)
+#   /metrics    Prometheus(REALTIME_METRICS_TOKEN 保护)
+#   /healthz    存活探针
+#   /readyz     就绪探针(db/迁移/worker)
+
+upstream orkome {
+    server 127.0.0.1:8080; # orkome-server PORT
+}
+
+server {
+    listen 80;
+    server_name orkome.example.com;
+
+    # 附件上传走 /api/,nginx 默认 1m 限制会砍掉大文件
+    client_max_body_size 100m;
+
+    # ---- 后端前缀:全部原样透传 ----
+
+    location /api/ {
+        proxy_pass http://orkome;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /auth/ {
+        proxy_pass http://orkome;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /config {
+        proxy_pass http://orkome;
+        proxy_set_header Host $host;
+    }
+
+    location /uploads/ {
+        proxy_pass http://orkome;
+        proxy_set_header Host $host;
+    }
+
+    location /ws {
+        proxy_pass http://orkome;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+    }
+
+    location /webhooks/ {
+        proxy_pass http://orkome;
+        proxy_set_header Host $host;
+    }
+
+    location = /healthz { proxy_pass http://orkome; }
+    location = /readyz  { proxy_pass http://orkome; }
+
+    # metrics 带 token 保护,仍建议限内网
+    location = /metrics {
+        # allow 10.0.0.0/8;
+        # deny all;
+        proxy_pass http://orkome;
+    }
+
+    # ---- SPA 兜底:其余一切回 index.html ----
+    location / {
+        root /opt/orkome/web/dist;
+        try_files $uri $uri/ /index.html;
+    }
+}
