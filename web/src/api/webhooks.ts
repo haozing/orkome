@@ -77,3 +77,51 @@ export function redeliverWebhookDelivery(workspaceId: string, deliveryId: string
     {},
   )
 }
+
+// ---- 订阅管理面三补全（settings 域设计 §3.6，W2 追加；既有导出不动）----
+
+/** webhook 订阅行（GET wire 不含 secret——签名密钥从不回读）。 */
+export interface WebhookSubscription {
+  id: string
+  workspace_id: string
+  event_types: string[]
+  url: string
+  description: string
+  is_active: boolean
+  created_at: string
+}
+
+/** GET /api/workspaces/{id}/webhooks/subscriptions → {items}（nil 归一 []）。 */
+export async function listWebhookSubscriptions(
+  workspaceId: string,
+): Promise<WebhookSubscription[]> {
+  const res = await api.get<{ items: WebhookSubscription[] | null }>(
+    `/api/workspaces/${workspaceId}/webhooks/subscriptions`,
+  )
+  return res.items ?? []
+}
+
+/** POST /api/workspaces/{id}/webhooks/subscriptions body {url, events, description}
+ *  （url+events 必填；无 secret 入参，服务端生成）→ 201 {subscription, secret}
+ *  （secret `whk_`+64hex 仅此一次，只进组件局部 state）。 */
+export function createWebhookSubscription(
+  workspaceId: string,
+  url: string,
+  events: string[],
+  description: string,
+): Promise<{ subscription: WebhookSubscription; secret: string }> {
+  return api.post<{ subscription: WebhookSubscription; secret: string }>(
+    `/api/workspaces/${workspaceId}/webhooks/subscriptions`,
+    { url, events, description },
+  )
+}
+
+/** DELETE /api/workspaces/{id}/webhooks/subscriptions/{subscriptionId} → 204。 */
+export function deleteWebhookSubscription(
+  workspaceId: string,
+  subscriptionId: string,
+): Promise<void> {
+  return api.delete<void>(
+    `/api/workspaces/${workspaceId}/webhooks/subscriptions/${subscriptionId}`,
+  )
+}
