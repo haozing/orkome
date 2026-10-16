@@ -27,7 +27,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 // 助理接入页 v4（docs/assistant-access-design-2026-10-14.md §五）重写后的回归面：
 // ①工人接入段（agent 选择器/铸造 runtime credential）整体消失——v4 删除，不再回归；
 // ②三步接入文案换成「建令牌→把接入文档发给 AI→对 AI 说『帮我把 X 标完成』」+ 接单一句话；
-// ③工具清单 26 个真实工具名（读7+写3+任务协议5+恢复1+配置10），无"即将上线"；
+// ③工具清单 23 个真实工具名（读7+写3+任务协议5+恢复1+配置7；包级 pack 工具
+//   随能力包退役拆除），无"即将上线"；
 // ④snippet 端点是 /api/mcp/w/{ws}/me（workspace 在 path，用当前工作区拼真实值）；
 // ⑤PAT 段保留为主角。
 // setup.ts 固定 i18n=en，断言用英文文案。
@@ -60,7 +61,7 @@ describe('AccessPage (assistant-only, v4)', () => {
     expect(screen.queryByText(/watch the items assigned to me/)).not.toBeInTheDocument()
   })
 
-  it('lists exactly the 26 real assistant tools with no coming-soon badge', async () => {
+  it('lists exactly the 23 real assistant tools with no coming-soon badge', async () => {
     server.use(http.get('/api/tokens', () => HttpResponse.json([PAT])))
     renderPage()
     await screen.findByText('Tool catalog')
@@ -89,14 +90,19 @@ describe('AccessPage (assistant-only, v4)', () => {
       'create_mcp_server',
       'create_webhook_subscription',
       'put_page_entry',
+    ]) {
+      expect(list).toHaveTextContent(tool)
+    }
+    // 能力包退役：包级三工具不得回流（连同工人面幽灵工具）。
+    for (const ghost of [
+      'claim_task',
+      'complete_task',
+      'fail_task',
+      'get_task_messages',
       'list_packs',
       'register_pack',
       'uninstall_pack',
     ]) {
-      expect(list).toHaveTextContent(tool)
-    }
-    // 旧 5 个虚构工具（二轮审计确认从未存在于服务端）不得回流。
-    for (const ghost of ['claim_task', 'complete_task', 'fail_task', 'get_task_messages']) {
       expect(list).not.toHaveTextContent(ghost)
     }
     // v4 无"即将上线"徽标。

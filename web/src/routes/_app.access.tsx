@@ -15,9 +15,10 @@ export const Route = createFileRoute('/_app/access')({
   component: AccessPage,
 })
 
-// 工具清单：助理 MCP 端点注册的 26 个真实工具（设计 v4 §3.2 + 知识库读 +
-// 配置面两期），名字与后端注册面一一对应（页面不导入服务端包，改动需双方同步）。
-// 分五组展示：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 10；无"即将上线"徽标。
+// 工具清单：助理 MCP 端点注册的 23 个真实工具（设计 v4 §3.2 + 知识库读 +
+// 配置面），名字与后端注册面一一对应（页面不导入服务端包，改动需双方同步）。
+// 分五组展示：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7；无"即将上线"徽标。
+// 包级 pack 工具（list/register/uninstall_pack）随能力包退役拆除（2026-10-16）。
 const MCP_TOOLS: {
   name: string
   desc: string
@@ -48,10 +49,6 @@ const MCP_TOOLS: {
     { name: 'create_mcp_server', desc: 'mcp.toolCreateMcpServer', group: 'config' },
     { name: 'create_webhook_subscription', desc: 'mcp.toolCreateSubscription', group: 'config' },
     { name: 'put_page_entry', desc: 'mcp.toolPutPageEntry', group: 'config' },
-    // 包级（第二期：AI 即安装器）。
-    { name: 'list_packs', desc: 'mcp.toolListPacks', group: 'config' },
-    { name: 'register_pack', desc: 'mcp.toolRegisterPack', group: 'config' },
-    { name: 'uninstall_pack', desc: 'mcp.toolUninstallPack', group: 'config' },
   ]
 const CARD_CLASS = 'rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
 const CARD_TITLE_CLASS = 'mb-1 text-sm font-semibold'
@@ -151,7 +148,7 @@ export function AccessPage() {
         <TokensSection />
       </section>
 
-      {/* 第 3 段：工具清单（26 个真实注册面，按 读/写/任务协议/恢复/配置 分组） */}
+      {/* 第 3 段：工具清单（23 个真实注册面，按 读/写/任务协议/恢复/配置 分组） */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('mcp.toolsTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('mcp.toolsDesc')}</p>

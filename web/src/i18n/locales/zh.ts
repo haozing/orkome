@@ -510,8 +510,8 @@ const zh: Locale = {
     endpointDesc: 'MCP Streamable HTTP 端点；认证使用下方个人访问令牌（Authorization: Bearer）。',
     availableAfterLaunch: '服务已上线',
     toolsTitle: '工具清单',
-    toolsDesc: '客户端接入后，AI 以你的身份可直接调用这 26 个工具操作工作区与配置集成（与网页同权；配置写需管理员）。',
-    // 助理端点 26 工具（设计 v4 §3.2 + 知识库读 + 配置面两期：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 10）。
+    toolsDesc: '客户端接入后，AI 以你的身份可直接调用这 23 个工具操作工作区与配置集成（与网页同权；配置写需管理员）。',
+    // 助理端点 23 工具（设计 v4 §3.2 + 知识库读 + 配置面：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7；包级 pack 工具随能力包退役拆除）。
     toolsGroupRead: '读',
     toolsGroupWrite: '写',
     toolsGroupProtocol: '任务协议',
@@ -524,9 +524,6 @@ const zh: Locale = {
     toolCreateMcpServer: '注册 MCP 服务器（注册后所有智能体即可用其工具）',
     toolCreateSubscription: '创建 Webhook 订阅（验签密钥仅此一次回显）',
     toolPutPageEntry: '新增/更新页面入口（侧栏深链，可选工单页签）',
-    toolListPacks: '列出已装能力包台账（含资产计数）',
-    toolRegisterPack: '登记能力包台账（返回 pack id，供资产归属）',
-    toolUninstallPack: '卸载能力包（定向清理订阅/技能/智能体/MCP/入口）',
     toolListWorkItems: '列出工单（可按指派人/状态/项目筛，assignee=me 查我的）',
     toolGetWorkItem: '读工单简报：实体+时间线+任务结论+附件+活跃任务',
     toolListProjects: '列出项目（建单/改单时取值域）',

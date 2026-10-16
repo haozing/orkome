@@ -525,8 +525,8 @@ const en: Locale = {
       'MCP Streamable HTTP endpoint; authenticated with a personal access token below (Authorization: Bearer).',
     availableAfterLaunch: 'Available once the MCP service launches',
     toolsTitle: 'Tool catalog',
-    toolsDesc: 'Once connected, AI can call these 26 tools directly on your workspace, acting as you (same permissions as the web UI).',
-    // Assistant endpoint's 26 tools (design v4 §3.2 + KB reads + config in two phases: read 7 + write 3 + task protocol 5 + recover 1 + config 10).
+    toolsDesc: 'Once connected, AI can call these 23 tools directly on your workspace, acting as you (same permissions as the web UI).',
+    // Assistant endpoint's 23 tools (design v4 §3.2 + KB reads + config: read 7 + write 3 + task protocol 5 + recover 1 + config 7; pack-level tools removed with the pack retirement).
     toolsGroupRead: 'Read',
     toolsGroupWrite: 'Write',
     toolsGroupProtocol: 'Task protocol',
@@ -539,9 +539,6 @@ const en: Locale = {
     toolCreateMcpServer: 'Register an MCP server (agents can use its tools)',
     toolCreateSubscription: 'Create a webhook subscription (signing secret shown once)',
     toolPutPageEntry: 'Create/update a page entry (sidebar deep-link, optional work-item tab)',
-    toolListPacks: 'List installed pack ledger rows (with asset counts)',
-    toolRegisterPack: 'Register a pack ledger row (returns pack id for asset attribution)',
-    toolUninstallPack: 'Uninstall a pack (directed cleanup of subscriptions/skills/agents/MCP/entries)',
     toolListWorkItems: 'List work items (filter by assignee/status/project; assignee=me for mine)',
     toolGetWorkItem: 'Work item brief: entity + timeline + task conclusions + attachments + active task',
     toolListProjects: 'List projects (value domain for create/update)',
