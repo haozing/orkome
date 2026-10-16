@@ -80,7 +80,7 @@ function CopyButton({ text }: { text: string }) {
 }
 function Snippet({ title, file, code }: { title: string; file?: string; code: string }) {
   return (
-    <div className={CARD_CLASS}>
+    <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="text-sm font-medium">
           {title}
