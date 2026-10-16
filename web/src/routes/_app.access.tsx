@@ -131,7 +131,6 @@ export function AccessPage() {
         <h2 className={CARD_TITLE_CLASS}>{t('access.oneCmdTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('access.oneCmdDesc')}</p>
         <Snippet title={t('access.skillDocTitle')} file="skill.md" code={skillDocUrl} />
-        <p className={CARD_DESC_CLASS}>{t('access.oneCmdHint')}</p>
       </section>
 
       {/* 第 2 段：访问凭证 = 个人访问令牌 PAT——AI 读文档后会让用户提供

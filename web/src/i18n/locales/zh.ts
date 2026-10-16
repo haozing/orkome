@@ -134,7 +134,6 @@ const zh: Locale = {
     oneCmdTitle: '一键接入',
     oneCmdDesc: '把下方文档地址发给任意 AI 客户端（Claude Code / Codex / 其他）——它读完会自行完成注册并掌握全部工具用法。',
     skillDocTitle: '接入文档',
-    oneCmdHint: '对 AI 说「读这份文档并接入 Orkome」即可；无需登录即可预览。',
     manageInSettings: '在设置中管理令牌 →',
   },
   batchPanel: {

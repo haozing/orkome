@@ -138,7 +138,6 @@ const en: Locale = {
     oneCmdTitle: 'One-click setup',
     oneCmdDesc: 'Send the document URL below to any AI client (Claude Code, Codex, or any other) — it reads it, registers itself, and learns every tool.',
     skillDocTitle: 'Setup document',
-    oneCmdHint: 'Tell your AI "read this document and connect Orkome"; opens without sign-in.',
     manageInSettings: 'Manage tokens in Settings →',
   },
   batchPanel: {
