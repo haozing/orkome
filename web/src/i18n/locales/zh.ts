@@ -51,7 +51,7 @@ const zh: Locale = {
     integrations: '集成',
     runLogs: '运行',
     aiTeam: 'AI团队',
-    access: '开放接入',
+    access: '助理接入',
   },
   tools: {
     pageTitle: '集成',

@@ -49,7 +49,7 @@ const en: Locale = {
     integrations: 'Integrations',
     runLogs: 'Runs',
     aiTeam: 'AI Team',
-    access: 'Open Access',
+    access: 'Assistant Access',
   },
   tools: {
     pageTitle: 'Integrations',
