@@ -17,6 +17,11 @@ import { useSettingsTimeFormatter } from '@/components/settings/shared'
 // PAT 管理面（design §3.3）：从 /access 页抽出的共享组件——settings 渲染完整面，
 // access 页引用同组件保留内联创建语境。一次性 token 明文只存组件 useState。
 // query key 沿用 ['tokens']（tokensQueryOptions）。
+// 分页（2026-10-15 裁决"每页五条"）：纯前端切片——PAT 总量天然小，无需服务端
+// 分页（框架 GET /api/tokens 无分页参数）；每页 5 条，页码越界时钳到末页
+// （删除/撤销后当前页可能空）。
+
+const PAGE_SIZE = 5
 
 const TTL_OPTIONS = [
   { value: 0, key: 'mcp.ttlNever' },
@@ -62,6 +67,7 @@ export function TokensSection() {
   const tokens = useQuery(tokensQueryOptions)
   const [name, setName] = useState('')
   const [ttl, setTtl] = useState<number>(0)
+  const [page, setPage] = useState(1)
   const [secret, setSecret] = useState<PatSecret | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const invalidateTokens = () =>
@@ -86,6 +92,12 @@ export function TokensSection() {
     if (!trimmed || trimmed.length > 100) return
     create.mutate()
   }
+
+  // 分页切片：safePage 钳位防越界（撤销/列表变化后当前页可能变空）。
+  const total = tokens.data?.length ?? 0
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const pageTokens = (tokens.data ?? []).slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   return (
     <div>
@@ -153,8 +165,9 @@ export function TokensSection() {
           <p className="pt-3 text-sm text-zinc-500">{t('mcp.noCredentials')}</p>
         )}
         {tokens.data && tokens.data.length > 0 && (
+          <>
           <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {tokens.data.map((tok) => {
+            {pageTokens.map((tok) => {
               const status = tokenStatus(tok)
               const confirming = confirmingId === tok.id
               return (
@@ -203,6 +216,34 @@ export function TokensSection() {
               )
             })}
           </div>
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between pt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              <span data-testid="token-page-info">
+                {t('mcp.pageInfo', { page: safePage, pages: pageCount, total: tokens.data.length })}
+              </span>
+              <span className="flex gap-2">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={safePage <= 1}
+                  data-testid="token-page-prev"
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  {t('mcp.pagePrev')}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={safePage >= pageCount}
+                  data-testid="token-page-next"
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  {t('mcp.pageNext')}
+                </Button>
+              </span>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>

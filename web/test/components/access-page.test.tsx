@@ -4,7 +4,6 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { AccessPage } from '@/routes/_app.access'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { server } from '../msw'
 
 // 路由页导入链经 TokensSection → settings/shared.ts 拉入 router-singleton →
@@ -27,7 +26,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 // 助理接入页 v4（docs/assistant-access-design-2026-10-14.md §五）重写后的回归面：
 // ①工人接入段（agent 选择器/铸造 runtime credential）整体消失——v4 删除，不再回归；
-// ②三步接入文案换成「建令牌→贴配置→对 AI 说『帮我把 X 标完成』」+ 接单一句话；
+// ②三步接入文案换成「建令牌→把接入文档发给 AI→对 AI 说『帮我把 X 标完成』」+ 接单一句话；
 // ③工具清单 14 个真实工具名（读5+写3+任务协议5+恢复1），无"即将上线"；
 // ④snippet 端点是 /api/mcp/w/{ws}/me（workspace 在 path，用当前工作区拼真实值）；
 // ⑤PAT 段保留为主角。
@@ -54,7 +53,7 @@ describe('AccessPage (assistant-only, v4)', () => {
     server.use(http.get('/api/tokens', () => HttpResponse.json([PAT])))
     renderPage()
     expect(await screen.findByText(/Create a personal access token/)).toBeInTheDocument()
-    expect(screen.getByText(/Paste the config below into your client/)).toBeInTheDocument()
+    expect(screen.getByText(/Send the setup document below to your AI/)).toBeInTheDocument()
     expect(screen.getByText(/mark X as done/)).toBeInTheDocument()
     // 接单一句话（§五①）
     expect(screen.getByText(/watch the items assigned to me/)).toBeInTheDocument()
@@ -91,17 +90,16 @@ describe('AccessPage (assistant-only, v4)', () => {
     expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
   })
 
-  it('builds snippet URLs from the current workspace with /me path', async () => {
+  it('shows the site-wide universal setup doc link (workspace-independent)', async () => {
     server.use(http.get('/api/tokens', () => HttpResponse.json([PAT])))
-    useWorkspaceStore.setState({ currentId: 'ws-42' })
     renderPage()
     await screen.findByText('Tool catalog')
-    // 旧端点 /agent 必须绝迹；新端点带真实 workspace id。
-    expect(await screen.findAllByText(/\/api\/mcp\/w\/ws-42\/me/)).toBeTruthy()
+    // 固定链接（skill.md 版）：与工作区无关，全站同一条。
+    expect(await screen.findAllByText(/\/api\/mcp\/skill\.md/)).toBeTruthy()
+    // 工作区相关端点形态不再出现在页面上（旧 /agent 与 /w/{ws}/me 皆绝迹）。
+    expect(screen.queryByText(/\/api\/mcp\/w\/[^"'\s/]*\/me/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\/api\/mcp\/w\/[^"'\s/]*\/agent/)).not.toBeInTheDocument()
-    // 一键命令同样换端点。
-    const cmd = screen.getByText(/claude mcp add/)
-    expect(cmd.textContent).toContain('/api/mcp/w/ws-42/me')
+    expect(screen.queryByText(/claude mcp add/)).not.toBeInTheDocument()
   })
 
   it('keeps the PAT section as the credential protagonist', async () => {
