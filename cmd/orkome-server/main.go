@@ -291,23 +291,32 @@ func main() {
 		os.Exit(1)
 	}
 	workersReg.Add(intentW)
-	// 助理 MCP 面（v4 §3）：复用 workhttp 的同一批 service 实例（业务层一套
-	// ——事件/outbox/触发行为与网页天然同构）+ orchestration 的 AssistantTask
-	// Service。限流按 PAT 维度挂粗闸（复用 WebhookRateLimiter 的窗口语义；
-	// 独立实例，与 webhook 公开面的计数隔离——两类流量的形态不可比）。
+	// 工作区级 webhook 订阅面（webhookDeps 挂 /api/workspaces/{id}/webhooks/*）。
+	// webhookSvc 同时注入助理 MCP 的配置面（create_webhook_subscription）。
+	webhookDeps, webhookSvc := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), idDeps.Az, cfg)
+	// 助理 MCP 面（v4 §3）：复用 workhttp/集成页的同一批 service 实例（业务层
+	// 一套——事件/outbox/触发行为与网页天然同构）+ orchestration 的 AssistantTask
+	// Service；配置面（addConfigTools）的 mcp/credential/ui-entry 服务取自
+	// orchHTTPDeps（与 REST 面同实例）。限流按 PAT 维度挂粗闸（复用
+	// WebhookRateLimiter 的窗口语义；独立实例，与 webhook 公开面计数隔离）。
+	packDeps := wiringPack(db, cfg, log, idMemberCheck(db), roleOf(db))
 	mountAssistantMCP(api, authGuardMw, db, bus, assistantSvc,
 		workDeps.WorkItems, workDeps.Comments, workDeps.Catalog,
 		skillapp.NewSkillService(skillRepoOf(db)), contentDeps.Attachments,
+		orchHTTPDeps.MCP, orchHTTPDeps.Credentials, orchHTTPDeps.PackUIEntries, webhookSvc,
+		packDeps.Packs,
+		skillapp.NewSkillService(skillRepoOf(db)).Delete,
+		func(ctx context.Context, ws, agentID string) error {
+			return orchHTTPDeps.Agents.Archive(ctx, ws, agentID, true)
+		},
+		webx.ParseOrigins(cfg.CORSAllowedOrigins), cfg.EgressExtraAllowCIDRs,
 		idMemberCheck(db), roleOf(db),
 		autobhttp.NewWebhookRateLimiter(redisCli, autobhttp.DefaultWebhookRateConfig(),
 			autobhttp.ParseTrustedProxies(cfg.TrustedProxies)))
 	workhttp.Mount(api, workDeps, authGuardMw)
 	fwnotifyhttp.Mount(notifW.FrameworkRouter(api, authGuardMw), notifW.Framework)
 	notifhttp.Mount(api, notifW.Product, authGuardMw)
-	// webhooks 域先于 pack 装配：pack installer 的订阅端口要持有 framework
-	// WebhookService（CreateSubscription + 一次性 secret 回显）。
-	webhookDeps, webhookSvc := wiringWebhooks(log, db, bus, workersReg, idMemberCheck(db), roleOf(db), idDeps.Az, cfg)
-	packhttp.Mount(api, wiringPack(db, cfg, log, webhookSvc, idMemberCheck(db), roleOf(db)), authGuardMw)
+	packhttp.Mount(api, packDeps, authGuardMw)
 
 	// Commercial surfaces (P6-2): audit / quota usage / billing plans / admin.
 	comm := wiringCommercial(log, db, db.Pool(), idDeps.Az, idDeps.Repo)
