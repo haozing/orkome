@@ -72,12 +72,12 @@ func buildAssistantSkillDoc(base, ws string, tools map[string]*server.ServerTool
 	b.WriteString(mcpURL)
 	b.WriteString("\n```\n\n")
 	b.WriteString("认证：请求头 `Authorization: Bearer <用户的个人访问令牌 PAT>`")
-	b.WriteString("（PAT 由用户在 Orkome「开放接入」页创建）。若你尚未拿到令牌，请先向用户索取——引导用户打开 Orkome 网页的「开放接入」页创建一枚 PAT 并发给你。\n\n")
+	b.WriteString("（PAT 由用户在 Orkome「助理接入」页创建）。若你尚未拿到令牌，请先向用户索取——引导用户打开 Orkome 网页的「助理接入」页创建一枚 PAT 并发给你。\n\n")
 	if universal {
 		b.WriteString("**本链接是全站统一文档**：端点里的 `{workspaceId}` 需要替换成用户的工作区 ID。发现方式二选一：\n\n")
 		b.WriteString("- 用用户的令牌自行发现（推荐）：`curl -H \"Authorization: Bearer <PAT>\" " + base + "/api/workspaces`，")
 		b.WriteString("返回是工作区数组、每项的 `id` 字段即 `{workspaceId}`——只有一个工作区就直接用它，多个就问用户要接哪一个；\n")
-		b.WriteString("- 或让用户打开 Orkome 网页「开放接入」页，复制其中带完整端点的链接发给你。\n\n")
+		b.WriteString("- 或让用户打开 Orkome 网页「助理接入」页，复制其中带完整端点的链接发给你。\n\n")
 	}
 	b.WriteString("### Claude Code\n\n```bash\n")
 	b.WriteString(fmt.Sprintf("claude mcp add --transport http orkome %s --header \"Authorization: Bearer <PAT>\"\n", mcpURL))
@@ -164,8 +164,14 @@ func toolParamSummaryMe(name string) string {
 		return "work_item_id + content"
 	case "read_skill":
 		return "name（先用 list_skills 拿）"
-	case "claim_work_item", "report_progress", "complete_work_item", "fail_work_item":
-		return "work_item_id（report_progress 另含 message）"
+	case "claim_work_item":
+		return "work_item_id 必填"
+	case "report_progress":
+		return "task_id + content 必填"
+	case "complete_work_item":
+		return "task_id + result 必填"
+	case "fail_work_item":
+		return "task_id + reason 必填；detail 可选"
 	case "create_mcp_server":
 		return "name/url 必填；bearer_token 传鉴权；pack_id 可选归属"
 	case "put_page_entry":

@@ -16,6 +16,9 @@ func TestBuildAssistantSkillDoc(t *testing.T) {
 		"get_work_item":       {Tool: mcp.NewTool("get_work_item", mcp.WithDescription("fetch one work item"))},
 		"create_work_item":    {Tool: mcp.NewTool("create_work_item", mcp.WithDescription("create"))},
 		"claim_work_item":     {Tool: mcp.NewTool("claim_work_item", mcp.WithDescription("claim"))},
+		"report_progress":     {Tool: mcp.NewTool("report_progress", mcp.WithDescription("progress"))},
+		"complete_work_item":  {Tool: mcp.NewTool("complete_work_item", mcp.WithDescription("complete"))},
+		"fail_work_item":      {Tool: mcp.NewTool("fail_work_item", mcp.WithDescription("fail"))},
 		"create_mcp_server":   {Tool: mcp.NewTool("create_mcp_server", mcp.WithDescription("register server"))},
 		"future_unknown_tool": {Tool: mcp.NewTool("future_unknown_tool", mcp.WithDescription("not yet grouped"))},
 	}
@@ -27,10 +30,16 @@ func TestBuildAssistantSkillDoc(t *testing.T) {
 		"claude mcp add --transport http orkome https://orkome.example.com/api/mcp/w/ws-1/me",
 		"### 读取与发现（1）",
 		"### 工单写入（1）",
-		"### 任务协议（接单干活）（1）",
+		"### 任务协议（接单干活）（4）",
 		"### 集成配置（管理员）（1）",
 		"### 其他（1）",
 		"future_unknown_tool",
+		// 参数速记与注册面 schema 一致（回归钉：claim 按 work_item_id，
+		// 认领后的三个动作按 task_id——曾整组错写成 work_item_id）。
+		"**claim_work_item** — claim（参数：work_item_id 必填）",
+		"**report_progress** — progress（参数：task_id + content 必填）",
+		"**complete_work_item** — complete（参数：task_id + result 必填）",
+		"**fail_work_item** — fail（参数：task_id + reason 必填；detail 可选）",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing %q", want)
