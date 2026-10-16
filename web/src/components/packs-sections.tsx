@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Boxes, ChevronDown, PackageOpen, PackagePlus, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
+import { ChevronDown, PackagePlus, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   createWorkspaceMcp,
   deleteWorkspaceMcp,
   listPackEntries,
-  listPacks,
   listWorkspaceMcp,
   probeWorkspaceMcpTools,
   updateWorkspaceMcp,
@@ -485,89 +484,5 @@ function WorkspaceMcpDialog({
         </form>
       </DialogContent>
     </Dialog>
-  )
-}
-
-// —— 集成页（/tools）上段：已装能力包卡片（原 /packs 列表页主体平移）——
-// 一行一卡（名/版本/安装日期/资产计数），点击进 /packs/{id} 五区块详情；
-// 安装向导入口（平台化 P2）随卡片区头部走。
-export function PacksCardsSection() {
-  const { t, i18n } = useTranslation()
-  const packs = useQuery({ queryKey: ['packs'], queryFn: listPacks })
-  const fmtDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-  return (
-    <section className="space-y-3" aria-labelledby="tools-packs-title">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 id="tools-packs-title" className="text-sm font-semibold">
-            {t('tools.packsSectionTitle')}
-          </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t('tools.packsSectionIntro')}
-          </p>
-        </div>
-        <Link
-          to="/packs/install"
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground outline-none hover:bg-primary/80 focus-visible:ring-3 focus-visible:ring-ring/50"
-          data-testid="packs-install-link"
-        >
-          <PackagePlus className="size-4" aria-hidden="true" />
-          {t('packsInstall.wizardTitle')}
-        </Link>
-      </div>
-
-      {packs.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
-      {packs.isError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {packs.error instanceof Error ? packs.error.message : t('common.requestFailed')}
-        </p>
-      )}
-      {packs.data && packs.data.length === 0 && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t('packs2.emptyTitle')}</p>
-      )}
-      {packs.data && packs.data.length > 0 && (
-        <ul
-          className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
-          data-testid="packs2-list"
-        >
-          {packs.data.map((p) => (
-            <li key={p.id}>
-              <Link
-                to="/packs/$packId"
-                params={{ packId: p.id }}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm outline-none hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
-                data-testid="packs2-row"
-              >
-                <PackageOpen className="size-4 shrink-0 text-zinc-400" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono font-medium">{p.name}</span>
-                  <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                    v{p.version || '–'} · {t('packs2.installedAtLabel')} {fmtDate(p.installed_at)}
-                  </span>
-                </span>
-                <span className="hidden shrink-0 items-center gap-2 text-xs text-zinc-500 sm:flex dark:text-zinc-400">
-                  <span className="flex items-center gap-1" title={t('packs2.colServers')}>
-                    <Boxes className="size-3.5 text-zinc-400" aria-hidden="true" />
-                    {p.server_count}
-                  </span>
-                  <span className="flex items-center gap-1" title={t('packs2.colAgents')}>
-                    <PackageOpen className="size-3.5 text-zinc-400" aria-hidden="true" />
-                    {p.agent_count}
-                  </span>
-                  <span>
-                    {t('packs2.colSkills')} {p.skill_count}
-                  </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }

@@ -2,10 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isApiError } from '@ploykit/client'
 import {
   Check,
-  ChevronDown,
-  ChevronRight,
   Copy,
   HeartPulse,
+  History,
   Pause,
   Play,
   Plus,
@@ -39,11 +38,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 
-// Webhook 订阅区块（settings 域设计 §3.6）：订阅列表 + 行操作（Ping/暂停恢复/
-// 轮换密钥/删除）+ 创建 Dialog（事件目录多选，交互照 pack-install-wizard）+
-// 底部投递记录（照 pack-detail 的 deliveries 渲染，加按订阅过滤下拉）。
+// Webhook 订阅区块（2026-10-15 自 settings 迁入集成页段②，docs/integrations-page-design-2026-10-15.md §2.2）。
+// 原 settings 域设计 §3.6 的形态：订阅列表 + 行操作（Ping/暂停恢复/
+// 轮换密钥/删除）+ 创建 Dialog（事件目录多选，交互照集成向导时期的分区表单）+
+// 投递记录：标题旁按钮开弹窗（2026-10-15 二次裁决）。
 // 读=member（webhooks:read），写=admin（webhooks:manage）；行操作错误行内标注。
 // 一次性 secret 只存组件 useState（设计 §4.4），Dialog 文案警示离开不可再取。
 // 视觉：每条订阅一张内嵌卡（头排 URL+状态/事件数 Badge+操作钮，下接描述/
@@ -88,30 +87,30 @@ export function WebhookSubscriptionsSection({
     <section
       id="webhooks"
       className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-      aria-label={t('settingsWs.webhooksTitle')}
+      aria-label={t('tools.webhooksTitle')}
       data-testid="ws-webhooks-section"
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t('settingsWs.webhooksTitle')}</h2>
+        <h2 className="text-sm font-semibold">{t('tools.webhooksTitle')}</h2>
         {canWrite && (
           <Button size="sm" variant="outline" data-testid="ws-webhook-create-open" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5" aria-hidden="true" />
-            {t('settingsWs.webhookCreate')}
+            {t('tools.webhookCreate')}
           </Button>
         )}
       </div>
       {!canWrite && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settingsWs.webhookReadonlyHint')}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('tools.webhookReadonlyHint')}</p>
       )}
 
       {subscriptions.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
       {subscriptions.isError && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {errMsg(subscriptions.error, t('settingsWs.loadFailed'))}
+          {errMsg(subscriptions.error, t('tools.loadFailed'))}
         </p>
       )}
       {subscriptions.data && subscriptions.data.length === 0 && (
-        <p className="py-2 text-sm text-zinc-400">{t('settingsWs.webhookEmpty')}</p>
+        <p className="py-2 text-sm text-zinc-400">{t('tools.webhookEmpty')}</p>
       )}
       {subscriptions.data && subscriptions.data.length > 0 && (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -127,11 +126,6 @@ export function WebhookSubscriptionsSection({
           ))}
         </div>
       )}
-      <DeliveriesPanel
-        workspaceId={workspaceId}
-        subs={subscriptions.data ?? []}
-      />
-
       {createOpen && (
         <CreateSubscriptionDialog
           workspaceId={workspaceId}
@@ -143,13 +137,13 @@ export function WebhookSubscriptionsSection({
       {/* 删除二次确认 */}
       <AlertDialog open={deleting !== null} onOpenChange={(next) => (!next ? setDeleting(null) : undefined)}>
         <AlertDialogContent>
-          <AlertDialogTitle>{t('settingsWs.webhookDeleteTitle')}</AlertDialogTitle>
+          <AlertDialogTitle>{t('tools.webhookDeleteTitle')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t('settingsWs.webhookDeleteDesc', { url: deleting?.url ?? '' })}
+            {t('tools.webhookDeleteDesc', { url: deleting?.url ?? '' })}
           </AlertDialogDescription>
           {del.error && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-              {errMsg(del.error, t('settingsWs.actionFailed'))}
+              {errMsg(del.error, t('tools.actionFailed'))}
             </p>
           )}
           <AlertDialogFooter>
@@ -191,6 +185,7 @@ function SubscriptionRow({
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [rotateOpen, setRotateOpen] = useState(false)
   const [rotatedSecret, setRotatedSecret] = useState<string | null>(null)
+  const [deliveriesOpen, setDeliveriesOpen] = useState(false)
 
   const doPing = async () => {
     if (ping === 'running') return
@@ -210,7 +205,7 @@ function SubscriptionRow({
       setRotatedSecret(res.secret)
       setActionErr(null)
     },
-    onError: (err) => setActionErr(errMsg(err, t('settingsWs.actionFailed'))),
+    onError: (err) => setActionErr(errMsg(err, t('tools.actionFailed'))),
   })
   const toggle = useMutation({
     mutationFn: () => setWebhookSubscriptionActive(workspaceId, sub.id, !sub.is_active),
@@ -218,7 +213,7 @@ function SubscriptionRow({
       setActionErr(null)
       onChanged()
     },
-    onError: (err) => setActionErr(errMsg(err, t('settingsWs.actionFailed'))),
+    onError: (err) => setActionErr(errMsg(err, t('tools.actionFailed'))),
   })
   const fmtDate = (iso: string): string =>
     new Date(iso).toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', {
@@ -235,11 +230,21 @@ function SubscriptionRow({
           <code className="min-w-0 flex-1 truncate font-mono text-xs" title={sub.url}>
             {sub.url}
           </code>
+          <Button
+            size="xs"
+            variant="ghost"
+            className="shrink-0 text-zinc-500 dark:text-zinc-400"
+            data-testid="ws-webhook-deliveries-open"
+            onClick={() => setDeliveriesOpen(true)}
+          >
+            <History className="size-3" aria-hidden="true" />
+            {t('tools.deliveriesTitle')}
+          </Button>
           <Badge variant={sub.is_active ? 'success' : 'warning'} className="shrink-0">
-            {t(sub.is_active ? 'settingsWs.webhookActive' : 'settingsWs.webhookInactive')}
+            {t(sub.is_active ? 'tools.webhookActive' : 'tools.webhookInactive')}
           </Badge>
           <Badge variant="secondary" className="shrink-0">
-            {t('settingsWs.webhookEventsCount', { count: sub.event_types.length })}
+            {t('tools.webhookEventsCount', { count: sub.event_types.length })}
           </Badge>
         </div>
         {sub.description && (
@@ -258,12 +263,12 @@ function SubscriptionRow({
           <Button size="xs" variant="outline" disabled={ping === 'running'} data-testid="ws-webhook-ping" onClick={() => void doPing()}>
             <HeartPulse className="size-3" aria-hidden="true" />
             {ping === 'running'
-              ? t('settingsWs.pingRunning')
+              ? t('tools.pingRunning')
               : ping === 'ok'
-                ? t('settingsWs.pingOk')
+                ? t('tools.pingOk')
                 : ping === 'fail'
-                  ? t('settingsWs.pingFail')
-                  : t('settingsWs.ping')}
+                  ? t('tools.pingFail')
+                  : t('tools.ping')}
           </Button>
           {canWrite && (
             <>
@@ -279,7 +284,7 @@ function SubscriptionRow({
                 }}
               >
                 <RotateCw className="size-3" aria-hidden="true" />
-                {t('settingsWs.rotate')}
+                {t('tools.rotate')}
               </Button>
               <Button
                 size="xs"
@@ -291,12 +296,12 @@ function SubscriptionRow({
                 {sub.is_active ? (
                   <>
                     <Pause className="size-3" aria-hidden="true" />
-                    {t('settingsWs.pause')}
+                    {t('tools.pause')}
                   </>
                 ) : (
                   <>
                     <Play className="size-3" aria-hidden="true" />
-                    {t('settingsWs.resume')}
+                    {t('tools.resume')}
                   </>
                 )}
               </Button>
@@ -318,16 +323,26 @@ function SubscriptionRow({
             </span>
           )}
         </div>
-        <p className="text-xs text-zinc-400">{t('settingsWs.webhookCreatedAt', { date: fmtDate(sub.created_at) })}</p>
+        <p className="text-xs text-zinc-400">{t('tools.webhookCreatedAt', { date: fmtDate(sub.created_at) })}</p>
       </div>
+
+      {/* 投递记录弹窗（标题旁按钮触发；投递是订阅子资源但列表撑高卡片，
+          弹窗独立承载——2026-10-15 二次裁决） */}
+      <SubscriptionDeliveriesDialog
+        workspaceId={workspaceId}
+        subId={sub.id}
+        url={sub.url}
+        open={deliveriesOpen}
+        onOpenChange={setDeliveriesOpen}
+      />
 
       {/* 轮换密钥：两段式（确认警示 → 一次性明文），照 pack-detail 同名交互 */}
       <Dialog open={rotateOpen} onOpenChange={(next) => (!next ? setRotateOpen(false) : undefined)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('settingsWs.rotateTitle')}</DialogTitle>
+            <DialogTitle>{t('tools.rotateTitle')}</DialogTitle>
             <DialogDescription>
-              {rotatedSecret ? t('settingsWs.rotateOnceDesc') : t('settingsWs.rotateConfirmDesc')}
+              {rotatedSecret ? t('tools.rotateOnceDesc') : t('tools.rotateConfirmDesc')}
             </DialogDescription>
           </DialogHeader>
           {rotatedSecret ? (
@@ -349,7 +364,7 @@ function SubscriptionRow({
           ) : (
             <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
               <Radio className="size-3.5 shrink-0" aria-hidden="true" />
-              {rotate.isPending ? t('settingsWs.rotateRunning') : t('settingsWs.rotateWarning')}
+              {rotate.isPending ? t('tools.rotateRunning') : t('tools.rotateWarning')}
             </p>
           )}
           <div className="flex justify-end">
@@ -363,7 +378,7 @@ function SubscriptionRow({
   )
 }
 
-// ---- 创建 Dialog（URL + description + 事件目录多选，交互照 pack-install-wizard）----
+// ---- 创建 Dialog（URL + description + 事件目录多选）----
 
 function CreateSubscriptionDialog({
   workspaceId,
@@ -396,15 +411,15 @@ function CreateSubscriptionDialog({
       onCreated()
       setCreatedSecret(res.secret)
     },
-    onError: (err) => setValidation(errMsg(err, t('settingsWs.actionFailed'))),
+    onError: (err) => setValidation(errMsg(err, t('tools.actionFailed'))),
   })
   const submit = () => {
     if (!url.trim()) {
-      setValidation(t('settingsWs.webhookUrlRequired'))
+      setValidation(t('tools.webhookUrlRequired'))
       return
     }
     if (events.length === 0) {
-      setValidation(t('settingsWs.webhookEventsRequired'))
+      setValidation(t('tools.webhookEventsRequired'))
       return
     }
     setValidation(null)
@@ -429,15 +444,15 @@ function CreateSubscriptionDialog({
     <Dialog open onOpenChange={(next) => (!next ? close() : undefined)}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg" data-testid="ws-webhook-create-dialog">
         <DialogHeader>
-          <DialogTitle>{t('settingsWs.webhookCreateTitle')}</DialogTitle>
-          <DialogDescription>{t('settingsWs.webhookCreateDesc')}</DialogDescription>
+          <DialogTitle>{t('tools.webhookCreateTitle')}</DialogTitle>
+          <DialogDescription>{t('tools.webhookCreateDesc')}</DialogDescription>
         </DialogHeader>
 
         {createdSecret === null ? (
           <div className="space-y-3">
             <div>
               <label htmlFor="ws-webhook-url" className={LABEL_CLS}>
-                {t('settingsWs.webhookUrlLabel')}
+                {t('tools.webhookUrlLabel')}
               </label>
               <Input
                 id="ws-webhook-url"
@@ -450,26 +465,26 @@ function CreateSubscriptionDialog({
             </div>
             <div>
               <label htmlFor="ws-webhook-desc" className={LABEL_CLS}>
-                {t('settingsWs.webhookDescLabel')}
+                {t('tools.webhookDescLabel')}
               </label>
               <Input
                 id="ws-webhook-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder={t('settingsWs.webhookDescPlaceholder')}
+                placeholder={t('tools.webhookDescPlaceholder')}
                 data-testid="ws-webhook-desc"
               />
             </div>
             <div>
-              <p className={LABEL_CLS}>{t('settingsWs.webhookEventsLabel')}</p>
+              <p className={LABEL_CLS}>{t('tools.webhookEventsLabel')}</p>
               {catalog.isPending && <p className="text-xs text-zinc-500">{t('common.loading')}</p>}
               {catalog.isError && (
                 <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                  {t('settingsWs.webhookCatalogFailed')}
+                  {t('tools.webhookCatalogFailed')}
                 </p>
               )}
               {catalog.data && catalog.data.length === 0 && (
-                <p className="text-xs text-zinc-500">{t('settingsWs.webhookCatalogEmpty')}</p>
+                <p className="text-xs text-zinc-500">{t('tools.webhookCatalogEmpty')}</p>
               )}
               {catalog.data && catalog.data.length > 0 && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5">
@@ -503,13 +518,13 @@ function CreateSubscriptionDialog({
                 {t('common.cancel')}
               </Button>
               <Button disabled={!url.trim() || events.length === 0 || create.isPending} data-testid="ws-webhook-create-submit" onClick={submit}>
-                {create.isPending ? t('common.loading') : t('settingsWs.webhookCreate')}
+                {create.isPending ? t('common.loading') : t('tools.webhookCreate')}
               </Button>
             </div>
           </div>
         ) : (
           <div className="space-y-3" data-testid="ws-webhook-secret-dialog">
-            <p className="text-sm">{t('settingsWs.webhookSecretTitle')}</p>
+            <p className="text-sm">{t('tools.webhookSecretTitle')}</p>
             <div className="rounded-md bg-zinc-50 p-2.5 dark:bg-zinc-900">
               <div className="flex items-center gap-2" data-testid="ws-webhook-secret">
                 <code className="min-w-0 flex-1 font-mono text-sm break-all">{createdSecret}</code>
@@ -520,7 +535,7 @@ function CreateSubscriptionDialog({
             </div>
             <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
               <Radio className="size-3.5 shrink-0" aria-hidden="true" />
-              {t('settingsWs.webhookSecretWarning')}
+              {t('tools.webhookSecretWarning')}
             </p>
             <div className="flex justify-end">
               <Button onClick={close}>{t('common.ok')}</Button>
@@ -532,7 +547,8 @@ function CreateSubscriptionDialog({
   )
 }
 
-// ---- 投递记录（照 pack-detail 的 deliveries 渲染 + 按订阅过滤下拉）----
+// ---- 投递记录弹窗（2026-10-15 二次裁决：区块级面板/卡内展开都不合适，
+// 订阅卡标题旁按钮开弹窗——投递是订阅的子资源，但列表撑高卡片，弹窗独立承载）----
 
 function deliveryStatusVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
   if (status === 'delivered') return 'success'
@@ -541,29 +557,31 @@ function deliveryStatusVariant(status: string): 'success' | 'warning' | 'danger'
   return 'neutral'
 }
 
-function DeliveriesPanel({
+export function SubscriptionDeliveriesDialog({
   workspaceId,
-  subs,
+  subId,
+  url,
+  open,
+  onOpenChange,
 }: {
   workspaceId: string
-  subs: WebhookSubscription[]
+  subId: string
+  url: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
-  const [filterSub, setFilterSub] = useState<string>('all')
-  const [expanded, setExpanded] = useState(false)
   const deliveries = useQuery({
     queryKey: ['webhook-deliveries', workspaceId],
     queryFn: () => listWebhookDeliveries(workspaceId),
-    enabled: expanded,
+    enabled: open,
   })
   const redeliver = useMutation({
     mutationFn: (id: string) => redeliverWebhookDelivery(workspaceId, id),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['webhook-deliveries', workspaceId] }),
   })
-  const rows = (deliveries.data ?? []).filter(
-    (dl) => filterSub === 'all' || dl.subscription_id === filterSub,
-  )
+  const rows = (deliveries.data ?? []).filter((dl) => dl.subscription_id === subId)
   const canRedeliver = (dl: WebhookDelivery) =>
     dl.status === 'dead' || (dl.status === 'pending' && dl.attempts > 1)
   const fmtDate = (iso: string): string =>
@@ -576,58 +594,33 @@ function DeliveriesPanel({
     })
 
   return (
-    <div className="border-t border-zinc-200 pt-2 dark:border-zinc-800">
-      <Button
-        size="sm"
-        variant="ghost"
-        className="-ml-2 text-zinc-500 dark:text-zinc-400"
-        aria-expanded={expanded}
-        data-testid="ws-webhook-deliveries-toggle"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        {expanded ? (
-          <ChevronDown className="size-3.5 text-zinc-400" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="size-3.5 text-zinc-400" aria-hidden="true" />
-        )}
-        {t('settingsWs.deliveriesTitle')}
-      </Button>
-      {expanded && (
-        <div className="space-y-2 px-1 pb-2">
-          <Select
-            value={filterSub}
-            aria-label={t('settingsWs.deliveriesFilterAria')}
-            className="w-64"
-            data-testid="ws-webhook-deliveries-filter"
-            onChange={(e) => setFilterSub(e.target.value)}
-          >
-            <option value="all">{t('settingsWs.deliveriesFilterAll')}</option>
-            {subs.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.url}
-              </option>
-            ))}
-          </Select>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{t('tools.deliveriesTitle')}</DialogTitle>
+          <DialogDescription className="truncate font-mono text-xs">{url}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
           {deliveries.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
           {deliveries.isError && (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {t('settingsWs.deliveriesFailed')}
+              {t('tools.deliveriesFailed')}
             </p>
           )}
           {deliveries.data && rows.length === 0 && (
-            <p className="py-8 text-center text-xs text-zinc-400">{t('settingsWs.deliveriesEmpty')}</p>
+            <p className="py-8 text-center text-xs text-zinc-400">{t('tools.deliveriesEmpty')}</p>
           )}
           {rows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs" data-testid="ws-webhook-deliveries-table">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs text-zinc-500 dark:border-zinc-800">
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColEvent')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColStatus')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColAttempts')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColCode')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColError')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.deliveriesColTime')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColEvent')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColStatus')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColAttempts')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColCode')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColError')}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t('tools.deliveriesColTime')}</th>
                     <th className="py-1.5 font-medium" aria-label={t('common.actions')} />
                   </tr>
                 </thead>
@@ -663,7 +656,7 @@ function DeliveriesPanel({
                             onClick={() => redeliver.mutate(dl.id)}
                           >
                             <RotateCw className="size-3" aria-hidden="true" />
-                            {t('settingsWs.deliveriesRedeliver')}
+                            {t('tools.deliveriesRedeliver')}
                           </Button>
                         )}
                       </td>
@@ -674,7 +667,7 @@ function DeliveriesPanel({
             </div>
           )}
         </div>
-      )}
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

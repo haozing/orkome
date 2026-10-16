@@ -14,7 +14,6 @@ import { MembersSection } from '@/components/settings/members-section'
 import { ProfileSection } from '@/components/settings/profile-section'
 import { SecuritySection } from '@/components/settings/security-section'
 import { TokensSection } from '@/components/settings/tokens-section'
-import { WebhookSubscriptionsSection } from '@/components/settings/webhook-subscriptions-section'
 import { WorkspaceOverviewSection } from '@/components/settings/workspace-overview-section'
 import { Switch } from '@base-ui/react/switch'
 import { Button } from '@/components/ui/button'
@@ -131,7 +130,6 @@ export function SettingsPage() {
                 role={current.role}
               />
               <MembersSection workspaceId={current.id} role={current.role} />
-              <WebhookSubscriptionsSection workspaceId={current.id} role={current.role} />
               <AuditSection workspaceId={current.id} />
             </div>
           )}

@@ -17,8 +17,8 @@ import { Input } from '@/components/ui/input'
 // 使用文档 Dialog（能力包平台化 P2）：打开时拉 GET usage-document，
 // <pre> 平铺 markdown 原文（不做 md 渲染，保持零依赖），底部三动作：
 // 复制 / 下载 .md（Blob + a[download]）/ 存为技能（createSkill →
-// putSkillFile(SKILL.md) 链式两调）。独立成文件以便组件级测试（同
-// packs-page 的拆法原因：autoCodeSplitting 拆走路由模块非 Route 导出）。
+// putSkillFile(SKILL.md) 链式两调）。独立成文件以便组件级测试：
+// autoCodeSplitting 拆走路由模块非 Route 导出。
 
 export function PackUsageDialog({
   packId,

@@ -3,15 +3,17 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '../msw'
+import type { PackUIEntry } from '@/api/packs'
 import { aggregateHealth, PackDetailView } from '@/components/pack-detail'
-import { PacksCardsSection } from '@/components/packs-sections'
+import { UiEntriesSection } from '@/components/integrations/ui-entries-section'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // Pack 一等公民化 P1 页面钉子（pack-first-class-design-2026-10-13.md §5 验收）：
-// ① 集成页包卡片区三态（/packs 列表并入 /tools 后由 PacksCardsSection 承载）；
+// ① 集成页段③「页面入口」读写面（/packs 列表并入 /tools 的包卡片区已随
+//    integrations-page-design-2026-10-15 §1.3 删除，由本段的来源徽标用例接替）；
 // ② /packs/$packId 五区块渲染 + 探活三态聚合（aggregateHealth 纯函数）+
 //    卸载 P1 只弹 CLI 提示（不打接口）。
-// setup.ts 固定 i18n=en，断言用英文 packs2.* 文案。
+// setup.ts 固定 i18n=en，断言用英文 tools.* / packs2.* 文案。
 // 路由桩沿 work-item-detail-tabs 的做法：createFileRoute 返回带 useParams
 // 的轻对象，Link 渲染成 <a>。
 
@@ -25,20 +27,35 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       options,
       useParams: () => st.params,
     }),
-    Link: (props: React.ComponentProps<'a'>) => <a {...props} />,
+    // 渲染成 <a>；params 是路由参数对象，剥掉避免 React 未知属性告警
+    Link: ({ params, ...props }: { params?: unknown } & React.ComponentProps<'a'>) => {
+      void params
+      return <a {...props} />
+    },
   }
 })
 
-const PACK = (over: Record<string, unknown> = {}) => ({
-  id: 'pk-1',
-  name: 'agentblog',
-  version: '0.1.0',
-  installed_at: '2026-10-13T08:00:00Z',
-  server_count: 2,
-  agent_count: 1,
-  skill_count: 3,
-  ...over,
-})
+const ENTRY_FROM_PACK: PackUIEntry = {
+  id: 'ue-1',
+  workspace_id: 'ws-1',
+  pack: 'agentblog',
+  pack_id: 'pk-1',
+  label: 'Content Factory',
+  url_template: 'https://agentblog.internal/console',
+  slots: [],
+  installed_at: '2026-10-15T08:00:00Z',
+}
+
+// 手动入口（pack_id 缺省 = 非包来源）：wire 上 pack_id 为 omitempty，缺键即手动
+const ENTRY_MANUAL: PackUIEntry = {
+  id: 'ue-2',
+  workspace_id: 'ws-1',
+  pack: 'custom-internal-console',
+  label: 'Internal console',
+  url_template: 'https://intranet.example.com/console',
+  slots: [],
+  installed_at: '2026-10-15T08:00:00Z',
+}
 
 const DETAIL = (over: Record<string, unknown> = {}) => ({
   pack: { id: 'pk-1', name: 'agentblog', version: '0.1.0', installed_at: '2026-10-13T08:00:00Z' },
@@ -99,39 +116,29 @@ describe('aggregateHealth (probe three-state rollup)', () => {
   })
 })
 
-describe('/packs list (three states)', () => {
-  it('empty: short empty copy + install wizard link (CLI block retired with /packs page merge)', async () => {
-    server.use(http.get('/api/packs', () => HttpResponse.json({ items: [] })))
-    render_ui(<PacksCardsSection />)
-    expect(await screen.findByText('No packs installed yet')).toBeInTheDocument()
-    // 合并后空态不再放 CLI 命令块——安装走头部向导入口
-    expect(screen.queryByTestId('packs-install-cmd')).not.toBeInTheDocument()
-    expect(screen.getByTestId('packs-install-link')).toBeInTheDocument()
-    expect(screen.getByTestId('packs-install-link').getAttribute('to')).toBe('/packs/install')
+describe('/tools ui-entries section', () => {
+  it('empty: renders the add control', async () => {
+    server.use(http.get('/api/ui-entries', () => HttpResponse.json({ items: [] })))
+    render_ui(<UiEntriesSection workspaceId="ws-1" role="admin" />)
+    expect(await screen.findByText('No page entries yet.')).toBeInTheDocument()
+    expect(screen.getByTestId('ui-entry-add')).toBeInTheDocument()
+    expect(screen.queryByTestId('ui-entry-row')).toBeNull()
   })
 
-  it('rows: name, version, asset counts; click-through to detail', async () => {
-    server.use(http.get('/api/packs', () => HttpResponse.json({ items: [PACK()] })))
-    render_ui(<PacksCardsSection />)
-    const row = await screen.findByTestId('packs2-row')
-    expect(row.textContent).toContain('agentblog')
-    expect(row.textContent).toContain('v0.1.0')
-    // Link 桩透传 to（不解析 params），断言模板形状即可
-    expect(row.getAttribute('to')).toBe('/packs/$packId')
-    // 三资产计数（服务器/智能体以图标+数字呈现，技能为文本）
-    expect(row.textContent).toContain('2')
-    expect(row.textContent).toContain('1')
-    expect(row.textContent).toContain('Skills 3')
-  })
-
-  it('error state: PageError with retry', async () => {
+  it('rows: pack_id renders the from-pack badge; missing pack_id renders the manual badge', async () => {
     server.use(
-      http.get('/api/packs', () =>
-        HttpResponse.json({ error: 'E_DB', message: 'boom' }, { status: 500 }),
+      http.get('/api/ui-entries', () =>
+        HttpResponse.json({ items: [ENTRY_FROM_PACK, ENTRY_MANUAL] }),
       ),
     )
-    render_ui(<PacksCardsSection />)
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    render_ui(<UiEntriesSection workspaceId="ws-1" role="admin" />)
+    expect(await screen.findAllByTestId('ui-entry-row')).toHaveLength(2)
+    // 来自包：徽标即 /packs/{pack_id} 详情链
+    const fromPack = screen.getByTestId('ui-entry-from-pack')
+    expect(fromPack.textContent).toContain('From pack')
+    expect(fromPack.getAttribute('to')).toBe('/packs/$packId')
+    // 手动：无 pack_id → 只读徽标
+    expect(screen.getByTestId('ui-entry-manual').textContent).toContain('Manual')
   })
 })
 
