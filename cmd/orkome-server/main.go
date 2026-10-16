@@ -304,11 +304,6 @@ func main() {
 		workDeps.WorkItems, workDeps.Comments, workDeps.Catalog,
 		skillapp.NewSkillService(skillRepoOf(db)), contentDeps.Attachments,
 		orchHTTPDeps.MCP, orchHTTPDeps.Credentials, orchHTTPDeps.PackUIEntries, webhookSvc,
-		packDeps.Packs,
-		skillapp.NewSkillService(skillRepoOf(db)).Delete,
-		func(ctx context.Context, ws, agentID string) error {
-			return orchHTTPDeps.Agents.Archive(ctx, ws, agentID, true)
-		},
 		webx.ParseOrigins(cfg.CORSAllowedOrigins), cfg.EgressExtraAllowCIDRs,
 		idMemberCheck(db), roleOf(db),
 		autobhttp.NewWebhookRateLimiter(redisCli, autobhttp.DefaultWebhookRateConfig(),

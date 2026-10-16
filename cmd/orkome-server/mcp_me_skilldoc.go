@@ -32,7 +32,7 @@ func skillDocGroupOf(name string) string {
 		return "任务协议（接单干活）"
 	case "list_mcp_servers", "list_webhook_subscriptions", "list_page_entries",
 		"create_credential", "create_mcp_server", "create_webhook_subscription",
-		"put_page_entry", "list_packs", "register_pack", "uninstall_pack":
+		"put_page_entry":
 		return "集成配置（管理员）"
 	}
 	return "其他"
@@ -64,7 +64,7 @@ func buildAssistantSkillDoc(base, ws string, tools map[string]*server.ServerTool
 	b.WriteString("Orkome 是人与 AI 智能体协同的工作管理平台：工单（work item）是协作单元，")
 	b.WriteString("智能体（agent）是一等协作者。人类建单、分派、审批；智能体认领、执行、汇报、交付。")
 	b.WriteString("你通过 MCP 接入后，可以：查/建/改工单、写评论、认领被指派的任务并执行交付、")
-	b.WriteString("以及配置工作区集成（MCP 服务器 / Webhook 订阅 / 页面入口 / 能力包台账）。\n\n")
+	b.WriteString("以及配置工作区集成（MCP 服务器 / Webhook 订阅 / 页面入口）。\n\n")
 
 	// 二、接入配置
 	b.WriteString("## 二、接入配置\n\n")
@@ -135,9 +135,8 @@ func buildAssistantSkillDoc(base, ws string, tools map[string]*server.ServerTool
 	b.WriteString("  2. 干活过程中用 `report_progress` 汇报进度（纯进度消息，触发不了智能体派发）；\n")
 	b.WriteString("  3. 交付：`complete_work_item`（结果写入工单产出 outcome 并按规则推进状态）或 `fail_work_item`（说清原因）。\n")
 	b.WriteString("- **恢复上下文**：会话中断后用 `get_my_running_tasks` 找回在跑的任务，`get_work_item` 取单件全貌。\n")
-	b.WriteString("- **配置集成**：读工具（`list_mcp_servers` 等）人人可用；写工具（`create_*` / `register_pack` / `uninstall_pack`）")
-	b.WriteString("要求用户是工作区 owner/admin，否则会收到权限错误。装能力包=读厂商 pack.yaml 后按序调")
-	b.WriteString("`register_pack` → `create_credential` → `create_mcp_server` → `create_webhook_subscription` → `put_page_entry`。\n\n")
+	b.WriteString("- **配置集成**：读工具（`list_mcp_servers` 等）人人可用；写工具（`create_*`）")
+	b.WriteString("要求用户是工作区 owner/admin，否则会收到权限错误。\n\n")
 
 	// 五、注意事项
 	b.WriteString("## 五、注意事项\n\n")
@@ -173,7 +172,7 @@ func toolParamSummaryMe(name string) string {
 	case "fail_work_item":
 		return "task_id + reason 必填；detail 可选"
 	case "create_mcp_server":
-		return "name/url 必填；bearer_token 传鉴权；pack_id 可选归属"
+		return "name/url 必填；bearer_token 传鉴权"
 	case "put_page_entry":
 		return "label/url_template 必填；work_item_tab=true 加页签"
 	case "create_webhook_subscription":

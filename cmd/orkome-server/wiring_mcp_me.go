@@ -6,7 +6,8 @@ package main
 //   - 只认用户 PAT：runtime credential PAT 挂虚拟用户且 principal.AgentID
 //     非空，直接 403（agentBoundPAT 在认证链填充 AgentID，天然可判别）；
 //   - workspace 走 URL path（复用 workspaceMW 成员闸先例，v4 §3.1）；
-//   - 14 工具 = 读 5 + 写 3 + 任务协议 5 + 恢复 1（§3.2 表格）。
+//   - 23 工具 = 读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7（§3.2 表格 +
+//     知识库读 + 配置面；包级 pack 工具随能力包退役拆除，2026-10-16）。
 //
 // 跨域编排（list_my_claims / get_my_running_tasks 等）在本层完成：先经
 // orchestration 解析 proxy 行，再调 work 域 List——HTTP handler 所在的 cmd
@@ -35,7 +36,6 @@ import (
 	"orkome/internal/contract/apierr"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
-	packapp "orkome/internal/pack/app"
 	"orkome/internal/platform/eventbus"
 	skillapp "orkome/internal/skills/app"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
@@ -59,22 +59,16 @@ type assistantMEDeps struct {
 	roleOf      func(ctx context.Context, workspaceID, userID string) (string, error)
 	// timeline work 域时间线读取（wiring 注入 wRepo.ListTimeline 绑定）。
 	timeline func(ctx context.Context, wiID string, limit int, before string) ([]workapp.TimelineEntry, error)
-	// ---- 配置面（集成页 parity：AI 即安装器，装包从程序变对话）----
+	// ---- 配置面（集成页 parity）----
 	// 与 REST/集成页同一批 service 实例：AI 能配置的与手动界面能做的完全同集。
 	mcpSvc     *orchapp.MCPServerService
 	credSvc    *orchapp.CredentialService
 	uiEntrySvc *orchapp.PackUIEntryService
 	webhookSvc *webhookapp.WebhookService
-	// ---- 包级（第二期：CLI 退役前置）----
-	// pack 聚合服务（List 带资产计数 / Get 详情含订阅与资产 ID 清单 / Upsert /
-	// Delete——CLI 的 findPackByName+cleanPackByID 在服务端的聚合对应物）。
-	packSvc *packapp.PackService
-	// skillDelete/agentArchive：uninstall 的资产清理动作（skills 硬删、
-	// agents 归档软删——CLI cleanPackByID 语义；nil = 跳过该资产类）。
-	skillDelete  func(ctx context.Context, ws, skillID string) error
-	agentArchive func(ctx context.Context, ws, agentID string) error
-	// webOrigins/egressCIDRs：页面入口的 CSP frame-ancestors 放行探测
-	// （CLI 时代的 slot 守卫搬服务端；见 put_page_entry 的 work_item_tab 分支）。
+	// ---- 包级已退役（2026-10-16 裁决）：能力包安装向导/挂载自集成页终态
+	// 退役后，pack 工具不再对助理面暴露（list_packs/register_pack/
+	// uninstall_pack 整组拆除）；pack_id 归属参数一并撤下——遗留 pack 台账
+	// 由 REST /api/packs 与包详情页管理。
 	webOrigins  []string
 	egressCIDRs []string
 }
@@ -87,9 +81,6 @@ func mountAssistantMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 	skillSvc *skillapp.SkillService, attachments *contentapp.AttachmentService,
 	mcpSvc *orchapp.MCPServerService, credSvc *orchapp.CredentialService,
 	uiEntrySvc *orchapp.PackUIEntryService, webhookSvc *webhookapp.WebhookService,
-	packSvc *packapp.PackService,
-	skillDelete func(ctx context.Context, ws, skillID string) error,
-	agentArchive func(ctx context.Context, ws, agentID string) error,
 	webOrigins []string, egressCIDRs []string,
 	memberCheck func(ctx context.Context, workspaceID, userID string) (bool, error),
 	roleOf func(ctx context.Context, workspaceID, userID string) (string, error),
@@ -102,8 +93,6 @@ func mountAssistantMCP(api *http.ServeMux, auth func(http.Handler) http.Handler,
 		attachments: attachments,
 		roleOf:      roleOf,
 		mcpSvc:      mcpSvc, credSvc: credSvc, uiEntrySvc: uiEntrySvc, webhookSvc: webhookSvc,
-		packSvc:     packSvc,
-		skillDelete: skillDelete, agentArchive: agentArchive,
 		webOrigins:  webOrigins, egressCIDRs: egressCIDRs,
 		// workpgrepo 不进 deps：时间线是唯一读面，绑函数注入。
 		timeline: (&workTimelineSrc{DB: db}).ListTimeline,
@@ -790,6 +779,8 @@ func (d *assistantMEDeps) addTaskTools(s *server.MCPServer) {
 // 读工具 member 可用；写工具 owner/admin 门槛（requireAdminMe，对齐 REST 侧
 // mcp/webhooks/ui-entries 的 admin 闸）。与 REST 共用同一批 service 实例——
 // 校验（egress 闸/事件目录/URL 模板/slot 冻结目录）全部复用域内实现。
+// 包级 3 工具（list/register/uninstall_pack）随能力包退役拆除（2026-10-16）：
+// 安装向导/挂载自集成页终态起退役，遗留台账归 REST /api/packs 与包详情页。
 
 // requireAdminMe 配置写工具的 admin 闸：PAT 归属用户必须在当前工作区为 owner/admin。
 func (d *assistantMEDeps) requireAdminMe(ctx context.Context) (ws, userID string, err error) {
@@ -959,7 +950,6 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		mcp.WithString("transport", mcp.Description("transport: http | sse | streamable_http (default http)")),
 		mcp.WithString("bearer_token", mcp.Description("optional bearer token for the MCP endpoint")),
 		mcp.WithString("credential_id", mcp.Description("optional credential id (from create_credential) for audit linkage")),
-		mcp.WithString("pack_id", mcp.Description("optional pack id (from register_pack) to attribute this server to a pack")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		ws, _, err := d.requireAdminMe(ctx)
 		if err != nil {
@@ -990,7 +980,6 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		}
 		m, err := d.mcpSvc.Create(ctx, orchapp.WorkspaceMCP{
 			WorkspaceID: ws, Name: name, Transport: transport, URL: u, Credentials: credMap,
-			PackID: strings.TrimSpace(req.GetString("pack_id", "")),
 		})
 		if err != nil {
 			return errResultMe(err)
@@ -1005,7 +994,6 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		mcp.WithArray("events", mcp.Required(), mcp.Description("event types to subscribe, e.g. work_item.created"),
 			mcp.WithStringItems()),
 		mcp.WithString("description", mcp.Description("optional label")),
-		mcp.WithString("pack_id", mcp.Description("optional pack id (from register_pack): links this subscription to the pack for directed uninstall (the subscription body itself stays in the workspace webhook registry)")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		ws, _, err := d.requireAdminMe(ctx)
 		if err != nil {
@@ -1021,24 +1009,11 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		if err != nil {
 			return errResultMe(err)
 		}
-		// link 到 pack（连接表 pack_subscription；UNIQUE(pack_id, subscription_id)
-		// 防重复）。link 失败不掩盖订阅创建结果，回报 warning。
-		linkWarn := ""
-		packID := strings.TrimSpace(req.GetString("pack_id", ""))
-		if packID != "" {
-			if err := d.packSvc.LinkSubscription(ctx, packID, sub.ID); err != nil {
-				linkWarn = "subscription created but pack link failed: " + err.Error()
-			}
-		}
-		out := map[string]any{
+		return jsonTextMe(map[string]any{
 			"id": sub.ID, "url": sub.URL, "event_types": sub.EventTypes,
 			"secret": secret,
 			"note":   "signing secret shown only once — hand it to the receiver and store it; it cannot be retrieved later",
-		}
-		if linkWarn != "" {
-			out["warning"] = linkWarn
-		}
-		return jsonTextMe(out)
+		})
 	})
 
 	s.AddTool(mcp.NewTool("put_page_entry",
@@ -1046,7 +1021,6 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		mcp.WithString("label", mcp.Required(), mcp.Description("entry display name")),
 		mcp.WithString("url_template", mcp.Required(), mcp.Description("absolute http(s) URL template, e.g. https://vendor.example.com/console?ws={workspaceId}&t={uiToken}")),
 		mcp.WithString("key", mcp.Description("optional stable key (default custom-<slug of label>); re-using a key updates that entry")),
-		mcp.WithString("pack_id", mcp.Description("optional pack id (from register_pack) to attribute this entry to a pack")),
 		mcp.WithBoolean("work_item_tab", mcp.Description("also show as a work-item detail tab (default false)")),
 		mcp.WithNumber("tab_height", mcp.Description("tab iframe height in px, 1-4096 (default 480)")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1085,7 +1059,7 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 				Slot: "workitem.detail.tab", Label: label, URLTemplate: tpl, Height: h,
 			})
 		}
-		if err := d.uiEntrySvc.UpsertWithSlots(ctx, ws, key, strings.TrimSpace(req.GetString("pack_id", "")), label, tpl, slots); err != nil {
+		if err := d.uiEntrySvc.UpsertWithSlots(ctx, ws, key, "", label, tpl, slots); err != nil {
 			return errResultMe(err)
 		}
 		out := map[string]any{"result": "upserted", "key": key,
@@ -1094,132 +1068,6 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 			out["warning"] = cspWarn
 		}
 		return jsonTextMe(out)
-	})
-
-	// ---- 包级 3（第二期：CLI 退役前置）----
-
-	s.AddTool(mcp.NewTool("list_packs",
-		mcp.WithDescription("list installed packs (installation ledger: each pack bundles MCP servers, event subscriptions, page entries and preset agents/skills)"),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		ws, _, err := principalOf(ctx)
-		if err != nil {
-			return errResultMe(err)
-		}
-		packs, err := d.packSvc.List(ctx, ws)
-		if err != nil {
-			return errResultMe(err)
-		}
-		type row struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Version     string `json:"version"`
-			ServerCount int    `json:"server_count"`
-			AgentCount  int    `json:"agent_count"`
-			SkillCount  int    `json:"skill_count"`
-		}
-		out := make([]row, 0, len(packs))
-		for _, p := range packs {
-			out = append(out, row{ID: p.Pack.ID, Name: p.Pack.Name, Version: p.Pack.Version,
-				ServerCount: p.ServerCount, AgentCount: p.AgentCount, SkillCount: p.SkillCount})
-		}
-		return jsonTextMe(map[string]any{"packs": out, "count": len(out)})
-	})
-
-	s.AddTool(mcp.NewTool("register_pack",
-		mcp.WithDescription("register/upsert a pack ledger row (step 0 of an installation: get the pack id, then pass it as pack_id to create_mcp_server / put_page_entry to attribute the assets)"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("pack name")),
-		mcp.WithString("version", mcp.Description("optional version label")),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		ws, _, err := d.requireAdminMe(ctx)
-		if err != nil {
-			return errResultMe(err)
-		}
-		name := strings.TrimSpace(req.GetString("name", ""))
-		if name == "" {
-			return errResultMe(apierr.NewValidation("name required"))
-		}
-		p, err := d.packSvc.Upsert(ctx, ws, name, strings.TrimSpace(req.GetString("version", "")))
-		if err != nil {
-			return errResultMe(err)
-		}
-		return jsonTextMe(map[string]any{"id": p.ID, "name": p.Name, "version": p.Version,
-			"note": "pass this id as pack_id to create_mcp_server / put_page_entry"})
-	})
-
-	s.AddTool(mcp.NewTool("uninstall_pack",
-		mcp.WithDescription("uninstall a pack with directed cleanup: delete its event subscriptions (webhook domain bodies), skills (hard), agents (archived), MCP servers (reverse lookup by pack_id), then the pack row (cascades page entries / tool schemas)"),
-		mcp.WithString("pack_id", mcp.Required(), mcp.Description("pack id from list_packs")),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		ws, _, err := d.requireAdminMe(ctx)
-		if err != nil {
-			return errResultMe(err)
-		}
-		packID := strings.TrimSpace(req.GetString("pack_id", ""))
-		if packID == "" {
-			return errResultMe(apierr.NewValidation("pack_id required"))
-		}
-		detail, err := d.packSvc.Get(ctx, ws, packID)
-		if err != nil {
-			return errResultMe(err)
-		}
-		var deleted, failed []string
-		// 订阅：定向删本体（pack_subscription 关联行随 pack 级联，但订阅本体在
-		// webhook 域，必须显式删——CLI cleanPackByID 的同一教训）。
-		if d.webhookSvc != nil {
-			for _, sub := range detail.Subscriptions {
-				if sub.SubscriptionID == "" {
-					continue
-				}
-				if derr := d.webhookSvc.DeleteSubscription(ctx, ws, sub.SubscriptionID); derr != nil {
-					failed = append(failed, "subscription:"+sub.SubscriptionID+" ("+derr.Error()+")")
-				} else {
-					deleted = append(deleted, "subscription:"+sub.SubscriptionID)
-				}
-			}
-		}
-		// MCP 注册行：按 pack_id 反查定向删（独立生命周期，不随 pack 级联）；
-		// 行内 pack_id 随后由 repo 删除时 ON DELETE SET NULL 置空。
-		if d.mcpSvc != nil {
-			if servers, lerr := d.mcpSvc.List(ctx, ws); lerr == nil {
-				for _, m := range servers {
-					if m.PackID != packID {
-						continue
-					}
-					if derr := d.mcpSvc.Delete(ctx, ws, m.ID); derr != nil {
-						failed = append(failed, "mcp_server:"+m.Name+" ("+derr.Error()+")")
-					} else {
-						deleted = append(deleted, "mcp_server:"+m.Name)
-					}
-				}
-			}
-		}
-		// 资产：skills 硬删、agents 归档（CLI cleanPackByID 语义）。
-		for _, sk := range detail.Skills {
-			if d.skillDelete == nil {
-				continue
-			}
-			if derr := d.skillDelete(ctx, ws, sk.ID); derr != nil {
-				failed = append(failed, "skill:"+sk.ID+" ("+derr.Error()+")")
-			} else {
-				deleted = append(deleted, "skill:"+sk.Name)
-			}
-		}
-		for _, ag := range detail.Agents {
-			if d.agentArchive == nil {
-				continue
-			}
-			if derr := d.agentArchive(ctx, ws, ag.ID); derr != nil {
-				failed = append(failed, "agent:"+ag.ID+" ("+derr.Error()+")")
-			} else {
-				deleted = append(deleted, "agent:"+ag.Name+" (archived)")
-			}
-		}
-		// pack 行最后删（级联清 pack_ui_entry / pack_tool_schema / 关联表）。
-		if derr := d.packSvc.Delete(ctx, ws, packID); derr != nil {
-			return errResultMe(derr)
-		}
-		return jsonTextMe(map[string]any{"result": "uninstalled", "pack_id": packID,
-			"deleted": deleted, "failed": failed})
 	})
 }
 
