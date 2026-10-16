@@ -63,7 +63,7 @@ var RouteContract = map[string][]string{
 	"pack": { // pack 一等公民化 P1（W1-2）+ 平台化：读 member / 写 admin
 		"GET /packs", "GET /packs/{packId}", "PUT /packs (admin)", "DELETE /packs/{packId} (admin)",
 		"PUT /packs/{packId}/subscriptions (admin)",
-		"POST /packs/install (admin)", "GET /packs/{packId}/usage-document",
+		"GET /packs/{packId}/usage-document",
 		"POST /agents/{agentId}/pack (admin)", "POST /skills/{skillId}/pack (admin)",
 	},
 	"content": {

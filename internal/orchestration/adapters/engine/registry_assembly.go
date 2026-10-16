@@ -153,26 +153,15 @@ func mcpServerToolOwners(bridge *mcpBridge) map[string]string {
 	return out
 }
 
-// —— D2 联调测试门面（跨包测试只读装配路径，非生产面）——
-// 语义与包内调用完全一致：BuildMCPTools 即 buildMCPTools（C1 组装路径），
-// RegisterMCPBridgeForTest 即 registerMCPBridge，NewToolRegistryForTest 即
-// newToolRegistry；导出仅为 cmd/pack-provision 的 env 门控联调测试
-// （agentblog_e2e_test.go）复用真实组装链路，不引入第二个组装实现。
+// —— MCP 桥装配的导出面（batch mcp_tool 执行器用，batch v2.0 设计 §4）——
+// 与包内组装同一条链（ResolveForEngine 合并 + SSRF 门 + mcpCatalog 缓存 +
+// 输出契约校验），跨包调用不引入第二个组装实现。
+// 历史注记：D2 联调门面（BuildMCPTools/NewToolRegistryForTest/
+// RegisterMCPBridgeForTest 等）已随 pack-provision CLI 退役删除（2026-10-15）。
 
-// BuildMCPTools 是 buildMCPTools 的导出版（D2 联调测试用）。
-func (e *EinoEngine) BuildMCPTools(ctx context.Context, task orchapp.Task) *MCPBridgeForTest {
-	br := e.buildMCPTools(ctx, task, orchapp.Agent{ID: "d2-e2e"})
-	if br == nil {
-		return nil
-	}
-	return &MCPBridgeForTest{br: br}
-}
-
-// BuildMCPToolsForAgent 是 buildMCPTools 的导出版（batch mcp_tool 执行器
-// 用，batch v2.0 设计 §4）：与 D2 门面 BuildMCPTools 同一条组装链
-//（ResolveForEngine 合并 + SSRF 门 + mcpCatalog 缓存 + 输出契约校验），
-// 但透传真实 agentID——agent 级 MCP 配置参与工具面合成（白名单语义：
-// agent 扇不出它看不见的工具）。task 只需 WorkspaceID/ID（批次关联）。
+// BuildMCPToolsForAgent 是 buildMCPTools 的导出版：透传真实 agentID——
+// agent 级 MCP 配置参与工具面合成（白名单语义：agent 扇不出它看不见的
+// 工具）。task 只需 WorkspaceID/ID（批次关联）。
 func (e *EinoEngine) BuildMCPToolsForAgent(ctx context.Context, task orchapp.Task, agentID string) *MCPBridgeForTest {
 	br := e.buildMCPTools(ctx, task, orchapp.Agent{ID: agentID})
 	if br == nil {
@@ -209,46 +198,4 @@ func InvokeMCPTool(ctx context.Context, bridge *MCPBridgeForTest, name, argsJSON
 // MCPBridgeForTest 包装 mcpBridge 暴露只读观测面（不复制内部切片语义）。
 type MCPBridgeForTest struct{ br *mcpBridge }
 
-// SnapshotForTest 返回桥接的服务器级状态快照（ok/ssrf/connect_failed/
-// list_failed + note）——诊断空工具面的唯一窗口。
-func (b *MCPBridgeForTest) SnapshotForTest() []orchapp.MCPSnapshotEntry {
-	if b == nil || b.br == nil {
-		return nil
-	}
-	return b.br.snapshot
-}
 
-// ToolsForTest 返回桥接工具清单长度与名字的只读投影。
-func (b *MCPBridgeForTest) ToolsForTest() []string {
-	out := make([]string, 0, len(b.br.tools))
-	for _, t := range b.br.tools {
-		if info, err := t.Info(context.Background()); err == nil && info != nil {
-			out = append(out, info.Name)
-		}
-	}
-	return out
-}
-
-
-// SchemaOf 透传 schemaOf（最终生效输出契约：协议自描述 → B1 存档）。
-func (b *MCPBridgeForTest) SchemaOf(name string) json.RawMessage { return b.br.schemaOf(name) }
-
-// RawTools 返回桥接内含的 eino 工具（供注册表登记测试用）。
-func (b *MCPBridgeForTest) Raw() *mcpBridge { return b.br }
-
-// NewToolRegistryForTest 是 newToolRegistry 的导出版（D2 联调测试用）。
-func NewToolRegistryForTest() *ToolRegistryForTest { return &ToolRegistryForTest{r: newToolRegistry()} }
-
-// ToolRegistryForTest 包装 toolRegistry 暴露登记与快照观测面。
-type ToolRegistryForTest struct{ r *toolRegistry }
-
-// RegisterMCPBridgeForTest 是 registerMCPBridge 的导出版（D2 联调测试用）。
-func RegisterMCPBridgeForTest(ctx context.Context, reg *ToolRegistryForTest, bridge *MCPBridgeForTest) {
-	if bridge == nil {
-		return
-	}
-	registerMCPBridge(ctx, reg.r, bridge.br, nil)
-}
-
-// SnapshotForTest 返回注册表全量清单副本（task.context.tools 数据源）。
-func (r *ToolRegistryForTest) SnapshotForTest() []orchapp.ToolSnapshotEntry { return r.r.snapshot() }

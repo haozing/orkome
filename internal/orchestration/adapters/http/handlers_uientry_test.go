@@ -189,11 +189,30 @@ func TestUIEntrySlotsContract(t *testing.T) {
 		}
 	})
 
-	t.Run("PUT without pack_id rejected (migration 1042: string-key era over)", func(t *testing.T) {
-		rec := uiEntryReq(r, "PUT", "/api/ui-entries/legacy",
-			`{"pack":"legacy","label":"L","url_template":"https://l.example"}`)
-		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-		// agentblog + plainpack（badpack/noheight/legacy 三个被拒未入库）
-		require.Len(t, repo.stored, 2)
+	// 集成页终态 W1 §2.3：pack_id 空 = 手动入口（合法路径，pack 名即内部键）；
+	// ws/pack/label/url_template 必填仍不放行。
+	t.Run("PUT without pack_id accepted as manual entry, required fields still enforced", func(t *testing.T) {
+		rec := uiEntryReq(r, "PUT", "/api/ui-entries/custom-side",
+			`{"pack":"custom-side","label":"侧栏入口","url_template":"https://l.example"}`)
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+		last := repo.stored[len(repo.stored)-1]
+		require.Equal(t, "custom-side", last.Pack)
+		assert.Empty(t, last.PackID, "手动入口不伪造 pack_id")
+
+		rec = uiEntryReq(r, "GET", "/api/ui-entries", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), `"pack":"custom-side"`)
+
+		// 必填项矩阵：pack / label / url_template 任一缺失 → 400。
+		for _, body := range []string{
+			`{"label":"L","url_template":"https://l.example"}`,
+			`{"pack":"manual-no-label","url_template":"https://l.example"}`,
+			`{"pack":"manual-no-url","label":"L"}`,
+		} {
+			rec := uiEntryReq(r, "PUT", "/api/ui-entries/x", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, body+" → "+rec.Body.String())
+		}
+		// agentblog + plainpack（前两个子测试）+ custom-side；被拒请求未入库。
+		require.Len(t, repo.stored, 3)
 	})
 }

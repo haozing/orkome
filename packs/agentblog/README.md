@@ -18,15 +18,13 @@
 cd D:\code\agentblog
 AGENTBLOG_MCPACK_TOKEN=dev-pack-token AGENTBLOG_HTTP_ADDR=:8080 go run ./cmd/full-server
 
-# orkome 侧
-cd D:\code\orkome
-go run ./cmd/pack-provision install packs/agentblog \
-  --base http://localhost:8080 \
-  --workspace <ws-id> --pat <owner/admin PAT> \
-  --credential AGENTBLOG_CALLBACK_TOKEN=dev-pack-token
-```
-
-卸载：`go run ./cmd/pack-provision uninstall packs/agentblog --base ... --workspace ... --pat ...`
+# orkome 侧（2026-10-15 起装包走 AI 对话路径，CLI 已退役）： 用助理 MCP 客户端（Claude Code / Codex 等，PAT 接入 /access）对 AI 说：
+#   "把 packs/agentblog/pack.yaml 这个包装进来，AGENTBLOG_CALLBACK_TOKEN=dev-pack-token"
+# AI 按 pack.yaml 调配置工具链：register_pack（拿 id）→ create_credential（密封入库）
+#   → create_mcp_server（带 pack_id 归属+bearer）→ create_webhook_subscription（验签密钥一次性拿回）
+#   → put_page_entry（控制台入口+工单页签，自动跑 CSP frame-ancestors 探测）。
+# 卸载同理："卸载 agentblog 包" → list_packs 找 id → uninstall_pack（定向清理）。
+# 历史注记：pack-provision CLI 已删除；pack.yaml 仍是包的分发格式——AI 读它、按它执行。
 
 ### URL 占位说明（重要）
 
@@ -60,12 +58,15 @@ orchestrate）。**D3 交付前** agentblog 侧 `/hooks/orkome` 接收端不存�
 
 ## 联调测试
 
-`cmd/pack-provision/agentblog_e2e_test.go`（env 门控 `ORKOME_AGENTBLOG_DIR`，
+`e2e/golden_thread_test.go` 的 agentblog 跨仓联调（env 门控 `ORKOME_AGENTBLOG_DIR`，
 默认跳过，不进默认 `go test ./...` 的依赖面）：
 
 ```bash
-ORKOME_AGENTBLOG_DIR=D:/code/agentblog go test ./cmd/pack-provision/ -run TestAgentblogE2E -count=1 -v
+ORKOME_AGENTBLOG_DIR=D:/code/agentblog go test ./e2e/ -run TestGoldenThread -count=1 -v
 ```
+
+> CLI 退役后，agentblog 全链路（真实握手 → 引擎桥接 → 输出校验）由 e2e 套件承接；
+> 装包动作本身改由 AI 经助理 MCP 工具链完成（见上节）。
 
 自起 agentblog fake full-server（随机端口）→ 三闸门（前缀/output/三件套）→
 schema 存档 PUT（六工具 source=protocol）→ ui entry + slots PUT → 引擎桥接组装

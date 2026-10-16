@@ -49,10 +49,12 @@ func (s *PackUIEntryService) Upsert(ctx context.Context, ws, pack, label, urlTem
 
 // UpsertWithSlots 与 entry 同一 PUT 路径：slots 随行落库（nil = 无 slots，覆盖旧值）。
 // packID 非空时按 (workspace_id, pack_id) 冲突写（迁移 1042 的一等公民口径；
-// provision 第 0 步先 upsert pack 拿 id 再传此）——空 packID 拒绝，防漂回字符串键。
+// provision 第 0 步先 upsert pack 拿 id 再传此）；空 packID = 集成页手动入口
+// （docs/integrations-page-design-2026-10-15.md §2.3）——无真 pack_id，repo 落
+// NULL 并按 (workspace_id, pack) 部分唯一索引（迁移 1047）覆盖，pack 名即内部键。
 func (s *PackUIEntryService) UpsertWithSlots(ctx context.Context, ws, pack, packID, label, urlTemplate string, slots []PackUISlot) error {
-	if ws == "" || pack == "" || packID == "" || label == "" || urlTemplate == "" {
-		return apierr.NewValidation("pack, pack_id, label and url_template required")
+	if ws == "" || pack == "" || label == "" || urlTemplate == "" {
+		return apierr.NewValidation("pack, label and url_template required")
 	}
 	if err := validateURLTemplate("url_template", "", urlTemplate); err != nil {
 		return err

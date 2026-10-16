@@ -5,7 +5,6 @@
 //	PUT    /api/packs                              admin   provision upsert（第 0 步拿 pack_id）
 //	DELETE /api/packs/{packId}                     admin   P1 最小卸载（FK 分层删除语义）
 //	PUT    /api/packs/{packId}/subscriptions       admin   provision 订阅关联（连接表）
-//	POST   /api/packs/install                      admin   一键安装编排（平台化）
 //	GET    /api/packs/{packId}/usage-document      member  LLM 用法文档（平台化）
 //	POST   /api/agents/{agentId}/pack              admin   agent 挂载/卸载 pack（平台化）
 //	POST   /api/skills/{skillId}/pack              admin   skill 挂载/卸载 pack（平台化）
@@ -33,17 +32,15 @@ type Deps struct {
 	// principal 不带 role，provision 全靠 admin PAT 走 PUT/DELETE）。
 	RoleOf func(ctx context.Context, workspaceID, userID string) (string, error)
 
-	// ---- 平台化增补（能力包平台化）：全部可选，nil = 对应端点 503 ----
+	// ---- 平台化增补：全部可选，nil = 对应端点 503 ----
 
 	// AgentBinder / SkillBinder：agent/skill 归属写的窄端口（各自域 repo
 	// 的 SetXxxPack 经组合根适配注入——packhttp 不 import 那两个域）。
 	AgentBinder AgentBinder
 	SkillBinder SkillBinder
 
-	// InstallWired / ToolDetailsWired：安装编排与 usage-document 的端口在
-	// PackService.WithInstallPorts / Ports.ToolDetails 侧装配，HTTP 层只需要
-	// 一个"是否接线"的旗子做 503 短路（避免 HTTP 层摸 app 内部字段）。
-	InstallWired     bool
+	// ToolDetailsWired：usage-document 的端口在 Ports.ToolDetails 侧装配，
+	// HTTP 层只需要一个"是否接线"的旗子做 503 短路。
 	ToolDetailsWired bool
 }
 
@@ -59,8 +56,7 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	reg("PUT /api/packs", d.handleUpsert)
 	reg("DELETE /api/packs/{packId}", d.handleDelete)
 	reg("PUT /api/packs/{packId}/subscriptions", d.handleLinkSubscription)
-	// 平台化四端点
-	reg("POST /api/packs/install", d.handleInstall)
+	// 平台化端点（install 向导端点已退役，见 handlers_platform.go 头注）
 	reg("GET /api/packs/{packId}/usage-document", d.handleUsageDocument)
 	reg("POST /api/agents/{agentId}/pack", d.handleAgentPack)
 	reg("POST /api/skills/{skillId}/pack", d.handleSkillPack)

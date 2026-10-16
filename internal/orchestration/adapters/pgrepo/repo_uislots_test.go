@@ -135,3 +135,90 @@ func TestPackUIEntrySlots_MigrationAndRepo(t *testing.T) {
 		`SELECT count(*) FROM pack_ui_entry WHERE workspace_id=$1 AND pack='agentblog'`, ws).Scan(&n))
 	assert.Zero(t, n)
 }
+
+// 集成页终态 W1（docs/integrations-page-design-2026-10-15.md §2.3）：手动入口
+// （PackID 空）按 (workspace_id, pack) 部分唯一索引幂等；provision 路径
+// （PackID 非空）仍按 (workspace_id, pack_id) 冲突写，互不干扰。
+func TestPackUIEntryManualEntry_UpsertAndList(t *testing.T) {
+	repo, pool, ws := newUISlotsEnv(t)
+	ctx := context.Background()
+
+	// 迁移 1047 落地：部分唯一索引存在且谓词只覆盖手动行。
+	var idxDef string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT indexdef FROM pg_indexes
+		 WHERE tablename='pack_ui_entry' AND indexname='pack_ui_entry_ws_manual_pack_key'`).Scan(&idxDef))
+	assert.Contains(t, idxDef, "UNIQUE")
+	assert.Contains(t, idxDef, "pack_id IS NULL")
+
+	// 同名两次 upsert：幂等覆盖，只有一行。
+	require.NoError(t, repo.UpsertPackUIEntry(ctx, app.PackUIEntry{
+		WorkspaceID: ws, Pack: "custom-side", Label: "旧标签",
+		URLTemplate: "https://old.example",
+	}))
+	require.NoError(t, repo.UpsertPackUIEntry(ctx, app.PackUIEntry{
+		WorkspaceID: ws, Pack: "custom-side", Label: "新标签",
+		URLTemplate: "https://new.example",
+		Slots: []app.PackUISlot{{
+			Slot: app.SlotWorkItemDetailTab, Label: "文章预览",
+			URLTemplate: "https://new.example/slot?item={workItemId}", Height: 480,
+		}},
+	}))
+	var n int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM pack_ui_entry WHERE workspace_id=$1 AND pack='custom-side'`, ws).Scan(&n))
+	assert.Equal(t, 1, n, "同名手动入口 upsert 覆盖不新建行")
+
+	// 不同名 → 两行手动入口。
+	require.NoError(t, repo.UpsertPackUIEntry(ctx, app.PackUIEntry{
+		WorkspaceID: ws, Pack: "custom-tab", Label: "工单 tab",
+		URLTemplate: "https://tab.example",
+	}))
+
+	// List：手动行 pack_id 为空串（列 NULL 经 COALESCE 读出，不炸扫描），
+	// label 为覆盖后的整行语义。
+	entries, err := repo.ListPackUIEntries(ctx, ws)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	byPack := map[string]app.PackUIEntry{}
+	for _, e := range entries {
+		byPack[e.Pack] = e
+	}
+	require.Contains(t, byPack, "custom-side")
+	require.Contains(t, byPack, "custom-tab")
+	assert.Equal(t, "新标签", byPack["custom-side"].Label)
+	assert.Equal(t, "https://new.example", byPack["custom-side"].URLTemplate)
+	assert.Len(t, byPack["custom-side"].Slots, 1)
+	assert.Empty(t, byPack["custom-side"].PackID, "手动行 pack_id NULL → 空串")
+	assert.Empty(t, byPack["custom-tab"].PackID)
+
+	// provision 路径回归：pack_id 非空按 (workspace_id, pack_id) 冲突写
+	// （原 SQL 一字未改），与手动行互不干扰。
+	var packID string
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO pack (workspace_id, name) VALUES ($1, 'agentblog') RETURNING id::text`, ws).Scan(&packID))
+	require.NoError(t, repo.UpsertPackUIEntry(ctx, app.PackUIEntry{
+		WorkspaceID: ws, Pack: "agentblog", PackID: packID, Label: "内容工厂",
+		URLTemplate: "https://ab.example/console",
+	}))
+	require.NoError(t, repo.UpsertPackUIEntry(ctx, app.PackUIEntry{
+		WorkspaceID: ws, Pack: "agentblog", PackID: packID, Label: "内容工厂 v2",
+		URLTemplate: "https://ab.example/console2",
+	}))
+	entries, err = repo.ListPackUIEntries(ctx, ws)
+	require.NoError(t, err)
+	require.Len(t, entries, 3, "provision 行按 pack_id 覆盖 + 两条手动行")
+	byPack = map[string]app.PackUIEntry{}
+	for _, e := range entries {
+		byPack[e.Pack] = e
+	}
+	assert.Equal(t, packID, byPack["agentblog"].PackID)
+	assert.Equal(t, "内容工厂 v2", byPack["agentblog"].Label)
+	assert.Equal(t, "https://ab.example/console2", byPack["agentblog"].URLTemplate)
+
+	// Delete 对手动入口按 pack 名可用（集成页移除路径）。
+	require.NoError(t, repo.DeletePackUIEntry(ctx, ws, "custom-side"))
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM pack_ui_entry WHERE workspace_id=$1 AND pack='custom-side'`, ws).Scan(&n))
+	assert.Zero(t, n)
+}

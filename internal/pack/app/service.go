@@ -164,18 +164,10 @@ type Ports struct {
 type PackService struct {
 	repo  Repo
 	ports Ports
-	// install 是安装编排端口（能力包平台化）；nil 端口在 Install 需要它时报错。
-	install InstallPorts
 }
 
 func NewPackService(repo Repo, ports Ports) *PackService {
 	return &PackService{repo: repo, ports: ports}
-}
-
-// WithInstallPorts 注入安装编排端口（返回同指针，链式装配）。
-func (s *PackService) WithInstallPorts(p InstallPorts) *PackService {
-	s.install = p
-	return s
 }
 
 // List 返回工作区全部 pack 及资产计数（列表页）。
