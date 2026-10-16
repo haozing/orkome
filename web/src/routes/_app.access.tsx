@@ -122,21 +122,37 @@ export function AccessPage() {
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('access.pageIntro')}</p>
       </div>
 
-      {/* 第 1 段：三步接入（v4 §五①）+ 接单一句话 */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">{t('mcp.connectTitle')}</h2>
-        <ol className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
-          <li>{t('access.step1')}</li>
-          <li>{t('access.step2')}</li>
-          <li>{t('access.step3')}</li>
-        </ol>
-        <p className={CARD_DESC_CLASS}>{t('access.claimHint')}</p>
-        {/* 三张客户端配置卡已删（2026-10-15 用户裁决）：接入指引收敛到页尾「一键接入命令」，
-            本段只保留风险提示。 */}
-        <p className={CARD_DESC_CLASS}>{t('mcp.replaceTokenHint')}</p>
+      {/* 第 1 段（置顶）：通用一键接入（2026-10-16 用户裁决）——接入即一份
+          skill 文档：用户把文档地址发给任意 AI 客户端，AI 读完自行完成 MCP
+          注册并学会全部工具用法（文档由服务端从注册面自动生成，工具目录
+          零漂移）。原三步引导/接单提示/令牌警示整段删除——有 skill.md 后
+          这些文案都是冗余，按 AI 的提示走即可。 */}
+      <section className={CARD_CLASS}>
+        <h2 className={CARD_TITLE_CLASS}>{t('access.oneCmdTitle')}</h2>
+        <p className={CARD_DESC_CLASS}>{t('access.oneCmdDesc')}</p>
+        <Snippet title={t('access.skillDocTitle')} file="skill.md" code={skillDocUrl} />
+        <p className={CARD_DESC_CLASS}>{t('access.oneCmdHint')}</p>
       </section>
 
-      {/* 第 2 段：工具清单（23 个真实注册面，按 读/写/任务协议/恢复/配置 分组） */}
+      {/* 第 2 段：访问凭证 = 个人访问令牌 PAT——AI 读文档后会让用户提供
+          令牌，此处是创建它的地方（管理面抽为共享组件 tokens-section，
+          完整管理入口链接到 /settings#tokens）。 */}
+      <section className={CARD_CLASS}>
+        <h2 className={CARD_TITLE_CLASS}>{t('access.patTitle')}</h2>
+        <p className={CARD_DESC_CLASS}>{t('access.patDesc')}</p>
+        <p className="mb-3 text-xs">
+          <Link
+            to="/settings"
+            className="text-primary underline-offset-4 hover:underline"
+            data-testid="access-tokens-link"
+          >
+            {t('access.manageInSettings')}
+          </Link>
+        </p>
+        <TokensSection />
+      </section>
+
+      {/* 第 3 段：工具清单（26 个真实注册面，按 读/写/任务协议/恢复/配置 分组） */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('mcp.toolsTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('mcp.toolsDesc')}</p>
@@ -159,35 +175,6 @@ export function AccessPage() {
             </div>
           ))}
         </div>
-      </section>
-
-      {/* 第 3 段：访问凭证 = 个人访问令牌 PAT（v4 §五③：本页主角）。
-          管理面（列表/创建/撤销）已抽为共享组件 tokens-section（design settings-domain
-          §3.3：归宿在 settings 安全区块），此处引用同组件保留接入语境；
-          完整管理入口链接到 /settings#tokens。 */}
-      <section className={CARD_CLASS}>
-        <h2 className={CARD_TITLE_CLASS}>{t('access.patTitle')}</h2>
-        <p className={CARD_DESC_CLASS}>{t('access.patDesc')}</p>
-        <p className="mb-3 text-xs">
-          <Link
-            to="/settings"
-            className="text-primary underline-offset-4 hover:underline"
-            data-testid="access-tokens-link"
-          >
-            {t('access.manageInSettings')}
-          </Link>
-        </p>
-        <TokensSection />
-      </section>
-
-      {/* 第 4 段：通用一键接入（2026-10-15 用户裁决）——接入即一份 skill 文档：
-          用户把文档地址+令牌发给任意 AI 客户端，AI 读完自行完成 MCP 注册并
-          学会全部工具用法（文档由服务端从注册面自动生成，工具目录零漂移）。 */}
-      <section className={CARD_CLASS}>
-        <h2 className={CARD_TITLE_CLASS}>{t('access.oneCmdTitle')}</h2>
-        <p className={CARD_DESC_CLASS}>{t('access.oneCmdDesc')}</p>
-        <Snippet title={t('access.skillDocTitle')} file="skill.md" code={skillDocUrl} />
-        <p className={CARD_DESC_CLASS}>{t('access.oneCmdHint')}</p>
       </section>
     </div>
   )

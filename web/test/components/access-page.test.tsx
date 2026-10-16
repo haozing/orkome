@@ -49,14 +49,15 @@ function renderPage() {
 }
 
 describe('AccessPage (assistant-only, v4)', () => {
-  it('renders the three-step copy and the claim hand-off hint', async () => {
+  it('leads with the setup document; three-step copy retired (2026-10-16 slimming)', async () => {
     server.use(http.get('/api/tokens', () => HttpResponse.json([PAT])))
     renderPage()
-    expect(await screen.findByText(/Create a personal access token/)).toBeInTheDocument()
-    expect(screen.getByText(/Send the setup document below to your AI/)).toBeInTheDocument()
-    expect(screen.getByText(/mark X as done/)).toBeInTheDocument()
-    // 接单一句话（§五①）
-    expect(screen.getByText(/watch the items assigned to me/)).toBeInTheDocument()
+    // 文档段置顶：标题/文档地址/引导句都在，且无旧三步与接单文案。
+    expect(await screen.findByText('One-click setup')).toBeInTheDocument()
+    expect(screen.getByText(/\/api\/mcp\/skill\.md/)).toBeInTheDocument()
+    expect(screen.queryByText(/Create a personal access token/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/mark X as done/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/watch the items assigned to me/)).not.toBeInTheDocument()
   })
 
   it('lists exactly the 14 real assistant tools with no coming-soon badge', async () => {

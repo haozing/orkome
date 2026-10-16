@@ -132,18 +132,13 @@ const en: Locale = {
   },
   access: {
     pageTitle: 'Assistant Access',
-    pageIntro:
-      'Connect external AI clients like Claude Code and Codex to your Orkome workspace: three steps and AI works as you (your PAT) — reading work items, creating them, commenting, and claiming tasks.',
-    step1: '1. Create a personal access token (PAT) — AI works under your identity with your account permissions;',
-    step2: '2. Send the setup document below to your AI (Claude Code, Codex, or any client) — it registers itself;',
-    step3: '3. Tell your AI "mark X as done" — start directing it in plain language.',
-    claimHint: 'To hand off work: assign a work item to yourself, then tell your AI "watch the items assigned to me" — it claims, reports, and delivers automatically.',
+    pageIntro: 'Connect an external AI client to your Orkome workspace: send it the setup document and follow its prompts.',
     patTitle: 'Access credential (personal access token, PAT)',
-    patDesc: 'An AI client holding this token works with your full account permissions (including workspace and automation admin surfaces); the plaintext is shown only once at creation—revoke and recreate if lost. Keep it safe and never commit it to a repo.',
-    oneCmdTitle: 'One-click setup (universal)',
-    oneCmdDesc: 'Send the document URL below to any AI client (Claude Code, Codex, or any other) — it reads the document, registers the MCP server itself, and learns every tool.',
+    patDesc: 'Your AI will ask for a token after reading the document; it carries full account permissions and its plaintext is shown only once—keep it safe.',
+    oneCmdTitle: 'One-click setup',
+    oneCmdDesc: 'Send the document URL below to any AI client (Claude Code, Codex, or any other) — it reads it, registers itself, and learns every tool.',
     skillDocTitle: 'Setup document',
-    oneCmdHint: 'One fixed document link for the whole site: send it to your AI and say "read this document and connect Orkome" — it walks you through creating a token, discovers your workspace, and finishes the setup. Opens without sign-in.',
+    oneCmdHint: 'Tell your AI "read this document and connect Orkome"; opens without sign-in.',
     manageInSettings: 'Manage tokens in Settings →',
   },
   batchPanel: {
@@ -529,11 +524,7 @@ const en: Locale = {
     comingSoon: 'Coming soon',
     endpointDesc:
       'MCP Streamable HTTP endpoint; authenticated with a personal access token below (Authorization: Bearer).',
-    connectTitle: 'Connect your client',
     availableAfterLaunch: 'Available once the MCP service launches',
-    tokenPlaceholder: 'ork_your_token',
-    replaceTokenHint:
-      'The token plaintext is shown only once—hand it to your AI; a token carries full account permissions—never commit it to a repo.',
     toolsTitle: 'Tool catalog',
     toolsDesc: 'Once connected, AI can call these 26 tools directly on your workspace, acting as you (same permissions as the web UI).',
     // Assistant endpoint's 16 tools (design v4 §3.2: read 7 + write 3 + task protocol 5 + recover 1).

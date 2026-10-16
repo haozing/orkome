@@ -128,18 +128,13 @@ const zh: Locale = {
   },
   access: {
     pageTitle: '助理接入',
-    pageIntro:
-      '把 Claude Code、Codex 等外部 AI 客户端接入你的 Orkome 工作区：三步接入，AI 以你的身份（用户 PAT）直接查工单、建工单、写评论、接单干活。',
-    step1: '① 创建个人访问令牌（PAT）——AI 以你的身份干活，权限即你的账号；',
-    step2: '② 把下方的接入文档发给你的 AI（Claude Code / Codex / 任意客户端），它会自己完成注册；',
-    step3: '③ 对 AI 说「帮我把 X 标完成」——开始用自然语言指挥它。',
-    claimHint: '接单：把工单指派给自己，然后对 AI 说「盯着我被指派的工单」，它会自动认领、汇报、交付。',
+    pageIntro: '把外部 AI 客户端接入你的 Orkome 工作区：把接入文档发给你的 AI，按它的提示完成配置。',
     patTitle: '访问凭证（个人访问令牌 PAT）',
-    patDesc: 'AI 客户端持令牌即以你的账号完整权限工作（含工作区与自动化管理面）；令牌明文仅创建时显示一次，丢失只能撤销重建，请妥善保管、勿提交到代码仓库。',
-    oneCmdTitle: '一键接入（通用）',
-    oneCmdDesc: '把下方文档地址发给任意 AI 客户端（Claude Code / Codex / 其他）——它读完文档会自行完成 MCP 注册，并掌握全部工具的用法。',
+    patDesc: 'AI 读文档后会让你提供令牌；它等同账号完整权限，明文仅创建时显示一次，请妥善保管。',
+    oneCmdTitle: '一键接入',
+    oneCmdDesc: '把下方文档地址发给任意 AI 客户端（Claude Code / Codex / 其他）——它读完会自行完成注册并掌握全部工具用法。',
     skillDocTitle: '接入文档',
-    oneCmdHint: '全站统一的固定文档地址：发给你的 AI 并说「读这份文档并接入 Orkome」——它会引导你建令牌、自行发现工作区并完成接入。无需登录即可预览。',
+    oneCmdHint: '对 AI 说「读这份文档并接入 Orkome」即可；无需登录即可预览。',
     manageInSettings: '在设置中管理令牌 →',
   },
   batchPanel: {
@@ -514,11 +509,7 @@ const zh: Locale = {
     endpointTitle: '服务地址',
     comingSoon: '即将上线',
     endpointDesc: 'MCP Streamable HTTP 端点；认证使用下方个人访问令牌（Authorization: Bearer）。',
-    connectTitle: '连接你的客户端',
     availableAfterLaunch: '服务已上线',
-    tokenPlaceholder: 'ork_你的令牌',
-    replaceTokenHint:
-      '令牌明文仅创建时显示一次，务必交给你的 AI 保管好；令牌等同账号完整权限，请勿提交到代码仓库。',
     toolsTitle: '工具清单',
     toolsDesc: '客户端接入后，AI 以你的身份可直接调用这 26 个工具操作工作区与配置集成（与网页同权；配置写需管理员）。',
     // 助理端点 14 工具（设计 v4 §3.2 + 知识库读：读 7 + 写 3 + 任务协议 5 + 恢复 1）。
