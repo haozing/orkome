@@ -128,7 +128,7 @@ const zh: Locale = {
   },
   access: {
     pageTitle: '助理接入',
-    pageIntro: '把外部 AI 客户端接入你的 Orkome 工作区：把接入文档发给你的 AI，按它的提示完成配置。',
+    pageIntro: '把外部 AI 客户端接入你的 Orkome 工作区。',
     patTitle: '访问凭证（个人访问令牌 PAT）',
     patDesc: 'AI 读文档后会让你提供令牌；它等同账号完整权限，明文仅创建时显示一次，请妥善保管。',
     oneCmdTitle: '一键接入',

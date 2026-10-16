@@ -132,7 +132,7 @@ const en: Locale = {
   },
   access: {
     pageTitle: 'Assistant Access',
-    pageIntro: 'Connect an external AI client to your Orkome workspace: send it the setup document and follow its prompts.',
+    pageIntro: 'Connect an external AI client to your Orkome workspace.',
     patTitle: 'Access credential (personal access token, PAT)',
     patDesc: 'Your AI will ask for a token after reading the document; it carries full account permissions and its plaintext is shown only once—keep it safe.',
     oneCmdTitle: 'One-click setup',
