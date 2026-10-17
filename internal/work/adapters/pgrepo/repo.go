@@ -875,8 +875,12 @@ func (r *Repo) TouchWorkItem(ctx context.Context, wiID string) error {
 }
 
 func (r *Repo) UpsertSubscriber(ctx context.Context, wiID, userID, source string) error {
+	// EXISTS 守卫：mention 的 user_id 来自评论文本（不可信），未知用户直接
+	// 跳过——裸 INSERT 会 23503 毒化整个外层事务（评论 500，G9 实证），
+	// 而这里的调用方全是 `_ =` 尽力而为语义，错误本来就该无声略过。
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO work_item_subscriber (work_item_id, user_id, source) VALUES ($1,$2,$3)
+INSERT INTO work_item_subscriber (work_item_id, user_id, source)
+SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM "user" WHERE id=$2)
 ON CONFLICT (work_item_id, user_id) DO NOTHING`, wiID, userID, source)
 	return err
 }
