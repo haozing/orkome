@@ -8,6 +8,7 @@ import (
 	convhttp "orkome/internal/conversation/adapters/http"
 	convpgrepo "orkome/internal/conversation/adapters/pgrepo"
 	convapp "orkome/internal/conversation/app"
+	"orkome/internal/contract/apierr"
 	orchapp "orkome/internal/orchestration/app"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 )
@@ -31,9 +32,15 @@ func wiringConversation(log *slog.Logger, db *pg.DB,
 
 	wRepo := &workpgrepo.Repo{DB: db}
 	quick.SetEnqueueWorkItemTask(func(ctx context.Context, ws, wi, agentID, userID, prompt string) (string, error) {
-		t, _, err := enq.EnqueueQuickAction(ctx, ws, wi, agentID, userID, prompt)
+		t, reason, err := enq.EnqueueQuickAction(ctx, ws, wi, agentID, userID, prompt)
 		if err != nil {
 			return "", err
+		}
+		// 未入队也返回 nil error（Blocked/AlreadyActive 是决策不是故障），
+		// 此时 t 为 nil——必须落成 409 语义而不是裸解引用（生产实证：
+		// 指派任务在途时点 run → nil panic → 500，任务却已由指派链创建）。
+		if t == nil {
+			return "", apierr.New(apierr.ActiveDuplicate, "work item already has an active task for this agent ("+reason+")")
 		}
 		return t.ID, nil
 	})
