@@ -500,11 +500,12 @@ func (d *assistantMEDeps) orchRepoTimeline(ctx context.Context, wiID string) ([]
 
 func (d *assistantMEDeps) addWriteTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("create_work_item",
-		mcp.WithDescription("create a work item (author = you, the PAT owner); assignee can be 'me'"),
+		mcp.WithDescription("create a work item (author = you, the PAT owner); assignee can be 'me' or an agent (by id)"),
 		mcp.WithString("title", mcp.Required(), mcp.Description("title (1-500 chars)")),
 		mcp.WithString("description", mcp.Description("description")),
 		mcp.WithString("project", mcp.Description("project id (see list_projects)")),
 		mcp.WithString("assignee", mcp.Description("'me' to assign to yourself; omit for unassigned")),
+		mcp.WithString("assignee_agent_id", mcp.Description("agent id to assign (validated against this workspace; mutually exclusive with assignee='me')")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		ws, userID, err := principalOf(ctx)
 		if err != nil {
@@ -517,8 +518,22 @@ func (d *assistantMEDeps) addWriteTools(s *server.MCPServer) {
 			ProjectID:   req.GetString("project", ""),
 			CreatorType: "user", CreatorID: userID,
 		}
-		if req.GetString("assignee", "") == "me" {
+		assigneeMe := req.GetString("assignee", "") == "me"
+		assigneeAgent := req.GetString("assignee_agent_id", "")
+		switch {
+		case assigneeMe && assigneeAgent != "":
+			return errResultMe(apierr.New(apierr.Validation, "assignee='me' and assignee_agent_id are mutually exclusive"))
+		case assigneeMe:
 			in.AssigneeType, in.AssigneeID = "user", userID
+		case assigneeAgent != "":
+			a, ok, err := d.orchRepo.GetAgent(ctx, ws, assigneeAgent)
+			if err != nil {
+				return errResultMe(err)
+			}
+			if !ok || a.Archived {
+				return errResultMe(apierr.New(apierr.Validation, "assignee agent not found in this workspace or archived"))
+			}
+			in.AssigneeType, in.AssigneeID = "agent", assigneeAgent
 		}
 		wi, err := d.wiSvc.Create(ctx, in, userID)
 		if err != nil {

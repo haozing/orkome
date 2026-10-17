@@ -152,7 +152,7 @@ func buildAssistantSkillDoc(base, ws string, tools map[string]*server.ServerTool
 func toolParamSummaryMe(name string) string {
 	switch name {
 	case "create_work_item":
-		return "title 必填；description/project/status/assignee 可选"
+		return "title 必填；description/project/assignee（'me'）/assignee_agent_id 可选"
 	case "update_work_item":
 		return "work_item_id 必填；传要改的字段"
 	case "get_work_item":
