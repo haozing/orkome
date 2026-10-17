@@ -413,6 +413,7 @@ func goldenMountPackAPI(t *testing.T, s *stack, loopGuard *egressx.Guard, whSvc 
 		PackToolSchemas:  orchapp.NewPackToolSchemaService(s.orepo),
 		MCP:              func() *orchapp.MCPServerService { m := orchapp.NewMCPServerService(s.orepo); m.Egress = loopGuard; return m }(),
 		MemberCheck:      goldenMemberCheck(s),
+		RoleOf:           goldenRoleOf(s), // P2-D7 admin 闸同因（见 golden_test.go orchhttp.Deps 注）
 	}
 
 	// orchhttp.Mount 挂全部路由会与 stack 已挂的路由冲突（ServeMux panic）；

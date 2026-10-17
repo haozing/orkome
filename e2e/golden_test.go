@@ -279,7 +279,17 @@ member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_
 	notifDeps.MemberCheck = memberCheck
 	notifhttp.Mount(api, notifDeps, authMw)
 	orchhttp.Mount(api, orchhttp.Deps{
-		Settle:  settle,
+		Settle: settle,
+		// P2-D7 后 ws 级 mcp-servers 写面要求 admin（memberPathMW 经 RoleOf
+		// 填充 principal.Role）——harness 不接 RoleOf 时 owner 也 403（L1
+		// 覆盖测试实证）。同 contentDeps 的闭包写法。
+		RoleOf: func(ctx context.Context, ws, uid string) (string, error) {
+			m, ok, err := idRepo.GetMember(ctx, ws, uid)
+			if err != nil || !ok {
+				return "", err
+			}
+			return m.Role, nil
+		},
 		Agents:  orchapp.NewAgentService(orepo, bus),
 		Repo:    orepo,
 		Trigger: orchapp.NewTriggerService(orepo, bus),
