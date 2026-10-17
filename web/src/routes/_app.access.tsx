@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TokensSection } from '@/components/settings/tokens-section'
 import { Button } from '@/components/ui/button'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 // 助理接入页（docs/assistant-access-design-2026-10-14.md §五，v4 纯助理）：
 // 外部 AI 客户端（Claude Code / Codex / 任意 MCP 客户端）用「用户自己的 PAT」
@@ -15,9 +16,11 @@ export const Route = createFileRoute('/_app/access')({
   component: AccessPage,
 })
 
-// 工具清单：助理 MCP 端点注册的 23 个真实工具（设计 v4 §3.2 + 知识库读 +
-// 配置面），名字与后端注册面一一对应（页面不导入服务端包，改动需双方同步）。
-// 分五组展示：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7；无"即将上线"徽标。
+// 工具清单：助理 MCP 端点注册的 24 个真实工具（设计 v4 §3.2 + 知识库读 +
+// 配置面 + list_agents），名字与后端注册面一一对应（页面不导入服务端包，
+// 改动需双方同步；分组与 mcp_me_skilldoc.go 的 skillDocGroupOf 保持一致——
+// list_agents 归写组，是 assignee_agent_id 的取值面）。
+// 分五组展示：读 7 + 写 4 + 任务协议 5 + 恢复 1 + 配置 7；无"即将上线"徽标。
 // 包级 pack 工具（list/register/uninstall_pack）随能力包退役拆除（2026-10-16）。
 const MCP_TOOLS: {
   name: string
@@ -33,6 +36,9 @@ const MCP_TOOLS: {
     { name: 'list_skills', desc: 'mcp.toolListSkills', group: 'read' },
     { name: 'read_skill', desc: 'mcp.toolReadSkill', group: 'read' },
     { name: 'create_work_item', desc: 'mcp.toolCreateWorkItem', group: 'write' },
+    // list_agents（2026-10-17）：assignee_agent_id 的取值面，归写组与生成器
+    // skillDocGroupOf 一致；ready=false 的智能体派单会静默失败。
+    { name: 'list_agents', desc: 'mcp.toolListAgents', group: 'write' },
     { name: 'update_work_item', desc: 'mcp.toolUpdateWorkItem', group: 'write' },
     { name: 'add_comment', desc: 'mcp.toolAddComment', group: 'write' },
     { name: 'list_my_claims', desc: 'mcp.toolListMyClaims', group: 'protocol' },
@@ -100,6 +106,12 @@ export function AccessPage() {
   // 附 GET /api/workspaces 的发现指令）。README/官网可引同一条链接。
   const skillDocUrl = `${window.location.origin}/api/mcp/skill.md`
 
+  // 本工作区完整端点（2026-10-17）：统一文档之外的直连形态——URL 内含
+  // 工作区 ID，贴给支持手动填端点的客户端。currentId 未就绪（极端冷启动）
+  // 时回退 {workspaceId} 占位，与统一文档口径一致。
+  const workspaceId = useWorkspaceStore((s) => s.currentId)
+  const wsEndpointUrl = `${window.location.origin}/api/mcp/w/${workspaceId ?? '{workspaceId}'}/me`
+
   // 工具清单按"读/写/任务协议/恢复"分组（与设计 v4 §3.2 的四组一一对应）。
   const toolGroups: {
     key: 'read' | 'write' | 'protocol' | 'recover' | 'config'
@@ -128,6 +140,12 @@ export function AccessPage() {
         <h2 className={CARD_TITLE_CLASS}>{t('access.oneCmdTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('access.oneCmdDesc')}</p>
         <Snippet title={t('access.skillDocTitle')} file="skill.md" code={skillDocUrl} />
+        <div className="mt-4" data-testid="access-ws-endpoint">
+          <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('access.wsEndpointDesc')}
+          </p>
+          <Snippet title={t('access.wsEndpointTitle')} code={wsEndpointUrl} />
+        </div>
       </section>
 
       {/* 第 2 段：访问凭证 = 个人访问令牌 PAT——AI 读文档后会让用户提供

@@ -110,8 +110,10 @@ describe('WorkspaceMcpSection (registry CRUD)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByTestId('ws-mcp-row')).toBeInTheDocument())
     // W2-3 三态：创建无凭证时不发 credentials 键（缺省即空凭证，后端密封层无需触碰）。
+    // transport 缺省随 2026-10-17 统一裁决变为 streamable_http（合法值仅
+    // streamable_http | sse）。
     expect(posts).toEqual([
-      { name: 'fresh', url: 'https://mcp.example.com/mcp', transport: 'http' },
+      { name: 'fresh', url: 'https://mcp.example.com/mcp', transport: 'streamable_http' },
     ])
     expect(screen.getByText('fresh')).toBeInTheDocument()
   })
@@ -155,7 +157,9 @@ describe('WorkspaceMcpSection (registry CRUD)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(puts).toHaveLength(1))
     expect(puts[0]!.url).toBe('srv-1')
-    expect(puts[0]!.body).toMatchObject({ name: 'renamed', transport: 'http' })
+    // SERVER() 夹具仍是旧值 'http'（存量行）：编辑表单归一到 streamable_http
+    // 再提交（旧值不在下拉合法值内会渲染成空选中）。
+    expect(puts[0]!.body).toMatchObject({ name: 'renamed', transport: 'streamable_http' })
   })
 
   // W2-3 / FP-09 P1-4 三态凭证（编辑已存凭证的服务器），三步各自独立渲染

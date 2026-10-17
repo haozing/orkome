@@ -6,8 +6,9 @@ package main
 //   - 只认用户 PAT：runtime credential PAT 挂虚拟用户且 principal.AgentID
 //     非空，直接 403（agentBoundPAT 在认证链填充 AgentID，天然可判别）；
 //   - workspace 走 URL path（复用 workspaceMW 成员闸先例，v4 §3.1）；
-//   - 23 工具 = 读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7（§3.2 表格 +
-//     知识库读 + 配置面；包级 pack 工具随能力包退役拆除，2026-10-16）。
+//   - 24 工具 = 读 7 + 写 4 + 任务协议 5 + 恢复 1 + 配置 7（§3.2 表格 +
+//     知识库读 + 配置面；包级 pack 工具随能力包退役拆除，2026-10-16；
+//     2026-10-17 +list_agents 归写组——派单前置发现面，见 addWriteTools）。
 //
 // 跨域编排（list_my_claims / get_my_running_tasks 等）在本层完成：先经
 // orchestration 解析 proxy 行，再调 work 域 List——HTTP handler 所在的 cmd
@@ -207,6 +208,14 @@ func (d *assistantMEDeps) workspaceMW(memberCheck func(ctx context.Context, work
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p := webx.PrincipalFrom(r.Context())
 			ws := r.PathValue("workspaceId")
+			// PAT scope 闸（P1-1）：创建时「限定工作区」的令牌不得操作
+			// 名单外工作区——成员检查放行不代表 scope 放行（用户可以是
+			// 多个工作区成员，但令牌只被授权给其中若干个）。
+			if !p.Scope.AllowsWorkspace(ws) {
+				webx.WriteError(w, http.StatusForbidden, apierr.Forbidden,
+					"token is not scoped to this workspace", nil)
+				return
+			}
 			ok, err := memberCheck(r.Context(), ws, p.UserID)
 			if err != nil || !ok {
 				webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "workspace membership required", nil)
@@ -252,7 +261,7 @@ func errResultMe(err error) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(err.Error()), nil
 }
 
-// ---------- 读（5）----------
+// ---------- 读（7）----------
 
 func (d *assistantMEDeps) addReadTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("list_work_items",
@@ -496,9 +505,40 @@ func (d *assistantMEDeps) orchRepoTimeline(ctx context.Context, wiID string) ([]
 	return d.timeline(ctx, wiID, 20, "")
 }
 
-// ---------- 写（3）----------
+// ---------- 写（4）----------
 
 func (d *assistantMEDeps) addWriteTools(s *server.MCPServer) {
+	// —— list_agents 分组裁决（2026-10-17）：归「写」组（挂 addWriteTools）。
+	// 工具本体只读，但消费场景是派单写作流——create/update_work_item 的
+	// assignee_agent_id 取值面，紧贴两张写工具放。文档分组映射归
+	// mcp_me_skilldoc.go 的 skillDocGroupOf（A4 并行维护），未映射前落
+	// 「其他」区可见降级，不静默丢。
+	s.AddTool(mcp.NewTool("list_agents",
+		mcp.WithDescription("list workspace agents (value domain for assignee_agent_id on create/update_work_item). ready=false means dispatch to that agent fails silently (model_not_configured) — fix its runtime config before assigning"),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		ws, _, err := principalOf(ctx)
+		if err != nil {
+			return errResultMe(err)
+		}
+		agents, err := d.orchRepo.ListAgents(ctx, ws)
+		if err != nil {
+			return errResultMe(err)
+		}
+		type row struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Archived    bool   `json:"archived"`
+			Ready       bool   `json:"ready"`
+		}
+		out := make([]row, 0, len(agents))
+		for _, a := range agents {
+			out = append(out, row{ID: a.ID, Name: a.Name, Description: a.Description,
+				Archived: a.Archived, Ready: agentRuntimeReadyMe(a.RuntimeConfig)})
+		}
+		return jsonTextMe(map[string]any{"agents": out, "count": len(out)})
+	})
+
 	s.AddTool(mcp.NewTool("create_work_item",
 		mcp.WithDescription("create a work item (author = you, the PAT owner); assignee can be 'me' or an agent (by id)"),
 		mcp.WithString("title", mcp.Required(), mcp.Description("title (1-500 chars)")),
@@ -545,13 +585,14 @@ func (d *assistantMEDeps) addWriteTools(s *server.MCPServer) {
 	})
 
 	s.AddTool(mcp.NewTool("update_work_item",
-		mcp.WithDescription("update a work item (title/description/priority/status/labels). Internally reads current revision first then writes — concurrent edits surface as an error to retry"),
+		mcp.WithDescription("update a work item (title/description/priority/status/labels; reassign to an agent via assignee_agent_id — see list_agents). Internally reads current revision first then writes — concurrent edits surface as an error to retry"),
 		mcp.WithString("work_item_id", mcp.Required(), mcp.Description("work item ID")),
 		mcp.WithString("title", mcp.Description("new title")),
 		mcp.WithString("description", mcp.Description("new description")),
 		mcp.WithString("priority", mcp.Description("new priority (integer)")),
 		mcp.WithString("status", mcp.Description("new status key (see list_statuses)")),
 		mcp.WithString("labels", mcp.Description("comma-separated label ids to SET (full replace; see list_labels)")),
+		mcp.WithString("assignee_agent_id", mcp.Description("reassign to this agent id (validated against this workspace; mutually coherent with the other fields — plain reassignment)")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		ws, userID, err := principalOf(ctx)
 		if err != nil {
@@ -580,6 +621,21 @@ func (d *assistantMEDeps) addWriteTools(s *server.MCPServer) {
 				return errResultMe(apierr.NewValidation("priority must be an integer"))
 			}
 			patch.Priority = &pr
+		}
+		// 改派给智能体（2026-10-17）：校验块与 create_work_item 的
+		// assignee_agent_id 同构（存在且未归档），映射 AssigneeType/ID
+		// 双键——work 侧 Update 的合并语义按单键空值回退现值，两键同置
+		// 即为完整改派。
+		if v := req.GetString("assignee_agent_id", ""); v != "" {
+			a, ok, err := d.orchRepo.GetAgent(ctx, ws, v)
+			if err != nil {
+				return errResultMe(err)
+			}
+			if !ok || a.Archived {
+				return errResultMe(apierr.New(apierr.Validation, "assignee agent not found in this workspace or archived"))
+			}
+			at := "agent"
+			patch.AssigneeType, patch.AssigneeID = &at, &v
 		}
 		wi, err := d.wiSvc.Update(ctx, ws, id, patch, cur.Revision, userID)
 		if err != nil {
@@ -640,6 +696,23 @@ func (d *assistantMEDeps) currentLabels(ctx context.Context, ws, wiID string) []
 		return nil
 	}
 	return ls
+}
+
+// agentRuntimeReadyMe 派单就绪判定（list_agents 的 ready 字段）：
+// runtime_config 同时具备 model / credential_id / base_url 三键且均为
+// 非空字符串。缺任一则派单在 runtime 侧以 model_not_configured 静默失败
+//（dispatchreason.ModelNotConfigured 同口径）——提前在发现面暴露给 AI。
+func agentRuntimeReadyMe(rc map[string]any) bool {
+	if rc == nil {
+		return false
+	}
+	for _, k := range []string{"model", "credential_id", "base_url"} {
+		s, ok := rc[k].(string)
+		if !ok || s == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------- 任务协议（5）+ 恢复（1）----------
@@ -959,12 +1032,14 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 	})
 
 	s.AddTool(mcp.NewTool("create_mcp_server",
-		mcp.WithDescription("register a workspace MCP server so every agent can use its tools. For auth pass bearer_token (written into the sealed credentials envelope, headers.Authorization) — credential_id alone is NOT used at auth time, it is audit linkage only"),
+		mcp.WithDescription("register a workspace MCP server so every agent can use its tools. For auth pass bearer_token (written into the sealed credentials envelope, headers.Authorization) — credential_id alone is NOT used at auth time, it is audit linkage only (and is validated to exist). Pass probe=true to dry-run connectivity & tool listing before registering (recommended; a failed probe rejects registration unless force=true)"),
 		mcp.WithString("name", mcp.Required(), mcp.Description("display name")),
 		mcp.WithString("url", mcp.Required(), mcp.Description("MCP endpoint URL, e.g. https://host/mcp")),
 		mcp.WithString("transport", mcp.Description("transport: http | sse | streamable_http (default http)")),
 		mcp.WithString("bearer_token", mcp.Description("optional bearer token for the MCP endpoint")),
-		mcp.WithString("credential_id", mcp.Description("optional credential id (from create_credential) for audit linkage")),
+		mcp.WithString("credential_id", mcp.Description("optional credential id (from create_credential) for audit linkage; must exist in this workspace")),
+		mcp.WithBoolean("probe", mcp.Description("dry-run probe before registering: connect and enumerate tools without persisting (default false)")),
+		mcp.WithBoolean("force", mcp.Description("register even when the probe fails (default false); the response then carries a warning instead of failing")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		ws, _, err := d.requireAdminMe(ctx)
 		if err != nil {
@@ -986,6 +1061,23 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 			hasCreds = true
 		}
 		if cid := strings.TrimSpace(req.GetString("credential_id", "")); cid != "" {
+			// credential_id 先验存在（2026-10-17）：审计链路指向幽灵凭证会让
+			// 台账不可信。credSvc 无 Get 口子，List 后比对——工作区凭证量小，
+			// 线性扫无所谓。
+			clist, lerr := d.credSvc.List(ctx, ws)
+			if lerr != nil {
+				return errResultMe(lerr)
+			}
+			found := false
+			for _, c := range clist {
+				if c.ID == cid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return errResultMe(apierr.NewValidation("credential_id not found in this workspace (create it via create_credential first)"))
+			}
 			creds["credential_id"] = cid
 			hasCreds = true
 		}
@@ -993,14 +1085,41 @@ func (d *assistantMEDeps) addConfigTools(s *server.MCPServer) {
 		if hasCreds {
 			credMap = creds
 		}
-		m, err := d.mcpSvc.Create(ctx, orchapp.WorkspaceMCP{
+		// 干跑探测（2026-10-17，probe=true）：与注册共用同一份 WorkspaceMCP
+		// 组装段（含 bearer_token→headers 信封映射）。ProbeDraft 建连 +
+		// ListTools 不落库；失败默认拒绝（错误带失败原因），force=true 才
+		// 放行为「注册 + 响应附警告」；成功则响应附 probed_tool_count
+		//（-1 哨兵区分「没探测」与「探测成功 0 工具」）。
+		draft := orchapp.WorkspaceMCP{
 			WorkspaceID: ws, Name: name, Transport: transport, URL: u, Credentials: credMap,
-		})
+		}
+		probedToolCount := -1
+		probeWarn := ""
+		if req.GetBool("probe", false) {
+			tools, perr := d.mcpSvc.ProbeDraft(ctx, ws, draft)
+			if perr != nil {
+				if !req.GetBool("force", false) {
+					return errResultMe(apierr.New(apierr.Validation,
+						"probe failed, registration rejected (pass force=true to register anyway): "+perr.Error()))
+				}
+				probeWarn = "probe failed, registered anyway (force=true): " + perr.Error()
+			} else {
+				probedToolCount = len(tools)
+			}
+		}
+		m, err := d.mcpSvc.Create(ctx, draft)
 		if err != nil {
 			return errResultMe(err)
 		}
-		return jsonTextMe(map[string]any{"id": m.ID, "name": m.Name,
-			"transport": m.Transport, "url": m.URL, "has_credentials": m.HasCreds})
+		out := map[string]any{"id": m.ID, "name": m.Name,
+			"transport": m.Transport, "url": m.URL, "has_credentials": m.HasCreds}
+		if probedToolCount >= 0 {
+			out["probed_tool_count"] = probedToolCount
+		}
+		if probeWarn != "" {
+			out["warning"] = probeWarn
+		}
+		return jsonTextMe(out)
 	})
 
 	s.AddTool(mcp.NewTool("create_webhook_subscription",

@@ -116,7 +116,15 @@ interface ServerFormState {
   apiKey: string
 }
 
-const TRANSPORTS = ['http', 'sse'] as const
+// transport 合法值统一（2026-10-17 裁决）：streamable_http | sse，缺省
+// streamable_http。旧 'http' 不再出现在下拉（v0 无兼容原则——存量行的
+// transport 值由后端统一迁移口径，前端不再兜底展示）。
+const TRANSPORTS = ['streamable_http', 'sse'] as const
+// 下拉展示标签：值仍是协议串（直传后端），标签给人读。
+const TRANSPORT_LABELS: Record<(typeof TRANSPORTS)[number], string> = {
+  streamable_http: 'Streamable HTTP',
+  sse: 'SSE',
+}
 
 // 单台服务器的工具清单面板：点击「查看工具」时才发起 probe（实时建连，
 // 非缓存），结果在面板存活期间保留——收起再展开会重新 probe（服务器端
@@ -348,7 +356,8 @@ function WorkspaceMcpDialog({
   const [form, setForm] = useState<ServerFormState>({
     name: server?.name ?? '',
     url: server?.url ?? '',
-    transport: server?.transport ?? 'http',
+    // 旧值 'http' 归一到 streamable_http（不在下拉合法值内会渲染成空选中）。
+    transport: server?.transport === 'sse' ? 'sse' : 'streamable_http',
     apiKey: '',
   })
   const [clearCreds, setClearCreds] = useState(false)
@@ -432,7 +441,7 @@ function WorkspaceMcpDialog({
             >
               {TRANSPORTS.map((tr) => (
                 <option key={tr} value={tr}>
-                  {tr}
+                  {TRANSPORT_LABELS[tr]}
                 </option>
               ))}
             </select>
