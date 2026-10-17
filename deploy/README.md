@@ -63,8 +63,18 @@ index.html`,浏览器拿到 **200 + HTML 而不是 JSON**,报 JSON parse 错且
    WantedBy=multi-user.target
    ```
 
-6. **迁移**:server 启动时自动执行;`/readyz` 会显示未完成的迁移号,
-   编排健康检查等它变绿即可。
+6. **迁移(手动,必做)**:server **不会**自动迁移——启动后它只在
+   `/readyz` 报告缺失的迁移号(如 `migrations pending: 1047`,
+   HTTP 503),期间部分新功能会因表结构缺列而 500。换 binary 的同时
+   用同一个 `DATABASE_URL` 跑一次迁移工具:
+
+   ```bash
+   go build -o /opt/orkome/migrate ./cmd/migrate
+   DATABASE_URL="$(grep '^DATABASE_URL' /opt/orkome/orkome.env | cut -d= -f2-)" \
+     /opt/orkome/migrate up
+   ```
+
+   然后 `systemctl restart orkome`,`curl :8080/readyz` 应返回 `ready`。
 
 ## 自检清单
 
