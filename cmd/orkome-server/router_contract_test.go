@@ -79,6 +79,8 @@ var routeTable = []struct{ Method, Pattern string }{
 
 	{"GET", "/work-items"}, {"POST", "/work-items"},
 	{"GET", "/work-items/{id}"}, {"PUT", "/work-items/{id}"}, {"DELETE", "/work-items/{id}"},
+	{"PATCH", "/work-items/{id}"}, // P1-8：PUT 的等价别名（AI 契约友好）
+	{"POST", "/work-items/{id}/dispatch"}, // P1-6a 显式派单（wiring_dispatch.go）
 	{"POST", "/work-items/{id}/move"},
 	{"POST", "/work-items/batch-update"}, {"POST", "/work-items/batch-delete"},
 	{"POST", "/work-items/query"},
@@ -207,6 +209,7 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"PUT", "/workspaces/{workspaceId}/mcp-servers/{id}"}, {"DELETE", "/workspaces/{workspaceId}/mcp-servers/{id}"},
 	{"POST", "/workspaces/{workspaceId}/mcp-servers/{id}/probe-tools"}, // fe80ac8 探针漏登契约表（reverse walk 实证）
 	{"POST", "/agents/{agentId}/mcp-servers/{id}/probe-tools"}, // P1-3 agent 级探针（reverse walk 实证）
+	{"GET", "/setup-status"}, // P1-6c 冷启动就绪探针（wiring_setupstatus.go，cmd 级挂载）
 	{"GET", "/tasks/{taskId}/messages"},
 	{"POST", "/tasks/{taskId}/retry-source-context"},
 	{"POST", "/tasks/{taskId}/approve"}, {"POST", "/tasks/{taskId}/deny"},
@@ -370,6 +373,9 @@ func buildTestAPIRouter() *http.ServeMux {
 			return nil, apierr.New(apierr.NotFound, "x")
 		},
 	}, auth)
+	// P1-6：cmd 级挂载的两个新端点（生产 main.go:337/342，签名可直接复用）。
+	mountDispatch(r, auth, dispatchDeps{Enq: &orchapp.EnqueueService{}, Repo: stubRepo{}, MemberCheck: member})
+	mountSetupStatus(r, auth, setupStatusDeps{Repo: stubRepo{}, Credentials: &orchapp.CredentialService{}, MemberCheck: member})
 	// 镜像生产 wiring：chat 退役后 Mount 只收到 QuickActions（Chat nil →
 	// /api/chat/* 不挂载，reverse walk 据此要求契约表也不登记 chat 行）。
 	convhttp.Mount(r, convhttp.Deps{

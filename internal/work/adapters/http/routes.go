@@ -118,6 +118,9 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 
 	reg("GET /api/work-items/{workItemId}", d.handleGet)
 	reg("PUT /api/work-items/{workItemId}", d.handleUpdate)
+	// PATCH 别名（P1-8）：与 PUT 同 handler——前端/第三方按 PATCH 语义改单
+	// 时不再 405，语义上 PATCH 本就是 Update 的精准动词。
+	reg("PATCH /api/work-items/{workItemId}", d.handleUpdate)
 	reg("DELETE /api/work-items/{workItemId}", d.handleDelete)
 	reg("POST /api/work-items/{workItemId}/move", d.handleMove)
 	reg("POST /api/work-items/{workItemId}/reactions", d.handleReaction)

@@ -83,6 +83,10 @@ type WorkItemPayload struct {
 	AssigneeID   string `json:"assignee_id,omitempty"`
 	CreatorType  string `json:"creator_type"`
 	CreatorID    string `json:"creator_id"`
+	// AssigneeChanged P0-1：本次更新是否真的改了指派（patch 带
+	// AssigneeType/AssigneeID 才置 true）。指派监听器据此早退——
+	// 改标题/状态不再静默重派 agent（v0 无兼容，直接加字段）。
+	AssigneeChanged bool `json:"assignee_changed,omitempty"`
 }
 
 type CommentPayload struct {

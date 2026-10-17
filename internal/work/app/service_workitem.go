@@ -270,6 +270,10 @@ func (s *WorkItemService) Update(ctx context.Context, workspaceID, id string, pa
 
 	env := ev(events.WorkItemUpdated, workspaceID, actorUserID, nil)
 	var wi WorkItem
+	// P0-1：指派变化标记随事件负载下发——patch 带 AssigneeType/AssigneeID
+	// 才算真改指派（判定先例 triageLockOf）。指派监听器据此过滤，改标题/
+	// 状态不再触发重派。Create/metadata/property 路径不置（默认 false）。
+	assigneeChanged := patch.AssigneeType != nil || patch.AssigneeID != nil
 	if err := s.emitCommitted(ctx, &env, func(ctx context.Context) error {
 		updated, err := s.repo.UpdateWorkItem(ctx, workspaceID, id, patch, expectedRevision)
 		if err != nil {
@@ -280,7 +284,9 @@ func (s *WorkItemService) Update(ctx context.Context, workspaceID, id string, pa
 		if wi.AssigneeType == "user" && wi.AssigneeID != "" {
 			_ = s.repo.UpsertSubscriber(ctx, wi.ID, wi.AssigneeID, domain.SubSourceAssignee)
 		}
-		env.Payload = wiEvent(wi)
+		payload := wiEvent(wi)
+		payload.AssigneeChanged = assigneeChanged
+		env.Payload = payload
 		return nil
 	}); err != nil {
 		return nil, err

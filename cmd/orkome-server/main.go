@@ -104,14 +104,21 @@ func main() {
 		wiSvc := workDeps.WorkItems
 		wfSvc := workDeps.Workflow
 		orepo := orchpgrepo.New(db)
+		// P1-6b：指派链派单 skip 落通知（main 作用域建一次，先例同
+		// autopilot 熔断 notifier 的 notifpgrepo.New(db)）。
+		notifSkipRepo := notifpgrepo.New(db)
 		bus.On(eventbus.PhaseCascade, func(ctx context.Context, e events.Envelope) {
 			switch e.Event {
 			case events.WorkItemUpdated:
 				p, ok := e.Payload.(events.WorkItemPayload)
-				if !ok || e.ActorUserID == "" || p.AssigneeType != "agent" || p.AssigneeID == "" {
+				// P0-1：!p.AssigneeChanged 早退——只有指派真变化（patch 带
+				// AssigneeType/AssigneeID）才派 agent；改标题/状态不再静默重派。
+				if !ok || e.ActorUserID == "" || !p.AssigneeChanged ||
+					p.AssigneeType != "agent" || p.AssigneeID == "" {
 					return
 				}
-				_, _, _ = enq.EnqueueAssignment(ctx, e.WorkspaceID, p.ID, p.AssigneeID, e.ActorUserID)
+				_, reason, _ := enq.EnqueueAssignment(ctx, e.WorkspaceID, p.ID, p.AssigneeID, e.ActorUserID)
+				writeDispatchSkipNotice(ctx, notifSkipRepo, e.WorkspaceID, p.ID, p.AssigneeID, reason, e.ActorUserID)
 			case events.TaskCompleted:
 				p, ok := e.Payload.(orchapp.TaskPayload)
 				if !ok || p.WorkItemID == "" {
@@ -324,6 +331,19 @@ func main() {
 		},
 	})
 	orchhttp.Mount(api, orchHTTPDeps, authGuardMw)
+	// P1-6a/P1-6c：显式派单端点 + setup-status 聚合只读面。挂在
+	// orchhttp.Mount 之后（复用 orchHTTPDeps 的 Repo/Credentials 同实例）；
+	// 入队走 orchEnq（与指派变化隐式链同一条 EnqueueAssignment 路径）。
+	mountDispatch(api, authGuardMw, dispatchDeps{
+		Enq:         orchEnq,
+		Repo:        orchHTTPDeps.Repo,
+		MemberCheck: idMemberCheck(db),
+	})
+	mountSetupStatus(api, authGuardMw, setupStatusDeps{
+		Repo:        orchHTTPDeps.Repo,
+		Credentials: orchHTTPDeps.Credentials,
+		MemberCheck: idMemberCheck(db),
+	})
 	convhttp.Mount(api, convDeps, authGuardMw)
 	autoDeps := wiringAutomation(ctx, log, db, bus, workersReg, cfg, redisCli)
 	autoDeps.MemberCheck = idMemberCheck(db)

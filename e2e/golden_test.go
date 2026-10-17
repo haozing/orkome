@@ -234,7 +234,10 @@ member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_
 		switch e.Event {
 		case events.WorkItemUpdated:
 			p, ok := e.Payload.(events.WorkItemPayload)
-			if !ok || e.ActorUserID == "" || p.AssigneeType != "agent" || p.AssigneeID == "" {
+			// !p.AssigneeChanged 早退与生产 main.go 同构（P0-1）：只有指派
+			// 真变化才派 agent，改标题/状态不再触发重派。
+			if !ok || e.ActorUserID == "" || !p.AssigneeChanged ||
+				p.AssigneeType != "agent" || p.AssigneeID == "" {
 				return
 			}
 			_, _, _ = enqSvc.EnqueueAssignment(ctx, e.WorkspaceID, p.ID, p.AssigneeID, e.ActorUserID)
