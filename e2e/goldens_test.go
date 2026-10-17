@@ -130,10 +130,15 @@ func TestE2E_G2_AgentExecutionGolden(t *testing.T) {
 		return ok && tt.Status == "completed"
 	}, "task completed")
 
-	var n int
-	_ = s.pool.QueryRow(ctx0(),
-		`SELECT count(*) FROM comment WHERE work_item_id=$1 AND author_type='agent'`, wi).Scan(&n)
-	assert.Equal(t, 1, n, "fallback comment should land")
+	// 66c4afe：结算不再写兜底评论——产出的唯一正式面是 work_item.outcome。
+	// outcome 写在 completed 状态提交之后一点，必须轮询而非立即读（竞态实证）。
+	var oc []byte
+	waitFor(t, func() bool {
+		_ = s.pool.QueryRow(ctx0(),
+			`SELECT outcome FROM work_item WHERE id=$1`, wi).Scan(&oc)
+		return oc != nil
+	}, "settle must land outcome (fallback comment removed by 66c4afe)")
+	require.Contains(t, string(oc), task, "outcome must reference the settled task")
 
 	var un int
 	_ = s.pool.QueryRow(ctx0(),
@@ -384,15 +389,15 @@ WHERE work_item_id=$1 AND trigger_evidence_kind='assignment' ORDER BY created_at
 		return ok && tt.Status == "completed"
 	}, "task completed")
 
-	var cAuthor, cContent string
-	require.NoError(t, s.pool.QueryRow(ctx0(), `
-SELECT author_id, content FROM comment
-WHERE work_item_id=$1 AND author_type='agent' ORDER BY created_at LIMIT 1`, wi).Scan(&cAuthor, &cContent))
-	assert.Equal(t, agent, cAuthor, "fallback comment author = the assigned agent")
-	var result string
-	require.NoError(t, s.pool.QueryRow(ctx0(),
-		`SELECT result FROM agent_task_queue WHERE id=$1`, task).Scan(&result))
-	assert.Equal(t, result, cContent, "fallback comment content = task output (same masking source)")
+	// 66c4afe：结算不再写兜底评论——产出落 work_item.outcome（引用本任务）。
+	// outcome 写在 completed 状态提交之后一点，必须轮询而非立即读（竞态实证）。
+	var oc []byte
+	waitFor(t, func() bool {
+		_ = s.pool.QueryRow(ctx0(),
+			`SELECT outcome FROM work_item WHERE id=$1`, wi).Scan(&oc)
+		return oc != nil
+	}, "settle must land outcome (fallback comment removed by 66c4afe)")
+	require.Contains(t, string(oc), task, "outcome must reference the settled task")
 
 	waitFor(t, func() bool {
 		var st string
@@ -405,14 +410,9 @@ WHERE work_item_id=$1 AND author_type='agent' ORDER BY created_at LIMIT 1`, wi).
 		`SELECT count(*) FROM task_usage WHERE task_id=$1`, task).Scan(&un))
 	assert.Equal(t, 1, un, "usage row should land")
 
-	var inb int
-	waitFor(t, func() bool {
-		_ = s.pool.QueryRow(ctx0(), `
-SELECT count(*) FROM notification WHERE type='task_completed' AND recipient_user_id=$1 AND work_item_id=$2`,
-			uid, wi).Scan(&inb)
-		return inb == 1
-	}, "notification done notices should land (originator = the assigning operator)")
-
+	// FP-10 P1-2：任务完成通知收敛为 outbox 投影单一来源——Settle 的直写
+	// 已下线，golden 栈不挂投影器，此处不再能观测 notification（投影行为
+	// 归 notification 域测试覆盖）。这里保留指派入队的恰好一次断言。
 	var tn int
 	require.NoError(t, s.pool.QueryRow(ctx0(),
 		`SELECT count(*) FROM agent_task_queue WHERE work_item_id=$1`, wi).Scan(&tn))

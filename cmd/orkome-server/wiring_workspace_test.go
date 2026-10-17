@@ -208,9 +208,13 @@ func newWsDelStack(t *testing.T) *wsdelStack {
 	ctx := context.Background()
 	admin, err := pgx.Connect(ctx, base)
 	require.NoError(t, err)
-	// 独立库名：与 e2e 包的 orkome_e2e 并行运行互不干扰
-	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS orkome_wsdel")
-	_, _ = admin.Exec(ctx, "CREATE DATABASE orkome_wsdel")
+	// 独立库名：与 e2e 包的 orkome_e2e 并行运行互不干扰。DROP/CREATE 的
+	// 错误必须 fail-fast（曾经静默忽略 → 残留连接让 DROP 失败后测试跑在
+	// 陈旧库上：slug 撞 409、注入子测试先前 DROP 的表让种子 42P01）。
+	_, err = admin.Exec(ctx, "DROP DATABASE IF EXISTS orkome_wsdel WITH (FORCE)")
+	require.NoError(t, err, "drop stale orkome_wsdel（残留连接会卡住这步）")
+	_, err = admin.Exec(ctx, "CREATE DATABASE orkome_wsdel")
+	require.NoError(t, err)
 	require.NoError(t, admin.Close(ctx))
 	dsn := strings.Replace(base, "/orkome?", "/orkome_wsdel?", 1)
 

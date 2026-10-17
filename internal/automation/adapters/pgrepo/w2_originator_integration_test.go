@@ -49,7 +49,10 @@ WHERE a.attrelid = 'agent_task_queue'::regclass AND a.attname = 'originator_user
 		`INSERT INTO agent_task_queue (workspace_id, agent_id, status) VALUES ($1,$2,'queued')`,
 		f.wsID, agentID)
 	require.NoError(t, err, "seed a NULL-originator (system-initiated) task")
-	_, err = m.Down(f.ctx, 1)
+	// ploykit 0.7.0 起 Down(ctx, limit) 语义=回滚最近 N 个（不再是 goose 式
+	// 目标版本）：从 1047 头到达 1037 的 down 需先滚 1047..1038 十个，第 11
+	// 步才触守卫。limit 给足 11，中途在 1037 报错返回（applied 停在 1038）。
+	_, err = m.Down(f.ctx, 11)
 	require.Error(t, err, "down must refuse while unattributable NULL-originator rows exist")
 	require.Contains(t, err.Error(), "originator_user_id")
 

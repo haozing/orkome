@@ -220,6 +220,9 @@ member, workspace, agent_credential, webhook_subscription, webhook_delivery, ui_
 	}
 	notifRepo := notifpgrepo.New(db)
 	settle := orchapp.NewSettlementService(orepo, bus, notifRepo, cwAdapter{wRepo: wRepo}, chatW{repo: convRepo})
+	// 66c4afe 后结算产出落 work_item.outcome（生产 workOutcomeWriter 同款，
+	// wiring_orchestration.go:219）——不接线则任务完成后 outcome 恒空。
+	settle.SetOutcomeWriter(outcomeWriterForTest{wRepo: wRepo})
 	settle.SetApprovalDeps(apvNotif{repo: notifRepo}, engWrap{e: eng},
 		func(context.Context, string, string) (string, error) { return "", nil })
 	workapp.SetTriggerEngine(trigAdapter{trig: orchapp.NewTriggerService(orepo, bus)})

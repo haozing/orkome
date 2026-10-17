@@ -104,6 +104,16 @@ func (a wbAdapter) GetWorkItemBrief(ctx context.Context, ws, wi string) (string,
 
 type cwAdapter struct{ wRepo *workpgrepo.Repo }
 
+// outcomeWriterForTest 与生产 workOutcomeWriter（wiring_orchestration.go:691）
+// 同款：结算产出落 work_item.outcome（66c4afe 后的唯一正式产出面）。
+type outcomeWriterForTest struct{ wRepo *workpgrepo.Repo }
+
+func (w outcomeWriterForTest) WriteOutcome(ctx context.Context, ws, wi, taskID, summary string) error {
+	return w.wRepo.WriteOutcome(ctx, ws, wi, workapp.Outcome{
+		Summary: summary, TaskID: taskID, CompletedAt: time.Now(),
+	})
+}
+
 func (a cwAdapter) WriteAgentComment(ctx context.Context, ws, wi, agentID, content string) error {
 	_, err := a.wRepo.CreateComment(ctx, workapp.NewComment{
 		WorkspaceID: ws, WorkItemID: wi, AuthorType: "agent", AuthorID: agentID, Content: content,

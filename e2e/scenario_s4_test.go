@@ -66,18 +66,19 @@ SELECT status FROM agent_task_queue WHERE workspace_id=$1 AND work_item_id=$2`,
 				w.str("wsID"), w.str("wiID")).Scan(&status))
 			require.Equal(t, "completed", status, "fake engine should run successfully")
 		}},
-		{name: "agent comments write back to the work item (delivery visible)", do: func(w *world) {
-			var n int
+		{name: "outcome settles to the work item (delivery visible)", do: func(w *world) {
+			// 66c4afe：结算不再写兜底评论——交付可见面 = work_item.outcome。
+			var oc []byte
 			waitFor(t, func() bool {
 				_ = w.st.pool.QueryRow(t.Context(), `
-SELECT count(*) FROM comment WHERE work_item_id=$1 AND author_type='agent'`,
-					w.str("wiID")).Scan(&n)
-				return n > 0
-			}, "agent comments should write back")
+SELECT outcome FROM work_item WHERE id=$1`,
+					w.str("wiID")).Scan(&oc)
+				return oc != nil
+			}, "settle should land outcome on the work item")
 			rec := w.st.do("owner", http.MethodGet,
-				fmt.Sprintf("/api/work-items/%s/comments", w.str("wiID")), nil, nil)
+				fmt.Sprintf("/api/work-items/%s", w.str("wiID")), nil, nil)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			require.Contains(t, rec.Body.String(), `"author_type":"agent"`, "the comment API should show agent comments")
+			require.Contains(t, rec.Body.String(), `"outcome":{`, "the work item API should surface the outcome")
 		}},
 		{name: "wakeup view and linked task backfill", do: func(w *world) {
 			var fires int
