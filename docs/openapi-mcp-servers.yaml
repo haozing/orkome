@@ -1,0 +1,201 @@
+# mcp-servers 出站接入最小契约（P1-7）
+# 覆盖工作区级 MCP 服务器注册面五个端点 + 探针 + 新增 dispatch/setup-status。
+# 人工维护，改 wire 形状时同步。AI 安装器优先读本文件而非源码。
+openapi: 3.0.3
+info:
+  title: orkome outbound MCP registration
+  version: "1.0"
+servers:
+  - url: https://orkome.qidu.site
+security:
+  - pat: []
+  - session: []
+paths:
+  /api/workspaces/{workspaceId}/mcp-servers:
+    get:
+      summary: 列出工作区 MCP 服务器（成员可读）
+      parameters: &wsParams
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: |
+            {"servers": [{id, name, transport, url, has_credentials, auth_effective, created_at, pack_id?}]}
+    post:
+      summary: 注册工作区 MCP 服务器（admin）
+      parameters: *wsParams
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url]
+              properties:
+                name: { type: string }
+                url: { type: string, format: uri }
+                transport:
+                  type: string
+                  enum: [streamable_http, sse]
+                  default: streamable_http
+                  description: 缺省 streamable_http；非法值 422
+                credentials:
+                  type: object
+                  description: |
+                    三态信封：字段缺失=保留现值（PUT 语义）；显式 null 或 {}=清空；
+                    对象=覆盖并 sealx 密封。鉴权生效看 headers 子对象——
+                    {"headers":{"Authorization":"Bearer X"}}。
+                    credential_id 键仅审计关联，MCP 鉴权链不解引用；
+                    传不存在的 credential_id 会被 422 拒绝。
+      responses:
+        "201": { description: '响应含 id/has_credentials/auth_effective（headers 信封非空才为 true）' }
+        "422": { description: 非法 transport / 坏 header 键值 / credential_id 不存在 }
+  /api/workspaces/{workspaceId}/mcp-servers/{serverId}:
+    put:
+      summary: 更新（admin；credentials 字段缺失=保留）
+      parameters: &srvParams
+        - name: workspaceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: serverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: 同 create 响应形状 }
+    delete:
+      summary: 删除（admin）
+      parameters: *srvParams
+      responses:
+        "200": { description: '{"result":"deleted"}' }
+  /api/workspaces/{workspaceId}/mcp-servers/{serverId}/probe-tools:
+    post:
+      summary: 实时探针（成员可调；服务端持密封凭证实连对端枚举工具，不缓存）
+      parameters: *srvParams
+      responses:
+        "200":
+          description: |
+            {"tools": [{name, description?}], "total": N}
+            total=截断前总数；每服务器注入上限 32，截断时 tool 带有 note 提示。
+  /api/agents/{agentId}/mcp-servers/{serverId}/probe-tools:
+    post:
+      summary: agent 级覆盖条目探针（成员可调）
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: serverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: 同上 }
+  /api/work-items/{workItemId}/dispatch:
+    post:
+      summary: 显式派单（把工单派给智能体，立即建任务）
+      description: |
+        与「PUT 指派自动派单」互为表里：指派即派单仅在指派变化时触发；
+        本端点同步返回派发结果。响应三态：
+        201 {"task_id","result":"queued"}；409 active 任务在途（带 active_task_id）；
+        422 blocked（reason_code ∈ agent_archived|model_not_configured|...）。
+      parameters:
+        - name: workItemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string, format: uuid }
+      responses:
+        "201": { description: '{"task_id":"...","result":"queued"}' }
+        "409": { description: '{"error":"E_ACTIVE_DUPLICATE","active_task_id":"...","reason":"already_active"}' }
+        "422": { description: '{"error":"E_VALIDATION","reason_code":"model_not_configured"}' }
+  /api/work-items/{workItemId}:
+    put:
+      summary: 更新工单（PUT 与 PATCH 等价别名）
+      parameters:
+        - name: workItemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assignee_type: { type: string, enum: [none, user, agent] }
+                assignee_id: { type: string, format: uuid }
+                title: { type: string }
+                description: { type: string }
+                status: { type: string }
+                priority: { type: integer }
+                project_id: { type: string, format: uuid }
+      responses:
+        "200": { description: 工单对象（裸对象，无信封） }
+    patch:
+      summary: PUT 的等价别名
+      parameters:
+        - name: workItemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: 同 PUT }
+  /api/setup-status:
+    get:
+      summary: 冷启动就绪探针（AI/前端判断工作区是否具备派单条件）
+      parameters:
+        - name: X-Workspace-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: |
+            {"credential_count": N,
+             "agents": [{"id","name","archived","ready"}]}
+            ready=false 的智能体缺模型配置，指派后会静默跳过派单
+            （dispatch_skipped 通知会留痕）。
+components:
+  securitySchemes:
+    pat:
+      type: http
+      scheme: bearer
+      description: 用户 PAT（ork_ 前缀）。可在创建时限定工作区 scope。
+    session:
+      type: apiKey
+      in: cookie
+      name: session

@@ -276,7 +276,7 @@
 > **落地状态（RunLynk 侧，2026-10-17 晚）**：skill.md（`/skill.md`，公网 markdown，动态生成）已上线；
 > rest invoke 已强制 `nodes:invoke` 并回带 `token_scope_hint` + `next_actions`；能力卡内联调用示例
 > 未做（P1-b 挂账）；委托式机器签发已实现 RFC 8628 设备流（begin/approve/poll 三端点 + 000101/102
-> 迁移），已知遗留：approved 行 poll 判 EXPIRED 的 expires_at 生命周期 bug 待查（`clean_device.go`）。
+> 迁移），E2E 全链路通过（申请 → 人批准 → 轮询取回 → 新令牌调用 MCP）。
 | 定时 probe 巡检 → 工具面变更事件（复用 webhook 通道） | orkome | D4 |
 | `GET /api/setup-status` 冷启动就绪探针 + 派单 skip 落 timeline/通知 | orkome | C1 |
 | ws 级 MCP 注册写面收敛 admin | orkome | D7（audit-fp09 P2-5 在案） |
