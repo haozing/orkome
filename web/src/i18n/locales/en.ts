@@ -138,6 +138,9 @@ const en: Locale = {
     oneCmdTitle: 'One-click setup',
     oneCmdDesc: 'Send the document URL below to any AI client (Claude Code, Codex, or any other) — it reads it, registers itself, and learns every tool.',
     skillDocTitle: 'Setup document',
+    wsEndpointTitle: 'Full endpoint for this workspace',
+    wsEndpointDesc:
+      'The direct form beyond the universal doc: the MCP endpoint bound to the current workspace (workspace ID in the URL) — paste it into clients that take an endpoint manually.',
     manageInSettings: 'Manage tokens in Settings →',
   },
   batchPanel: {
@@ -525,8 +528,8 @@ const en: Locale = {
       'MCP Streamable HTTP endpoint; authenticated with a personal access token below (Authorization: Bearer).',
     availableAfterLaunch: 'Available once the MCP service launches',
     toolsTitle: 'Tool catalog',
-    toolsDesc: 'Once connected, AI can call these 23 tools directly on your workspace, acting as you (same permissions as the web UI).',
-    // Assistant endpoint's 23 tools (design v4 §3.2 + KB reads + config: read 7 + write 3 + task protocol 5 + recover 1 + config 7; pack-level tools removed with the pack retirement).
+    toolsDesc: 'Once connected, AI can call these 24 tools directly on your workspace, acting as you (same permissions as the web UI).',
+    // Assistant endpoint's 24 tools (design v4 §3.2 + KB reads + config + list_agents: read 7 + write 4 + task protocol 5 + recover 1 + config 7; pack-level tools removed with the pack retirement).
     toolsGroupRead: 'Read',
     toolsGroupWrite: 'Write',
     toolsGroupProtocol: 'Task protocol',
@@ -536,7 +539,7 @@ const en: Locale = {
     toolListSubscriptions: 'List webhook subscriptions',
     toolListPageEntries: 'List page entries (sidebar deep-links / work-item tabs)',
     toolCreateCredential: 'Store a credential (sealed at rest; returns id)',
-    toolCreateMcpServer: 'Register an MCP server (agents can use its tools)',
+    toolCreateMcpServer: 'Register an MCP server (probe=true dry-runs connectivity first — failure rejects by default, force overrides; agents can then use its tools)',
     toolCreateSubscription: 'Create a webhook subscription (signing secret shown once)',
     toolPutPageEntry: 'Create/update a page entry (sidebar deep-link, optional work-item tab)',
     toolListWorkItems: 'List work items (filter by assignee/status/project; assignee=me for mine)',
@@ -547,7 +550,8 @@ const en: Locale = {
     toolListSkills: 'List workspace skills & docs (SOPs/manuals/reference; read_skill for content)',
     toolReadSkill: 'Read a skill/doc main file by name (knowledge base lookup)',
     toolCreateWorkItem: 'Create a work item (assignee accepts me for yourself; assignee_agent_id takes an agent id)',
-    toolUpdateWorkItem: 'Update a work item (title/description/priority/status/labels; concurrent edits surface as a retryable error)',
+    toolUpdateWorkItem: 'Update a work item (title/description/priority/status/labels; assignee_agent_id reassigns to an agent — auto-dispatch fires only when the assignment changes; concurrent edits surface as a retryable error)',
+    toolListAgents: 'List workspace agents (value domain for assignee_agent_id; ready=false means missing model config — dispatch fails silently)',
     toolAddComment: 'Post a comment on a work item (as you; never triggers agent dispatch)',
     toolListMyClaims: 'List work items assigned to me and ready to claim (the hand-off board)',
     toolClaimWorkItem: 'Claim a work item (single-transaction dedupe; call before starting work)',
@@ -565,6 +569,8 @@ const en: Locale = {
     ttl30: '30 days',
     ttl90: '90 days',
     ttl180: '180 days',
+    tokensScopeLimit: 'Limit to current workspace',
+    tokensScopeLimitDesc: 'This token can only access the current workspace',
     creating: 'Creating…',
     createToken: 'Create token',
     noCredentials: 'No credentials yet—create one to get started.',

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	fwapp "github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/webx"
 
@@ -82,6 +84,34 @@ func requirePrincipal(w http.ResponseWriter, r *http.Request) (*webx.Principal, 
 	return p, true
 }
 
+// maxPATScopeWorkspaces caps how many workspaces one PAT may be scoped to.
+// The UI submits exactly one (the current workspace); the cap exists only to
+// bound hand-crafted payloads.
+const maxPATScopeWorkspaces = 10
+
+// normalizePATScope validates the optional PAT scope before it reaches the
+// minter: every workspace id must be a UUID and the list is capped at
+// maxPATScopeWorkspaces. A scope carrying no constraint at all (no workspace
+// ids, no permissions) is collapsed to nil so a submitted empty allowlist can
+// never lock a token out of every workspace — AllowsWorkspace treats nil as
+// unrestricted but a non-nil empty list as allow-none.
+func normalizePATScope(s *webx.CredentialScope) (*webx.CredentialScope, *apierr.Error) {
+	if s == nil || (len(s.WorkspaceIDs) == 0 && len(s.Permissions) == 0) {
+		return nil, nil
+	}
+	if len(s.WorkspaceIDs) > maxPATScopeWorkspaces {
+		return nil, apierr.NewValidation("scope.workspace_ids accepts at most 10 entries",
+			apierr.FieldError{Field: "scope.workspace_ids", Problem: "too_many"})
+	}
+	for _, id := range s.WorkspaceIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, apierr.NewValidation("scope.workspace_ids entries must be UUIDs",
+				apierr.FieldError{Field: "scope.workspace_ids", Problem: "invalid_uuid"})
+		}
+	}
+	return s, nil
+}
+
 // handleCLIToken exchanges the caller's authenticated session for a PAT the
 // CLI can store: the framework session stays untouched, the returned token
 // is an ordinary framework PAT (Bearer tk_..., resolvable by webx.Authenticate).
@@ -91,8 +121,9 @@ func (d Deps) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name string `json:"name"`
-		TTLS int    `json:"ttl_seconds"`
+		Name  string                `json:"name"`
+		TTLS  int                   `json:"ttl_seconds"`
+		Scope *webx.CredentialScope `json:"scope"`
 	}
 	if r.Body != nil {
 		err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in)
@@ -109,7 +140,12 @@ func (d Deps) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 	if in.Name != "" {
 		name = in.Name
 	}
-	pat, token, err := d.Tokens.CreatePAT(r.Context(), p, name, ttl, nil)
+	scope, verr := normalizePATScope(in.Scope)
+	if verr != nil {
+		writeErr(w, verr)
+		return
+	}
+	pat, token, err := d.Tokens.CreatePAT(r.Context(), p, name, ttl, scope)
 	if err != nil {
 		writeErr(w, err)
 		return

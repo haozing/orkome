@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSettingsTimeFormatter } from '@/components/settings/shared'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 // PAT 管理面（design §3.3）：从 /access 页抽出的共享组件——settings 渲染完整面，
 // access 页引用同组件保留内联创建语境。一次性 token 明文只存组件 useState。
@@ -23,11 +24,13 @@ import { useSettingsTimeFormatter } from '@/components/settings/shared'
 
 const PAGE_SIZE = 5
 
+// PAT 收口（P1-1）：默认 30 天（安全默认，不再默认永不过期），「永不过期」
+// 降为末位的显式选择。
 const TTL_OPTIONS = [
-  { value: 0, key: 'mcp.ttlNever' },
   { value: 30 * 86400, key: 'mcp.ttl30' },
   { value: 90 * 86400, key: 'mcp.ttl90' },
   { value: 180 * 86400, key: 'mcp.ttl180' },
+  { value: 0, key: 'mcp.ttlNever' },
 ] as const
 
 function tokenStatus(t: PatToken): { key: string; tone: 'success' | 'warning' | 'neutral' } {
@@ -65,15 +68,20 @@ export function TokensSection() {
   const fmtTime = useSettingsTimeFormatter()
   const queryClient = useQueryClient()
   const tokens = useQuery(tokensQueryOptions)
+  const currentId = useWorkspaceStore((s) => s.currentId)
   const [name, setName] = useState('')
-  const [ttl, setTtl] = useState<number>(0)
+  const [ttl, setTtl] = useState<number>(30 * 86400)
+  // 「限定工作区」默认开：提交 scope.workspace_ids=[当前工作区]，令牌只能
+  // 操作该区。无当前工作区（账户级语境）时开关禁用且不携带 scope 字段。
+  const [limitToWs, setLimitToWs] = useState(true)
   const [page, setPage] = useState(1)
   const [secret, setSecret] = useState<PatSecret | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const invalidateTokens = () =>
     queryClient.invalidateQueries({ queryKey: tokensQueryOptions.queryKey })
   const create = useMutation({
-    mutationFn: () => createToken(name.trim(), ttl),
+    mutationFn: () =>
+      createToken(name.trim(), ttl, limitToWs && currentId ? { workspace_ids: [currentId] } : undefined),
     onSuccess: (s) => {
       setSecret(s)
       setName('')
@@ -152,6 +160,20 @@ export function TokensSection() {
           {create.isPending ? t('mcp.creating') : t('mcp.createToken')}
         </Button>
       </div>
+      <label
+        className="mt-2 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400"
+        data-testid="token-scope-limit"
+      >
+        <input
+          type="checkbox"
+          checked={limitToWs && !!currentId}
+          onChange={(e) => setLimitToWs(e.target.checked)}
+          disabled={!currentId}
+          className="size-3 accent-zinc-700 dark:accent-zinc-300"
+        />
+        <span>{t('mcp.tokensScopeLimit')}</span>
+        <span className="text-zinc-400 dark:text-zinc-500">{t('mcp.tokensScopeLimitDesc')}</span>
+      </label>
       {create.error && (
         <p className="mt-2 text-xs text-red-600 dark:text-red-400">{create.error.message}</p>
       )}

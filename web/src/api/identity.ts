@@ -172,13 +172,24 @@ export async function listTokens(): Promise<PatToken[]> {
   const items = await api.get<PatToken[] | null>('/api/tokens')
   return items ?? []
 }
-export async function createToken(name: string, ttlSeconds = 0): Promise<PatSecret> {
+/** PAT 凭证作用域（POST /api/tokens 可选字段；两项都不带 = 不限）。 */
+export interface PatScope {
+  workspace_ids?: string[]
+  permissions?: string[]
+}
+export async function createToken(
+  name: string,
+  ttlSeconds = 0,
+  scope?: PatScope,
+): Promise<PatSecret> {
   // The backend takes ttl_hours only (unknown request fields are rejected via
   // DisallowUnknownFields) and answers nested {pat: {...}, token} — not a
-  // flat PatSecret (audit FP-09 P0-1).
+  // flat PatSecret (audit FP-09 P0-1). scope is a known framework field:
+  // omit the key entirely when unset (undefined ≠ empty constraint).
   const res = await api.post<{ pat: Omit<PatSecret, 'token'>; token: string }>('/api/tokens', {
     name,
     ttl_hours: Math.round(ttlSeconds / 3600),
+    ...(scope ? { scope } : {}),
   })
   return { ...res.pat, token: res.token }
 }

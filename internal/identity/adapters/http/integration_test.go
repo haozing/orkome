@@ -65,6 +65,7 @@ type minterCall struct {
 	UserID string
 	Name   string
 	TTL    time.Duration
+	Scope  *webx.CredentialScope
 }
 
 type stubMinter struct {
@@ -72,10 +73,10 @@ type stubMinter struct {
 	calls []minterCall
 }
 
-func (m *stubMinter) CreatePAT(_ context.Context, p *webx.Principal, name string, ttl time.Duration, _ *webx.CredentialScope) (fwapp.PAT, string, error) {
+func (m *stubMinter) CreatePAT(_ context.Context, p *webx.Principal, name string, ttl time.Duration, scope *webx.CredentialScope) (fwapp.PAT, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.calls = append(m.calls, minterCall{UserID: p.UserID, Name: name, TTL: ttl})
+	m.calls = append(m.calls, minterCall{UserID: p.UserID, Name: name, TTL: ttl, Scope: scope})
 	return fwapp.PAT{ID: "pat-1", Name: name, Prefix: "tk_abcde"}, "tk_plainsecret", nil
 }
 

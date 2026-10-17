@@ -106,6 +106,47 @@ describe('identity API (workspace)', () => {
     expect(secret.name).toBe('fp09-pat')
     expect(secret.prefix).toBe('ork_')
   })
+  it('createToken: sends scope only when provided (PAT workspace bounding, P1-1)', async () => {
+    // On: payload carries scope.workspace_ids verbatim (the section passes the
+    // current workspace id). Off: the scope key must be absent entirely —
+    // undefined means unrestricted, an empty list would mean allow-none.
+    server.use(
+      http.post('/api/tokens', async ({ request }) => {
+        expect(await request.json()).toEqual({
+          name: 'scoped-pat',
+          ttl_hours: 720,
+          scope: { workspace_ids: ['ws-1'] },
+        })
+        return HttpResponse.json({
+          pat: {
+            id: 'pat-2',
+            name: 'scoped-pat',
+            prefix: 'ork_',
+            created_at: '2026-10-02T00:00:00Z',
+          },
+          token: 'ork_scoped-secret',
+        })
+      }),
+    )
+    const secret = await createToken('scoped-pat', 30 * 86400, { workspace_ids: ['ws-1'] })
+    expect(secret.token).toBe('ork_scoped-secret')
+
+    server.use(
+      http.post('/api/tokens', async ({ request }) => {
+        expect(await request.json()).toEqual({ name: 'open-pat', ttl_hours: 0 })
+        return HttpResponse.json({
+          pat: {
+            id: 'pat-3',
+            name: 'open-pat',
+            prefix: 'ork_',
+            created_at: '2026-10-02T00:00:00Z',
+          },
+          token: 'ork_open-secret',
+        })
+      }),
+    )
+    await expect(createToken('open-pat', 0)).resolves.toMatchObject({ token: 'ork_open-secret' })
+  })
   it('meQueryOptions.queryFn: GET /auth/me + GET /api/workspaces (split on the ploykit rebase)', async () => {
     const calls: string[] = []
     server.use(

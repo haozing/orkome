@@ -134,6 +134,9 @@ const zh: Locale = {
     oneCmdTitle: '一键接入',
     oneCmdDesc: '把下方文档地址发给任意 AI 客户端（Claude Code / Codex / 其他）——它读完会自行完成注册并掌握全部工具用法。',
     skillDocTitle: '接入文档',
+    wsEndpointTitle: '本工作区完整端点',
+    wsEndpointDesc:
+      '统一文档之外的直连形态：绑定当前工作区的 MCP 端点（URL 内含工作区 ID），可直接贴进支持手动填端点的客户端。',
     manageInSettings: '在设置中管理令牌 →',
   },
   batchPanel: {
@@ -510,8 +513,8 @@ const zh: Locale = {
     endpointDesc: 'MCP Streamable HTTP 端点；认证使用下方个人访问令牌（Authorization: Bearer）。',
     availableAfterLaunch: '服务已上线',
     toolsTitle: '工具清单',
-    toolsDesc: '客户端接入后，AI 以你的身份可直接调用这 23 个工具操作工作区与配置集成（与网页同权；配置写需管理员）。',
-    // 助理端点 23 工具（设计 v4 §3.2 + 知识库读 + 配置面：读 7 + 写 3 + 任务协议 5 + 恢复 1 + 配置 7；包级 pack 工具随能力包退役拆除）。
+    toolsDesc: '客户端接入后，AI 以你的身份可直接调用这 24 个工具操作工作区与配置集成（与网页同权；配置写需管理员）。',
+    // 助理端点 24 工具（设计 v4 §3.2 + 知识库读 + 配置面 + list_agents：读 7 + 写 4 + 任务协议 5 + 恢复 1 + 配置 7；包级 pack 工具随能力包退役拆除）。
     toolsGroupRead: '读',
     toolsGroupWrite: '写',
     toolsGroupProtocol: '任务协议',
@@ -521,7 +524,7 @@ const zh: Locale = {
     toolListSubscriptions: '列出 Webhook 订阅',
     toolListPageEntries: '列出页面入口（侧栏/工单页签）',
     toolCreateCredential: '存入凭证（密封保管，返回 id）',
-    toolCreateMcpServer: '注册 MCP 服务器（注册后所有智能体即可用其工具）',
+    toolCreateMcpServer: '注册 MCP 服务器（probe=true 先试连再注册，失败默认拒绝、force 可强行；注册后所有智能体即可用其工具）',
     toolCreateSubscription: '创建 Webhook 订阅（验签密钥仅此一次回显）',
     toolPutPageEntry: '新增/更新页面入口（侧栏深链，可选工单页签）',
     toolListWorkItems: '列出工单（可按指派人/状态/项目筛，assignee=me 查我的）',
@@ -532,7 +535,8 @@ const zh: Locale = {
     toolListSkills: '列出工作区技能与资料库（SOP/手册/参考文档，read_skill 读全文）',
     toolReadSkill: '按名字读技能/文档的 SKILL.md 主文件（知识库查询）',
     toolCreateWorkItem: '建工单（assignee 可填 me 指派给自己；assignee_agent_id 填智能体 id 指派给智能体）',
-    toolUpdateWorkItem: '改工单（标题/描述/优先级/状态/标签；并发编辑冲突会提示重试）',
+    toolUpdateWorkItem: '改工单（标题/描述/优先级/状态/标签；assignee_agent_id 改派智能体，仅指派变化时触发自动派单；并发编辑冲突会提示重试）',
+    toolListAgents: '列出工作区智能体（assignee_agent_id 取值面；ready=false 表示缺模型配置，派单会静默失败）',
     toolAddComment: '在工单下留言（以你的名义，不触发智能体派发）',
     toolListMyClaims: '列出指派给我、可以认领的工单（接单看板）',
     toolClaimWorkItem: '认领工单（单事务防重，开工前调）',
@@ -549,6 +553,8 @@ const zh: Locale = {
     ttl30: '30 天',
     ttl90: '90 天',
     ttl180: '180 天',
+    tokensScopeLimit: '限定工作区',
+    tokensScopeLimitDesc: '该令牌只能操作当前工作区',
     creating: '创建中…',
     createToken: '创建令牌',
     noCredentials: '暂无凭证，创建一个开始接入。',
