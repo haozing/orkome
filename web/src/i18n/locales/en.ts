@@ -546,7 +546,7 @@ const en: Locale = {
     toolListStatuses: 'List the status catalog (status_key is per-workspace; take values from this catalog)',
     toolListSkills: 'List workspace skills & docs (SOPs/manuals/reference; read_skill for content)',
     toolReadSkill: 'Read a skill/doc main file by name (knowledge base lookup)',
-    toolCreateWorkItem: 'Create a work item (assignee accepts me to assign it to yourself)',
+    toolCreateWorkItem: 'Create a work item (assignee accepts me for yourself; assignee_agent_id takes an agent id)',
     toolUpdateWorkItem: 'Update a work item (title/description/priority/status/labels; concurrent edits surface as a retryable error)',
     toolAddComment: 'Post a comment on a work item (as you; never triggers agent dispatch)',
     toolListMyClaims: 'List work items assigned to me and ready to claim (the hand-off board)',

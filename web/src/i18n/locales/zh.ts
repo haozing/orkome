@@ -531,7 +531,7 @@ const zh: Locale = {
     toolListStatuses: '列出状态目录（status_key 每区可配，取值以目录为准）',
     toolListSkills: '列出工作区技能与资料库（SOP/手册/参考文档，read_skill 读全文）',
     toolReadSkill: '按名字读技能/文档的 SKILL.md 主文件（知识库查询）',
-    toolCreateWorkItem: '建工单（assignee 可填 me 指派给你自己）',
+    toolCreateWorkItem: '建工单（assignee 可填 me 指派给自己；assignee_agent_id 填智能体 id 指派给智能体）',
     toolUpdateWorkItem: '改工单（标题/描述/优先级/状态/标签；并发编辑冲突会提示重试）',
     toolAddComment: '在工单下留言（以你的名义，不触发智能体派发）',
     toolListMyClaims: '列出指派给我、可以认领的工单（接单看板）',
