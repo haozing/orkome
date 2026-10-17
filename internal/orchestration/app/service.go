@@ -27,6 +27,16 @@ type AgentService struct {
 	MemberCheck func(ctx context.Context, workspaceID, userID string) (bool, error)
 }
 
+// validateVisibility：对齐迁移 1003 的 DB CHECK（'private','public','public_to'）。
+// 服务层不设防时非法值会穿透到库层撞 CHECK 裸 500（生产实证 visibility="workspace"）。
+func validateVisibility(v string) error {
+	switch v {
+	case "", "private", "public", "public_to":
+		return nil
+	}
+	return apierr.NewValidation("visibility must be one of: private, public, public_to")
+}
+
 type Emitter interface {
 	Emit(ctx context.Context, e events.Envelope)
 }
@@ -62,6 +72,9 @@ func (s *AgentService) Create(ctx context.Context, a Agent) (*Agent, error) {
 	}
 	if a.Visibility == "" {
 		a.Visibility = "public"
+	}
+	if err := validateVisibility(a.Visibility); err != nil {
+		return nil, err
 	}
 
 	switch a.RuntimeKind {
@@ -138,6 +151,9 @@ func (s *AgentService) Update(ctx context.Context, a Agent) (*Agent, error) {
 	}
 	if a.Visibility == "" {
 		a.Visibility = "public"
+	}
+	if err := validateVisibility(a.Visibility); err != nil {
+		return nil, err
 	}
 	if err := validateConversationStarters(a.ConversationStarters); err != nil {
 		return nil, err
