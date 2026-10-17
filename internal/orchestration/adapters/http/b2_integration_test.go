@@ -91,7 +91,10 @@ func newB2H(t *testing.T) *b2h {
 	auth := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r.WithContext(webx.WithPrincipal(r.Context(), &webx.Principal{
-				UserID: userID, Source: webx.SourceSession,
+				// Role=owner 与上面 member 行的 DB 角色对齐——P2-D7 后
+				// ws 级 mcp-servers 写面要求 admin（requireWorkspaceAdmin
+				// 读 principal.Role，本 harness 不接 RoleOf）。
+				UserID: userID, Source: webx.SourceSession, Role: "owner",
 			})))
 		})
 	}

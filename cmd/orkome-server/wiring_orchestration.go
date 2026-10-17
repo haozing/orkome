@@ -170,7 +170,8 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 	// 与运行期同参；B1 存档补输出契约同 buildMCPTools）。app 层不依赖
 	// engine 包，经函数注入反转。probeToolProbeFn 供两个 MCPServerService
 	// 实例（引擎 resolver 用 / HTTP Deps 用）共用——接线只做一次。
-	probeFn := func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, error) {
+	// P0-5：带截断前总数的探针接线（截断场景 probe total 报精确值而非下界 32）。
+	probeCountedFn := func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, int, error) {
 		archived := map[string]json.RawMessage{}
 		if eng.PackToolSchemas != nil {
 			if list, err := eng.PackToolSchemas.ListPackToolSchemas(ctx, workspaceID); err == nil {
@@ -186,17 +187,25 @@ func wiringOrchestration(log *slog.Logger, db *pg.DB, bus *eventbus.Bus, cfg *Co
 				}
 			}
 		}
-		probe, err := engine.ProbeServerTools(ctx, srv, egressGuard, archived)
+		probe, total, err := engine.ProbeServerToolsWithTotal(ctx, srv, egressGuard, archived)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out := make([]orchapp.ProbeTool, len(probe))
 		for i, p := range probe {
 			out[i] = orchapp.ProbeTool{Name: p.Name, Description: p.Description, OutputSchema: p.OutputSchema}
 		}
-		return out, nil
+		return out, total, nil
+	}
+	probeFn := func(ctx context.Context, srv orchapp.ResolvedMCPServer, workspaceID string) ([]orchapp.ProbeTool, error) {
+		tools, _, err := probeCountedFn(ctx, srv, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		return tools, nil
 	}
 	mcpSvc.ToolProbe = probeFn
+	mcpSvc.ToolProbeCounted = probeCountedFn
 	agents := orchapp.NewAgentService(repo, bus)
 	agents.Egress = egressGuard
 	enq := orchapp.NewEnqueueService(repo, bus)

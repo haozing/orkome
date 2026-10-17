@@ -169,6 +169,9 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 		reg("POST /api/agents/{agentId}/mcp-servers", d.handleAgentMCPCreate)
 		reg("PUT /api/agents/{agentId}/mcp-servers/{serverId}", d.handleAgentMCPUpdate)
 		reg("DELETE /api/agents/{agentId}/mcp-servers/{serverId}", d.handleAgentMCPDelete)
+		// P1-3：agent 级条目的实时工具探针——挂法随 agent 级 mcp-servers
+		// 家族（reg = 成员闸 + X-Workspace-Id 头），引擎链路与 ws 级 probe 同参。
+		reg("POST /api/agents/{agentId}/mcp-servers/{serverId}/probe-tools", d.handleAgentMCPProbeTools)
 	}
 	reg("GET /api/agents/{agentId}/env", d.handleAgentEnvGet)
 	reg("PUT /api/agents/{agentId}/env", d.handleAgentEnvPut)
@@ -186,6 +189,10 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	}
 
 	if d.MCP != nil {
+		// P2-D7：ws 级 mcp-servers 写面（POST/PUT/DELETE）自成员闸升 admin 闸
+		// ——闸位在 handler 首行 requireWorkspaceAdmin（照抄同文件 credentials/
+		// ui-entries 先例）；GET 与 probe 保持成员闸。Role 由 memberPathMW
+		// 经 RoleOf 填充（见其注释）。
 		authReg := func(pattern string, h http.HandlerFunc) {
 			mux.Handle(pattern, auth(webx.RequireAuth(h)))
 		}
@@ -197,6 +204,9 @@ func Mount(mux *http.ServeMux, d Deps, auth func(http.Handler) http.Handler) {
 	}
 }
 
+// memberPathMW 路径含 workspaceId 的端点的成员闸。Role 填充与 memberMW
+// 同款（P2-D7）：ws 级 mcp-servers 写面升 admin 闸后，requireWorkspaceAdmin
+// 读 principal.Role——本闸不填 Role 则写面恒 403（连 owner 也进不去）。
 func (d Deps) memberPathMW(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := webx.PrincipalFrom(r.Context())
@@ -209,6 +219,14 @@ func (d Deps) memberPathMW(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil || !ok {
 			webx.WriteError(w, http.StatusForbidden, apierr.Forbidden, "not a member of this workspace", nil)
 			return
+		}
+		if p.Role == "" && d.RoleOf != nil {
+			role, err := d.RoleOf(r.Context(), ws, p.UserID)
+			if err != nil {
+				webx.WriteError(w, http.StatusInternalServerError, apierr.Internal, "role lookup failed", nil)
+				return
+			}
+			p.Role = role
 		}
 		p.WorkspaceID = ws
 		next(w, r)

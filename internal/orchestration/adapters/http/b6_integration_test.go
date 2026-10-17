@@ -65,7 +65,7 @@ func TestB6_MCPLibraryCRUD(t *testing.T) {
 	h := newB6H(t)
 
 	code, out := h.do("POST", "/api/workspaces/"+h.wsID+"/mcp-servers", map[string]any{
-		"name": "search", "transport": "http", "url": "https://example.com/sse",
+		"name": "search", "transport": "streamable_http", "url": "https://example.com/sse",
 		"credentials": map[string]any{"api_key": "sk-secret"},
 	})
 	require.Equal(t, 201, code, "create: %v", out)
@@ -81,7 +81,7 @@ func TestB6_MCPLibraryCRUD(t *testing.T) {
 	require.Len(t, servers, 1)
 
 	code, out = h.do("PUT", "/api/workspaces/"+h.wsID+"/mcp-servers/"+id, map[string]any{
-		"name": "search2", "transport": "http", "url": "https://example.com/v2",
+		"name": "search2", "transport": "streamable_http", "url": "https://example.com/v2",
 	})
 	require.Equal(t, 200, code, "update: %v", out)
 	assert.Equal(t, "search2", out["name"])
@@ -114,7 +114,7 @@ func TestB6_MCPMergeResolution(t *testing.T) {
 	require.NoError(t, err)
 	_, err = h.pool.Exec(ctx, `
 INSERT INTO agent_mcp_server (agent_id, name, transport, url, enabled) VALUES
-($1,'a','http','https://example.com/a2',false), ($1,'c','http','https://example.com/c',true)`, a.ID)
+($1,'a','streamable_http','https://example.com/a2',false), ($1,'c','streamable_http','https://example.com/c',true)`, a.ID)
 	require.NoError(t, err)
 
 	code, out := h.do("GET", "/api/agents/"+a.ID+"/mcp-servers?resolved=1", nil)
@@ -146,7 +146,7 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	base := "/api/agents/" + agent.ID + "/mcp-servers"
 
 	code, out := h.do("POST", base, map[string]any{
-		"name": "jira", "transport": "http", "url": "https://example.com/jira",
+		"name": "jira", "transport": "streamable_http", "url": "https://example.com/jira",
 		"credentials": map[string]any{"api_key": "sk-agent-secret"},
 	})
 	require.Equal(t, 201, code, "create: %v", out)
@@ -159,15 +159,20 @@ func TestB6_AgentMCPCRUD(t *testing.T) {
 	code, out = h.do("POST", base, map[string]any{
 		"name": "jira", "url": "https://example.com/jira-v2", "enabled": false,
 	})
-	require.Equal(t, 201, code, "same-name POST = overwrite not 409: %v", out)
+	require.Equal(t, 409, code, "same-name POST = 409 not silent overwrite (FP-07 P1-4): %v", out)
+	// 409 拒绝后改条目走 PUT（对齐 ws 级语义）：禁用 + 换 URL。
+	code, out = h.do("PUT", base+"/"+id, map[string]any{
+		"name": "jira", "url": "https://example.com/jira-v2", "enabled": false,
+	})
+	require.Equal(t, 200, code, "update: %v", out)
 	code, out = h.do("GET", base, nil)
 	require.Equal(t, 200, code)
 	servers, _ := out["servers"].([]any)
-	require.Len(t, servers, 1, "same-name overwrite does not produce two parallel rows")
+	require.Len(t, servers, 1, "409 rejection does not produce a second row")
 	row, _ := servers[0].(map[string]any)
 	assert.Equal(t, "https://example.com/jira-v2", row["url"])
 	assert.Equal(t, false, row["enabled"])
-	assert.Equal(t, true, row["has_credentials"], "overwrite without credentials = keep the original (mask position stays true)")
+	assert.Equal(t, true, row["has_credentials"], "update without credentials = keep the original (mask position stays true)")
 
 	code, out = h.do("GET", base+"?resolved=1", nil)
 	require.Equal(t, 200, code)

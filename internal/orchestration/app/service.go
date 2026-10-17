@@ -347,6 +347,21 @@ func (s *AgentService) CancelTasks(ctx context.Context, workspaceID, id string) 
 	return s.repo.CancelAgentTasks(ctx, workspaceID, id)
 }
 
+// validateTransport：transport 枚举一刀切（P1-5，写法对齐 visibility 闸先例
+// 45d4fc9）。合法值：缺省 ""（repo 层 orDefault 兜底 streamable_http）、
+// streamable_http、sse。历史上三层入口枚举互相矛盾（引擎还接受 "http"、UI
+// 只给 http|sse），v0 无兼容红利直接定标准值——"http" 实际按 Streamable
+// HTTP 处理，名字与语义漂移一并终结（引擎 newMCPClient 仍保留 "http" 作为
+// 历史别名映射到 streamable 行为，仅限读路径存量行，REST 写面不再接受新值）。
+// 服务层不设防时非法值会穿透到引擎 newMCPClient 报裸 500。
+func validateTransport(v string) error {
+	switch v {
+	case "", "streamable_http", "sse":
+		return nil
+	}
+	return apierr.NewValidation("transport must be one of: streamable_http, sse")
+}
+
 type MCPServerService struct {
 	repo Repo
 
@@ -356,6 +371,12 @@ type MCPServerService struct {
 	// 组装根接线）。第二参为 workspaceID（B1 存档按 workspace 拉取）。
 	// nil = 未接线，ProbeTools 返回 501 语义错误。
 	ToolProbe func(ctx context.Context, srv ResolvedMCPServer, workspaceID string) ([]ProbeTool, error)
+
+	// ToolProbeCounted 是带"截断前总数"的探针接线（P0-5：probe 响应补
+	// total）。cmd 侧把 engine.ProbeServerToolsWithTotal 包一层注入；nil 时
+	// 回落 ToolProbe，total 以返回条数计（未截断时即精确值，装满 32 时为
+	// 下界 32）。
+	ToolProbeCounted func(ctx context.Context, srv ResolvedMCPServer, workspaceID string) ([]ProbeTool, int, error)
 }
 
 func NewMCPServerService(repo Repo) *MCPServerService {
@@ -370,6 +391,9 @@ func (s *MCPServerService) Create(ctx context.Context, m WorkspaceMCP) (*Workspa
 	m.Name = strings.TrimSpace(m.Name)
 	if m.Name == "" || m.URL == "" {
 		return nil, apierr.NewValidation("name and url required")
+	}
+	if err := validateTransport(m.Transport); err != nil {
+		return nil, err
 	}
 	if s.Egress != nil {
 		if err := s.Egress.ValidateURL(ctx, m.URL); err != nil {
@@ -386,6 +410,9 @@ func (s *MCPServerService) Create(ctx context.Context, m WorkspaceMCP) (*Workspa
 func (s *MCPServerService) Update(ctx context.Context, m WorkspaceMCP) (*WorkspaceMCP, error) {
 	if m.Name == "" || m.URL == "" {
 		return nil, apierr.NewValidation("name and url required")
+	}
+	if err := validateTransport(m.Transport); err != nil {
+		return nil, err
 	}
 	if s.Egress != nil {
 		if err := s.Egress.ValidateURL(ctx, m.URL); err != nil {
@@ -415,12 +442,14 @@ type ProbeTool struct {
 }
 
 // ProbeTools 对工作区级 MCP 服务器做一次实时建连 + ListTools，返回工具
-// 清单（工具集成页"查看工具"）。凭证按存储原样使用（含密封解密后的
-// headers），连接参数与运行期任务执行同参。
-func (s *MCPServerService) ProbeTools(ctx context.Context, wsID, serverID string) ([]ProbeTool, error) {
+// 清单与截断前总数（工具集成页"查看工具"）。凭证按存储原样使用（含密封
+// 解密后的 headers），连接参数与运行期任务执行同参。total 是引擎 ListTools
+// 的远端全量数——工具数组在 32 上限处截断时，total 与 len(tools) 的差即
+// 被截掉的部分（P0-5 可见化）。
+func (s *MCPServerService) ProbeTools(ctx context.Context, wsID, serverID string) ([]ProbeTool, int, error) {
 	list, err := s.repo.ListWorkspaceMCP(ctx, wsID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var target *WorkspaceMCP
 	for i := range list {
@@ -430,18 +459,66 @@ func (s *MCPServerService) ProbeTools(ctx context.Context, wsID, serverID string
 		}
 	}
 	if target == nil {
-		return nil, apierr.New(apierr.NotFound, "mcp server not found")
+		return nil, 0, apierr.New(apierr.NotFound, "mcp server not found")
 	}
-	if s.ToolProbe == nil {
-		return nil, apierr.New(apierr.Internal, "tool probe not wired")
-	}
-	probe, err := s.ToolProbe(ctx, ResolvedMCPServer{
+	return s.probe(ctx, wsID, ResolvedMCPServer{
 		Name: target.Name, Transport: target.Transport, URL: target.URL, Credentials: target.Credentials,
-	}, wsID)
+	})
+}
+
+// ProbeAgentTools 对 agent 级 MCP 服务器条目做实时探针（P1-3：agent 级
+// 凭证配错此前只能在任务执行里炸，注册页无即时验证入口）。查 agent 级
+// 条目（ListAgentMCP by id）后与 ws 级同参复用引擎探测链路。
+func (s *MCPServerService) ProbeAgentTools(ctx context.Context, wsID, agentID, serverID string) ([]ProbeTool, int, error) {
+	list, ok, err := s.repo.ListAgentMCP(ctx, wsID, agentID)
 	if err != nil {
+		return nil, 0, err
+	}
+	if !ok {
+		return nil, 0, apierr.New(apierr.NotFound, "agent not found")
+	}
+	var target *AgentMCP
+	for i := range list {
+		if list[i].ID == serverID {
+			target = &list[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, 0, apierr.New(apierr.NotFound, "mcp server not found")
+	}
+	return s.probe(ctx, wsID, ResolvedMCPServer{
+		Name: target.Name, Transport: target.Transport, URL: target.URL, Credentials: target.Credentials,
+	})
+}
+
+// ProbeDraft 注册前探活干跑（P1-3）：用入参（含凭证）实连探测一次，不落库。
+// 复用 ProbeTools 的引擎链路但绕过 repo 查询——探测失败返回结构化错误，
+// 调用方（注册前的"先试后存"）可据此提示。签名冻结：别的 agent 依赖。
+func (s *MCPServerService) ProbeDraft(ctx context.Context, ws string, m WorkspaceMCP) ([]ProbeTool, error) {
+	if err := validateTransport(m.Transport); err != nil {
 		return nil, err
 	}
-	return probe, nil
+	tools, _, err := s.probe(ctx, ws, ResolvedMCPServer{
+		Name: m.Name, Transport: m.Transport, URL: m.URL, Credentials: m.Credentials,
+	})
+	return tools, err
+}
+
+// probe 探测统一出口：优先带总数的 ToolProbeCounted 接线；未接线时回落
+// ToolProbe，total 以返回条数计（两条接线的引擎侧实现同参，见 cmd 组装根）。
+func (s *MCPServerService) probe(ctx context.Context, wsID string, srv ResolvedMCPServer) ([]ProbeTool, int, error) {
+	if s.ToolProbeCounted != nil {
+		return s.ToolProbeCounted(ctx, srv, wsID)
+	}
+	if s.ToolProbe == nil {
+		return nil, 0, apierr.New(apierr.Internal, "tool probe not wired")
+	}
+	tools, err := s.ToolProbe(ctx, srv, wsID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return tools, len(tools), nil
 }
 
 func (s *MCPServerService) AgentMCP(ctx context.Context, wsID, agentID string) ([]AgentMCP, error) {
@@ -463,6 +540,9 @@ func (s *MCPServerService) CreateAgentMCP(ctx context.Context, m AgentMCP) (*Age
 	if m.Name == "" || m.URL == "" {
 		return nil, apierr.NewValidation("name and url required")
 	}
+	if err := validateTransport(m.Transport); err != nil {
+		return nil, err
+	}
 	if s.Egress != nil {
 		if err := s.Egress.ValidateURL(ctx, m.URL); err != nil {
 			return nil, apierr.NewValidation(err.Error())
@@ -483,6 +563,9 @@ func (s *MCPServerService) UpdateAgentMCP(ctx context.Context, m AgentMCP) (*Age
 	}
 	if m.Name == "" || m.URL == "" {
 		return nil, apierr.NewValidation("name and url required")
+	}
+	if err := validateTransport(m.Transport); err != nil {
+		return nil, err
 	}
 	if s.Egress != nil {
 		if err := s.Egress.ValidateURL(ctx, m.URL); err != nil {

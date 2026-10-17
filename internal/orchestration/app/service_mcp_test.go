@@ -27,6 +27,8 @@ type mcpServiceFakeRepo struct {
 	lastAgent    *AgentMCP
 	lastAgentUpd *AgentMCP
 	dupName      error
+	wsRows       []WorkspaceMCP
+	agentRows    []AgentMCP
 }
 
 func (f *mcpServiceFakeRepo) GetAgent(_ context.Context, _, id string) (Agent, bool, error) {
@@ -69,6 +71,17 @@ func (f *mcpServiceFakeRepo) UpsertAgentMCP(context.Context, AgentMCP) (AgentMCP
 func (f *mcpServiceFakeRepo) UpdateAgentMCP(_ context.Context, m AgentMCP) (AgentMCP, bool, error) {
 	f.lastAgentUpd = &m
 	return m, true, nil
+}
+
+func (f *mcpServiceFakeRepo) ListWorkspaceMCP(context.Context, string) ([]WorkspaceMCP, error) {
+	return f.wsRows, nil
+}
+
+func (f *mcpServiceFakeRepo) ListAgentMCP(_ context.Context, _ string, agentID string) ([]AgentMCP, bool, error) {
+	if _, ok := f.agents[agentID]; !ok {
+		return nil, false, nil
+	}
+	return f.agentRows, true, nil
 }
 
 func newMCPServiceFake() (*MCPServerService, *mcpServiceFakeRepo) {
@@ -126,4 +139,149 @@ func TestMCPServerService_ThreeStatePassthrough(t *testing.T) {
 		Credentials: map[string]any{"api_key": "sk-1"}})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"api_key": "sk-1"}, repo.lastWSUpdate.Credentials)
+}
+
+// P1-5：transport 枚举一刀切——合法值 ""/streamable_http/sse，"http" 与
+// 其余乱值一律 validation 拒绝（ws/agent 两级、Create/Update 双侧）。
+func TestValidateTransport(t *testing.T) {
+	for _, v := range []string{"", "streamable_http", "sse"} {
+		assert.NoError(t, validateTransport(v), "合法值 %q", v)
+	}
+	for _, v := range []string{"http", "stdio", "HTTP", "Streamable_HTTP", "websocket"} {
+		assert.Error(t, validateTransport(v), "非法值 %q 必须 422 语义拒绝", v)
+	}
+}
+
+func TestMCPServerService_TransportGate(t *testing.T) {
+	s, repo := newMCPServiceFake()
+	ctx := context.Background()
+
+	// ws 级 Create / Update。
+	_, err := s.Create(ctx, WorkspaceMCP{WorkspaceID: "ws-1", Name: "n", URL: "https://x.example", Transport: "http"})
+	requireApiValidation(t, err)
+	assert.Nil(t, repo.lastWS, "非法 transport 不得触达 repo")
+	_, err = s.Update(ctx, WorkspaceMCP{WorkspaceID: "ws-1", ID: "s1", Name: "n", URL: "https://x.example", Transport: "stdio"})
+	requireApiValidation(t, err)
+	assert.Nil(t, repo.lastWSUpdate)
+
+	// agent 级 Create / Update。
+	_, err = s.CreateAgentMCP(ctx, AgentMCP{WorkspaceID: "ws-1", AgentID: "ag-1", Name: "n", URL: "https://x.example", Transport: "http"})
+	requireApiValidation(t, err)
+	assert.False(t, repo.createCalled)
+	_, err = s.UpdateAgentMCP(ctx, AgentMCP{WorkspaceID: "ws-1", AgentID: "ag-1", ID: "s1", Name: "n", URL: "https://x.example", Transport: "carrier"})
+	requireApiValidation(t, err)
+	assert.Nil(t, repo.lastAgentUpd)
+
+	// 合法值原样透传（缺省兜底 streamable_http 在 repo 层 orDefault）。
+	_, err = s.Create(ctx, WorkspaceMCP{WorkspaceID: "ws-1", Name: "n", URL: "https://x.example", Transport: "sse"})
+	require.NoError(t, err)
+	assert.Equal(t, "sse", repo.lastWS.Transport)
+	_, err = s.Create(ctx, WorkspaceMCP{WorkspaceID: "ws-1", Name: "n2", URL: "https://x.example"})
+	require.NoError(t, err)
+	assert.Equal(t, "", repo.lastWS.Transport, "缺省不偷换，repo 层兜底")
+}
+
+// requireApiValidation：断言 err 是 apierr.Validation（writeErrReq 映射 400）。
+func requireApiValidation(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var apiErr *apierr.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierr.Validation, apiErr.Code)
+}
+
+// P1-3：ProbeDraft 用入参（含凭证）实连探测，不落库；transport 非法先于
+// 探测拒绝；签名冻结（[]ProbeTool 返回形状）。
+func TestMCPServerService_ProbeDraft(t *testing.T) {
+	s, repo := newMCPServiceFake()
+	ctx := context.Background()
+
+	// ToolProbe 未接线 → 501 语义（Internal）。
+	_, err := s.ProbeDraft(ctx, "ws-1", WorkspaceMCP{Name: "n", URL: "https://x.example"})
+	require.Error(t, err)
+	var apiErr *apierr.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierr.Internal, apiErr.Code)
+
+	var got ResolvedMCPServer
+	s.ToolProbe = func(_ context.Context, srv ResolvedMCPServer, ws string) ([]ProbeTool, error) {
+		got = srv
+		assert.Equal(t, "ws-1", ws)
+		return []ProbeTool{{Name: "t1"}, {Name: "t2"}}, nil
+	}
+	tools, err := s.ProbeDraft(ctx, "ws-1", WorkspaceMCP{
+		Name: "draft", Transport: "streamable_http", URL: "https://x.example",
+		Credentials: map[string]any{"headers": map[string]any{"Authorization": "Bearer sk"}}})
+	require.NoError(t, err)
+	assert.Equal(t, []ProbeTool{{Name: "t1"}, {Name: "t2"}}, tools)
+	assert.Equal(t, "draft", got.Name)
+	assert.Equal(t, "streamable_http", got.Transport)
+	assert.Equal(t, map[string]any{"headers": map[string]any{"Authorization": "Bearer sk"}}, got.Credentials,
+		"入参凭证原样进探测链路")
+	assert.Nil(t, repo.lastWS, "干跑不落库：repo Create 不得被调用")
+	assert.False(t, repo.createCalled)
+
+	// transport 非法 → 结构化 422，不触探测。
+	_, err = s.ProbeDraft(ctx, "ws-1", WorkspaceMCP{Name: "n", URL: "https://x.example", Transport: "http"})
+	requireApiValidation(t, err)
+}
+
+// P0-5 + P1-3：probe 链路的 total（截断前总数）与 agent 级条目探测。
+func TestMCPServerService_ProbeTotalAndAgentLevel(t *testing.T) {
+	s, repo := newMCPServiceFake()
+	ctx := context.Background()
+
+	repo.wsRows = []WorkspaceMCP{{ID: "ws-srv-1", Name: "w", Transport: "streamable_http", URL: "https://x.example",
+		Credentials: map[string]any{"headers": map[string]any{"X-A": "1"}}}}
+	repo.agentRows = []AgentMCP{{ID: "ag-srv-1", AgentID: "ag-1", Name: "a", Transport: "sse", URL: "https://y.example",
+		Credentials: map[string]any{"headers": map[string]any{"X-B": "2"}}}}
+
+	// 只接线 ToolProbe（2 返回值）→ total 以返回条数计。
+	s.ToolProbe = func(_ context.Context, _ ResolvedMCPServer, _ string) ([]ProbeTool, error) {
+		return []ProbeTool{{Name: "t1"}}, nil
+	}
+	tools, total, err := s.ProbeTools(ctx, "ws-1", "ws-srv-1")
+	require.NoError(t, err)
+	assert.Len(t, tools, 1)
+	assert.Equal(t, 1, total)
+
+	// 接线 ToolProbeCounted → total 透传引擎的截断前总数。
+	s.ToolProbeCounted = func(_ context.Context, _ ResolvedMCPServer, _ string) ([]ProbeTool, int, error) {
+		return make([]ProbeTool, 32), 40, nil
+	}
+	tools, total, err = s.ProbeTools(ctx, "ws-1", "ws-srv-1")
+	require.NoError(t, err)
+	assert.Len(t, tools, 32)
+	assert.Equal(t, 40, total, "截断前总数（远端 40，数组 32）")
+
+	// 不存在的 ws 级服务器 → 404。
+	_, _, err = s.ProbeTools(ctx, "ws-1", "ghost")
+	requireApiNotFound(t, err)
+
+	// agent 级：条目存在 → 探测入参取自 agent 行（含凭证）。
+	var got ResolvedMCPServer
+	s.ToolProbe = func(_ context.Context, srv ResolvedMCPServer, _ string) ([]ProbeTool, error) {
+		got = srv
+		return nil, nil
+	}
+	s.ToolProbeCounted = nil
+	_, _, err = s.ProbeAgentTools(ctx, "ws-1", "ag-1", "ag-srv-1")
+	require.NoError(t, err)
+	assert.Equal(t, "a", got.Name)
+	assert.Equal(t, "sse", got.Transport)
+	assert.Equal(t, map[string]any{"headers": map[string]any{"X-B": "2"}}, got.Credentials)
+
+	// agent 级：服务器/agent 不存在 → 404。
+	_, _, err = s.ProbeAgentTools(ctx, "ws-1", "ag-1", "ghost")
+	requireApiNotFound(t, err)
+	_, _, err = s.ProbeAgentTools(ctx, "ws-1", "ag-missing", "ag-srv-1")
+	requireApiNotFound(t, err)
+}
+
+func requireApiNotFound(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var apiErr *apierr.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierr.NotFound, apiErr.Code)
 }

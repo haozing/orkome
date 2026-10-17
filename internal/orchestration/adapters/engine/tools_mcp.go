@@ -171,39 +171,44 @@ func (e *EinoEngine) buildMCPTools(ctx context.Context, task orchapp.Task, agent
 		}
 		mcpCatalogPut(mcpCacheKey(srv, headers), cli, tools, schemas)
 	}
-	dup, added := 0, 0
-	for _, t := range tools {
-		if added >= mcpToolsPerServerMax {
-			break
-		}
-		info, err := t.Info(ctx)
-		if err != nil {
-			dup++
-			continue
-		}
-		if taken[info.Name] {
-			dup++
-			continue
-		}
-		taken[info.Name] = true
-		// A1+C1：输出契约校验装饰器——schema 优先级：协议自描述（缓存随
-		// mcpCatalog）→ B1 存档（archived）→ 无（结构化探测回落）；
-		// 违规时模型看到标准错误而非未验证结构。注册表 middleware
-		// （registry_middleware.go）不重复校验 MCP 工具（origin=mcp 跳过），
-		// 两个执行位、同一个 validator。
-		schema := schemas[info.Name]
-		if len(schema) == 0 {
-			schema = archived[info.Name]
-		}
-		if len(schema) > 0 {
-			if br.schemas == nil {
-				br.schemas = map[string]json.RawMessage{}
+		dup, added := 0, 0
+		truncated := false
+		for _, t := range tools {
+			if added >= mcpToolsPerServerMax {
+				// P0-5：装满即截断——必须可见化"截断了、远端共多少"，
+				// 否则快照看起来像"服务器就 32 个工具"（N=len(tools) 即
+				// ListTools 结果长度）。
+				truncated = true
+				break
 			}
-			br.schemas[info.Name] = schema
+			info, err := t.Info(ctx)
+			if err != nil {
+				dup++
+				continue
+			}
+			if taken[info.Name] {
+				dup++
+				continue
+			}
+			taken[info.Name] = true
+			// A1+C1：输出契约校验装饰器——schema 优先级：协议自描述（缓存随
+			// mcpCatalog）→ B1 存档（archived）→ 无（结构化探测回落）；
+			// 违规时模型看到标准错误而非未验证结构。注册表 middleware
+			// （registry_middleware.go）不重复校验 MCP 工具（origin=mcp 跳过），
+			// 两个执行位、同一个 validator。
+			schema := schemas[info.Name]
+			if len(schema) == 0 {
+				schema = archived[info.Name]
+			}
+			if len(schema) > 0 {
+				if br.schemas == nil {
+					br.schemas = map[string]json.RawMessage{}
+				}
+				br.schemas[info.Name] = schema
+			}
+			br.tools = append(br.tools, wrapWithValidator(t, info.Name, schema, validator, e.auditLogger()))
+			added++
 		}
-		br.tools = append(br.tools, wrapWithValidator(t, info.Name, schema, validator, e.auditLogger()))
-		added++
-	}
 		entry.ToolCount = added
 		switch {
 		case added == 0 && dup == 0:
@@ -211,8 +216,14 @@ func (e *EinoEngine) buildMCPTools(ctx context.Context, task orchapp.Task, agent
 			entry.Note = "no tools listed"
 		default:
 			entry.Status = mcpStatusOK
+			if truncated {
+				entry.Note = fmt.Sprintf("truncated at %d/%d tools", mcpToolsPerServerMax, len(tools))
+			}
 			if dup > 0 {
-				entry.Note = fmt.Sprintf("%d duplicate tool names dropped", dup)
+				if entry.Note != "" {
+					entry.Note += "; "
+				}
+				entry.Note += fmt.Sprintf("%d duplicate tool names dropped", dup)
 			}
 		}
 		br.snapshot = append(br.snapshot, entry)
@@ -233,22 +244,32 @@ type ProbeTool struct {
 // 校验、10s 预算、32 工具上限均与运行期桥接同参）。独立的轻路径：不复用
 // buildMCPTools（那需要 task/agent 上下文），只共享建连与清单协议链路。
 // archived 为 pack 工具 schema 存档（toolName → schema），可为 nil。
+// 原签名保留（cmd 组装根接线依赖）；需要截断前总数（P0-5 probe total）
+// 的调用方请走 ProbeServerToolsWithTotal。
 func ProbeServerTools(ctx context.Context, srv orchapp.ResolvedMCPServer, guard *egressx.Guard, archived map[string]json.RawMessage) ([]ProbeTool, error) {
+	tools, _, err := ProbeServerToolsWithTotal(ctx, srv, guard, archived)
+	return tools, err
+}
+
+// ProbeServerToolsWithTotal 同 ProbeServerTools，额外返回截断前的远端工具
+// 总数（ListTools 结果长度）。工具数组在 32 上限截断时，total 与
+// len(tools) 之差即被截掉的部分——probe 响应的 total 字段由此取数。
+func ProbeServerToolsWithTotal(ctx context.Context, srv orchapp.ResolvedMCPServer, guard *egressx.Guard, archived map[string]json.RawMessage) ([]ProbeTool, int, error) {
 	if guard == nil {
 		guard = egressx.DefaultGuard()
 	}
 	if err := guard.ValidateURL(ctx, srv.URL); err != nil {
-		return nil, fmt.Errorf("ssrf: %w", err)
+		return nil, 0, fmt.Errorf("ssrf: %w", err)
 	}
 	headers := mcpHeadersOf(srv.Credentials)
 	cli, err := newMCPClient(srv, headers)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer cli.Close()
 	tools, schemas, err := mcpConnect(ctx, cli, headers)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]ProbeTool, 0, len(tools))
 	for _, t := range tools {
@@ -269,11 +290,14 @@ func ProbeServerTools(ctx context.Context, srv orchapp.ResolvedMCPServer, guard 
 		}
 		out = append(out, pt)
 	}
-	return out, nil
+	return out, len(tools), nil
 }
 
 func newMCPClient(srv orchapp.ResolvedMCPServer, headers map[string]string) (*mcpclient.Client, error) {
 	switch strings.ToLower(strings.TrimSpace(srv.Transport)) {
+	// "http" 是历史别名（P1-5 之前 UI/写面产生的存量行）：映射到 streamable
+	// 行为，不算兼容负担——REST 写面已由 service 层 validateTransport 一刀切
+	// 收敛为 streamable_http | sse，此处仅放行读路径存量。
 	case "", "http", "streamable_http":
 		// D2 遗留坑的运行期修复：vendored mcp-go v0.43 零值 http.Client 的
 		// 空闲连接池会复用服务端已关闭的 SSE 连接（IdleConnTimeout=90s），

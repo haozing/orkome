@@ -206,6 +206,7 @@ var routeTable = []struct{ Method, Pattern string }{
 	{"GET", "/workspaces/{workspaceId}/mcp-servers"}, {"POST", "/workspaces/{workspaceId}/mcp-servers"},
 	{"PUT", "/workspaces/{workspaceId}/mcp-servers/{id}"}, {"DELETE", "/workspaces/{workspaceId}/mcp-servers/{id}"},
 	{"POST", "/workspaces/{workspaceId}/mcp-servers/{id}/probe-tools"}, // fe80ac8 探针漏登契约表（reverse walk 实证）
+	{"POST", "/agents/{agentId}/mcp-servers/{id}/probe-tools"}, // P1-3 agent 级探针（reverse walk 实证）
 	{"GET", "/tasks/{taskId}/messages"},
 	{"POST", "/tasks/{taskId}/retry-source-context"},
 	{"POST", "/tasks/{taskId}/approve"}, {"POST", "/tasks/{taskId}/deny"},

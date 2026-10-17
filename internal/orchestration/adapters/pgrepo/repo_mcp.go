@@ -20,6 +20,12 @@ package pgrepo
 //     "缺字段 vs 显式空"的指针区分在 HTTP wire 层完成（handlers_mcp.go）。
 //   - Create（两级一致）：INSERT + 23505 → 409。agent 级不再 ON CONFLICT
 //     静默覆盖（FP-07 P1-4）；PUT 改名撞名同样 23505 → 409（FP-07 P1-5）。
+//
+// # transport 缺省（P1-5 一刀切）
+//
+//	orDefault 兜底自 "http" 改为 "streamable_http"——"http" 实际按
+//	Streamable HTTP 处理，名字与语义漂移一并终结（枚举闸在 service 层
+//	validateTransport，读路径引擎仍接受 "http" 历史别名）。
 
 import (
 	"context"
@@ -80,7 +86,7 @@ func (r *Repo) CreateWorkspaceMCP(ctx context.Context, m orchapp.WorkspaceMCP) (
 	out, err := scanWSMCP(r.Seal, r.q(ctx).QueryRow(ctx, `
 INSERT INTO workspace_mcp_server (workspace_id, name, transport, url, credentials, pack_id)
 VALUES ($1,$2,$3,$4,$5,nullif($6,'')::uuid) RETURNING `+wsMCPCols,
-		m.WorkspaceID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed, m.PackID))
+		m.WorkspaceID, m.Name, orDefault(m.Transport, "streamable_http"), m.URL, sealed, m.PackID))
 	if isDupName(err) {
 		return out, errMCPTaken
 	}
@@ -96,7 +102,7 @@ func (r *Repo) UpdateWorkspaceMCP(ctx context.Context, m orchapp.WorkspaceMCP) (
 UPDATE workspace_mcp_server SET name=$3, transport=$4, url=$5,
   credentials=coalesce($6::jsonb, workspace_mcp_server.credentials)
 WHERE workspace_id=$1 AND id=$2 RETURNING `+wsMCPCols,
-		m.WorkspaceID, m.ID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed))
+		m.WorkspaceID, m.ID, m.Name, orDefault(m.Transport, "streamable_http"), m.URL, sealed))
 	if noRow(err) {
 		return out, false, nil
 	}
@@ -170,7 +176,7 @@ func (r *Repo) CreateAgentMCP(ctx context.Context, m orchapp.AgentMCP) (orchapp.
 	out, err := scanAgentMCP(r.Seal, r.q(ctx).QueryRow(ctx, `
 INSERT INTO agent_mcp_server (agent_id, name, transport, url, credentials, enabled)
 VALUES ($1,$2,$3,$4,$5,$6) RETURNING `+agentMCPCols,
-		m.AgentID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed, m.Enabled))
+		m.AgentID, m.Name, orDefault(m.Transport, "streamable_http"), m.URL, sealed, m.Enabled))
 	if isDupName(err) {
 		return out, errMCPTaken
 	}
@@ -188,7 +194,7 @@ UPDATE agent_mcp_server s SET name=$3, transport=$4, url=$5,
 WHERE s.id=$2 AND s.agent_id=$1
   AND EXISTS (SELECT 1 FROM agent a WHERE a.id=s.agent_id AND a.workspace_id=$8)
 RETURNING `+agentMCPCols,
-		m.AgentID, m.ID, m.Name, orDefault(m.Transport, "http"), m.URL, sealed,
+		m.AgentID, m.ID, m.Name, orDefault(m.Transport, "streamable_http"), m.URL, sealed,
 		m.Enabled, m.WorkspaceID))
 	if noRow(err) {
 		return out, false, nil
