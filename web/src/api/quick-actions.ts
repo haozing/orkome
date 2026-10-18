@@ -69,12 +69,11 @@ export function renderQuickAction(workItemId: string, id: string) {
  * 从 ApiError.details 提取 409 ActiveDuplicate 的在途任务 id
  * （details 元素形如 { field: string; problem: string }，取 active_task_id 的 problem）。
  *
- * 现场发现（W1-2）：当前 @ploykit/client 0.7.0 的 apiFetch 只识别
- * `{error: "<code>"}` 顶层字符串 envelope，而 webx.WriteError 产出的是
- * `{error: {code, message, details}}` 对象形——这类响应会被客户端转成
- * E_MALFORMED_RESPONSE（保留 status，但 message/details 全丢）。
- * 因此 409 的 Details 在现版本客户端拿不到，组件侧以 getWorkItemActiveTask
- * 兜底；若未来客户端支持对象 envelope，本函数即恢复主路径。
+ * wire 核对（2026-10-18 勘误）：webx.ErrorBody.Code 序列化为扁平字符串信封
+ * `{error:"E_CODE",message,details}`（vendor respond.go:14 `json:"error"`），
+ * 客户端 `typeof body?.error === 'string'` 命中 → ApiError 完整保留
+ * message/details——本函数即主路径。曾有"对象形 envelope 失配"的误报，
+ * 系测试 mock 写错所致，已勘误。getWorkItemActiveTask 兜底仅防非标准响应。
  */
 export function activeTaskIdFromError(err: unknown): string | null {
   if (!isApiError(err) || err.status !== 409) return null
@@ -95,7 +94,7 @@ export function activeTaskIdFromError(err: unknown): string | null {
 /**
  * GET /api/work-items/{workItemId}/active-task → { task | null }
  * （internal/orchestration/adapters/http/handlers_taskview.go:187，与 409 Details
- * 的 active_task_id 同一 GetActiveTask 数据源——客户端丢 envelope 时的兜底通道）。
+ * 的 active_task_id 同一 GetActiveTask 数据源——仅作 Details 缺失时的防御性兜底）。
  */
 export function getWorkItemActiveTask(workItemId: string): Promise<{ id: string } | null> {
   return api.get<{ task: { id: string } | null }>(

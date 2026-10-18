@@ -85,8 +85,9 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
     },
     onError: async (err) => {
       if (isApiError(err) && err.status === 409) {
-        // 首选 409 Details 里的 active_task_id；现版本客户端对对象形 envelope 丢
-        // details（E_MALFORMED_RESPONSE），兜底探 active-task 端点（同一数据源）。
+        // 409 Details 带 active_task_id（webx 扁平字符串信封，客户端保留
+        // details）；Details 缺失时（非标准响应/代理改写）才兜底探
+        // active-task 端点——同一 GetActiveTask 数据源。
         const fromDetails = activeTaskIdFromError(err)
         if (fromDetails) {
           setFeedback({ kind: 'active', activeTaskId: fromDetails })

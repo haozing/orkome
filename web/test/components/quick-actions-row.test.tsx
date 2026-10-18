@@ -82,21 +82,21 @@ describe('quick-actions-row', () => {
   })
 
   it('409 ActiveDuplicate shows conflict hint and links to the active task', async () => {
-    // 真实 wire：webx.WriteError 包对象形 envelope（{error:{code,message,details}}）。
-    // 现版本客户端丢 details（E_MALFORMED_RESPONSE）→ 组件兜底探 active-task 端点。
+    // 真实 wire：webx.ErrorBody.Code 序列化为扁平字符串信封
+    // {error:"E_CODE",message,details}（respond.go:14），客户端
+    // `typeof body?.error === 'string'` 命中 → ApiError.details 保留
+    // ——主路径 activeTaskIdFromError 直接命中，无需兜底探针。
     let activeTaskHit = false
     server.use(
       http.post('/api/work-items/wi-1/quick-actions/qa-2/run', () =>
         HttpResponse.json(
           {
-            error: {
-              code: 'E_ACTIVE_DUPLICATE',
-              message: 'work item already has an active task for this agent (already_active)',
-              details: [
-                { field: 'active_task_id', problem: 'task-77' },
-                { field: 'reason', problem: 'already_active' },
-              ],
-            },
+            error: 'E_ACTIVE_DUPLICATE',
+            message: 'work item already has an active task for this agent (already_active)',
+            details: [
+              { field: 'active_task_id', problem: 'task-77' },
+              { field: 'reason', problem: 'already_active' },
+            ],
           },
           { status: 409 },
         ),
@@ -109,7 +109,8 @@ describe('quick-actions-row', () => {
     renderRow('agent')
     fireEvent.click(await screen.findByText('Draft weekly'))
     expect(await screen.findByText('This work item already has an active task')).toBeInTheDocument()
-    await waitFor(() => expect(activeTaskHit).toBe(true))
+    // 主路径从 Details 拿到 id：按钮出现且不触发兜底探针。
+    expect(activeTaskHit).toBe(false)
     fireEvent.click(await screen.findByRole('button', { name: 'View active task' }))
     await waitFor(() =>
       expect(patchSearch).toHaveBeenCalledWith({ tab: 'tasks', task: 'task-77' }),
