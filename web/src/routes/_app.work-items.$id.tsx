@@ -19,6 +19,7 @@ import { SubWorkItemsList } from '@/components/work-item/sub-work-items'
 import { TaskPanel } from '@/components/work-item/task-panel'
 import { AttachmentPanel } from '@/components/work-item/attachment-panel'
 import { BatchPanel } from '@/components/work-item/batch-panel'
+import { QuickActionsRow } from '@/components/work-item/quick-actions-row'
 import { TimelineList } from '@/components/work-item/timeline-list'
 import { useTranslation } from 'react-i18next'
 
@@ -140,6 +141,7 @@ export function WorkItemDetailPage() {
             <LabelsBlock workItemId={id} />
           </div>
 
+          <QuickActionsRow workItemId={id} assigneeType={wi.assignee_type} patchSearch={patchSearch} />
           <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
             <h2 className="mb-3 text-sm font-semibold">{t('comment.title')}</h2>
             <CommentThread workItemId={id} />
