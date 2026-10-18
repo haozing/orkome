@@ -278,4 +278,14 @@ rules:
       边界跨域，故登记为有意跨域写。transitional——第二刀物理删除时本条随
       agent_credential 一并移除。
 
+  - id: WORK-SUBSCRIBER-USER-EXISTS
+    domain: work
+    source: internal/work/adapters/pgrepo/repo.go
+    anchor: work_item_subscriber
+    foreign_tables: [user]
+    func: (*pgrepo.Repo).UpsertSubscriber
+    reason: mention 的 user_id 来自评论文本（不可信），EXISTS 守卫跳过未知用户——裸 INSERT
+      23503 会毒化整个外层事务致评论 500（G9 实证，c9e1533）。user 表归 identity 域；
+      守卫读只取存在性、不读任何列，经端口反转会让尽力而为语义的调用方多一层无谓装配。
+
 exemptions: []
