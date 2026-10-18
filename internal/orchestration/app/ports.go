@@ -927,7 +927,9 @@ func (s *EnqueueService) EnqueueSquadHarvest(ctx context.Context, in SquadHarves
 }
 
 type ApprovalNotifier interface {
-	WriteApprovalRequest(ctx context.Context, workspaceID, userID, taskID, payload string) error
+	// workItemID 与 taskID 分开携带：通知行两列都落库，前端弹窗才能既跳
+	// 工单又内联裁决（W1-1）。任一为空串落 NULL，历史行为不回退。
+	WriteApprovalRequest(ctx context.Context, workspaceID, userID, workItemID, taskID, payload string) error
 }
 
 type ContentPart struct {

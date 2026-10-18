@@ -58,7 +58,7 @@ func (r *Repo) ListNotification(ctx context.Context, ws, uid string, archived bo
 	}
 	args = append(args, limit)
 	rows, err := r.q(ctx).Query(ctx, `
-SELECT id::text, type, title, body, coalesce(work_item_id::text,''), read_at, created_at
+SELECT id::text, type, title, body, coalesce(work_item_id::text,''), coalesce(task_id::text,''), read_at, created_at
 FROM notification WHERE `+cond+` ORDER BY created_at DESC LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, "", err
@@ -67,7 +67,7 @@ FROM notification WHERE `+cond+` ORDER BY created_at DESC LIMIT $`+fmt.Sprint(le
 	var out []app.Item
 	for rows.Next() {
 		var it app.Item
-		if err := rows.Scan(&it.ID, &it.Type, &it.Title, &it.Body, &it.WorkItemID, &it.ReadAt, &it.CreatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Type, &it.Title, &it.Body, &it.WorkItemID, &it.TaskID, &it.ReadAt, &it.CreatedAt); err != nil {
 			return nil, "", err
 		}
 		out = append(out, it)
@@ -259,14 +259,14 @@ func emptyIfNil(s []string) []string {
 	return s
 }
 
-func (r *Repo) WriteApprovalRequest(ctx context.Context, ws, userID, taskID, payload string) error {
+func (r *Repo) WriteApprovalRequest(ctx context.Context, ws, userID, workItemID, taskID, payload string) error {
 	if app.MutedFor(ctx, r, ws, userID, domain.MuteTarget{Type: "approval_request"}) {
 		return nil
 	}
 	_, err := r.q(ctx).Exec(ctx, `
-INSERT INTO notification (user_id, workspace_id, recipient_user_id, type, title, body, dedup_key)
-VALUES ($1,$2,$3,'approval_request',$4,$5,$6) ON CONFLICT DO NOTHING`,
-		userID, ws, userID,
+INSERT INTO notification (user_id, workspace_id, recipient_user_id, work_item_id, task_id, type, title, body, dedup_key)
+VALUES ($1,$2,$3,nullif($4,'')::uuid,nullif($5,'')::uuid,'approval_request',$6,$7,$8) ON CONFLICT DO NOTHING`,
+		userID, ws, userID, workItemID, taskID,
 		domain.TruncateRunes("needs your approval", domain.TitleMaxRunes),
 		domain.TruncateRunes(payload, domain.BodyMaxRunes),
 		"approval:"+taskID)

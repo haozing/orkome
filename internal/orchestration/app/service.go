@@ -778,14 +778,14 @@ type SettlementService struct {
 	comments     CommentWriter
 	// outcomes 工单产出写入端口（"需求→产出"一等公民）：completed 结算时
 	// 后写覆盖工单 outcome。nil 时跳过（outcome 不落，行为同旧）。
-	outcomes     OutcomeWriter
+	outcomes OutcomeWriter
 	// squadWake 派发式小队的 leader 自动回环：成员任务终态后检查同工单同队
 	// 是否全部收割，是则给 leader 挂一个收割任务（record_evaluation/汇总）。
-	squadWake    LeaderWakeHook
-	chats        ChatWriter
-	notifier     ApprovalNotifier
-	engine       Engine
-	secret       func(ctx context.Context, ws, credID string) (string, error)
+	squadWake LeaderWakeHook
+	chats     ChatWriter
+	notifier  ApprovalNotifier
+	engine    Engine
+	secret    func(ctx context.Context, ws, credID string) (string, error)
 
 	// summaries 生成结算 summary（A2 分层上移：LLM 七段 checkpoint，开关
 	// 默认关时为纯截断回落）。nil 时按开关关处理。
@@ -985,7 +985,8 @@ func (s *SettlementService) park(ctx context.Context, task Task, agent Agent, it
 		return err
 	}
 	if s.notifier != nil && task.OriginatorUserID != "" {
-		_ = s.notifier.WriteApprovalRequest(ctx, task.WorkspaceID, task.OriginatorUserID, task.ID, it.Payload)
+		_ = s.notifier.WriteApprovalRequest(ctx, task.WorkspaceID, task.OriginatorUserID,
+			task.WorkItemID, task.ID, it.Payload)
 	}
 	return nil
 }

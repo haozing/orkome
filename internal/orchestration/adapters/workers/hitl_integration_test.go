@@ -48,11 +48,11 @@ func (p workBenchPort) GetWorkItemBrief(ctx context.Context, ws, wi string) (str
 
 type approvalNotifierPort struct{ e *env }
 
-func (p approvalNotifierPort) WriteApprovalRequest(ctx context.Context, ws, user, taskID, payload string) error {
+func (p approvalNotifierPort) WriteApprovalRequest(ctx context.Context, ws, user, workItemID, taskID, payload string) error {
 	_, err := p.e.pool.Exec(ctx, `
-INSERT INTO notification (workspace_id, recipient_user_id, type, title, body, dedup_key)
-VALUES ($1,$2,'approval_request','needs your approval',$4,'approval:'||$3) ON CONFLICT DO NOTHING`,
-		ws, user, taskID, payload)
+INSERT INTO notification (workspace_id, recipient_user_id, work_item_id, task_id, type, title, body, dedup_key)
+VALUES ($1,$2,nullif($4,'')::uuid,nullif($5,'')::uuid,'approval_request','needs your approval',$6,'approval:'||$3) ON CONFLICT DO NOTHING`,
+		ws, user, taskID, workItemID, taskID, payload)
 	return err
 }
 

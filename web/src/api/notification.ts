@@ -5,6 +5,8 @@ export interface NotificationItem {
   title: string
   body: string
   work_item_id?: string
+  // 仅审批类通知携带（W1-1 内联裁决）：弹窗据此直调任务裁决端点；存量行为空。
+  task_id?: string
   read_at?: string
   created_at: string
 }

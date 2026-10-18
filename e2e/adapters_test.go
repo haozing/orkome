@@ -157,8 +157,8 @@ func (c chatW) ClearResumePointer(ctx context.Context, sessionID string) error {
 
 type apvNotif struct{ repo *notifpgrepo.Repo }
 
-func (a apvNotif) WriteApprovalRequest(ctx context.Context, ws, user, taskID, payload string) error {
-	return a.repo.WriteApprovalRequest(ctx, ws, user, taskID, payload)
+func (a apvNotif) WriteApprovalRequest(ctx context.Context, ws, user, workItemID, taskID, payload string) error {
+	return a.repo.WriteApprovalRequest(ctx, ws, user, workItemID, taskID, payload)
 }
 
 type engWrap struct{ e *engine.EinoEngine }

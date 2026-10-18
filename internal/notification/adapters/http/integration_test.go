@@ -252,6 +252,47 @@ func TestNotification_SummaryFacetsArchived(t *testing.T) {
 	assert.Len(t, arch2, 1)
 }
 
+func TestApprovalRequest_WorkItemAndTaskIDRoundTrip(t *testing.T) {
+	// W1-1 内联裁决的数据面：approval_request 通知写 work_item_id+task_id，
+	// List 两列都投影回——前端弹窗据此既跳工单又直调任务裁决端点。
+	h := newNenv(t)
+	ctx := context.Background()
+
+	// work_item_id 落库有 FK（notification_work_item_id_fkey）：先造真实工单，
+	// 也顺带验证"通知挂真工单"这一生产路径。
+	var wi string
+	require.NoError(t, h.pool.QueryRow(ctx, `
+INSERT INTO work_item (workspace_id, number, title, status_key, creator_id)
+VALUES ($1, 1, 'approval round-trip', 'backlog', $2) RETURNING id::text`,
+		h.wsID, h.userID).Scan(&wi))
+	const taskID = "55555555-5555-5555-5555-555555555555"
+	require.NoError(t, h.repo.WriteApprovalRequest(ctx, h.wsID, h.userID, wi, taskID, "approve me"))
+
+	code, out := h.do("GET", "/notifications", nil)
+	require.Equal(t, 200, code, "list: %v", out)
+	items, _ := out["items"].([]any)
+	require.Len(t, items, 1)
+	m, _ := items[0].(map[string]any)
+	assert.Equal(t, "approval_request", m["type"])
+	assert.Equal(t, wi, m["work_item_id"], "work_item_id must round-trip for the open-work-item jump")
+	assert.Equal(t, taskID, m["task_id"], "task_id must round-trip for inline settle")
+
+	// 存量/非审批行（task_id NULL）投影为键省略（omitempty），不得串值。
+	require.NoError(t, h.repo.WriteTaskCompleted(ctx, h.wsID, h.userID, "", "agent", "done"))
+	code, out = h.do("GET", "/notifications", nil)
+	require.Equal(t, 200, code, "list2: %v", out)
+	items, _ = out["items"].([]any)
+	require.Len(t, items, 2)
+	for _, raw := range items {
+		m, _ := raw.(map[string]any)
+		if m["type"] != "task_completed" {
+			continue
+		}
+		_, has := m["task_id"]
+		assert.False(t, has, "task_id NULL must omit the JSON key, not leak a value")
+	}
+}
+
 func toStrings(t *testing.T, v any) []string {
 	t.Helper()
 	if v == nil {
@@ -276,7 +317,7 @@ func TestDirectWrite_MuteFiltered(t *testing.T) {
 		MutedTypes: []string{"task_completed", "approval_request", "eval_report"},
 	}))
 	require.NoError(t, h.repo.WriteTaskCompleted(ctx, h.wsID, h.userID, "", "agent", "done"))
-	require.NoError(t, h.repo.WriteApprovalRequest(ctx, h.wsID, h.userID, "task-1", "payload"))
+	require.NoError(t, h.repo.WriteApprovalRequest(ctx, h.wsID, h.userID, "", "task-1", "payload"))
 	require.NoError(t, h.repo.WriteEvalReport(ctx, h.wsID, h.userID, "task-2", "t", "b"))
 	var n int
 	require.NoError(t, h.pool.QueryRow(ctx,
@@ -313,8 +354,8 @@ func TestDirectWrite_TruncationUnified(t *testing.T) {
 	assert.True(t, utf8.ValidString(body), "CJK truncation does not split UTF-8")
 	assert.True(t, strings.HasSuffix(body, "…"), "over the limit ends with an ellipsis (counted in the cap)")
 
-	require.NoError(t, h.repo.WriteApprovalRequest(ctx, h.wsID, h.userID, "t-1",
-		strings.Repeat("a", 5000)))
+	require.NoError(t, h.repo.WriteApprovalRequest(ctx, h.wsID, h.userID, "",
+		"66666666-6666-6666-6666-666666666666", strings.Repeat("a", 5000)))
 	require.NoError(t, h.pool.QueryRow(ctx,
 		`SELECT body FROM notification WHERE workspace_id=$1 AND type='approval_request'`, h.wsID).Scan(&body))
 	assert.Equal(t, 4000, runeLen(body), "approval payload = body cap 4000")

@@ -16,9 +16,12 @@ type Item struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 
-	WorkItemID string     `json:"work_item_id,omitempty"`
-	ReadAt     *time.Time `json:"read_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	// TaskID 仅审批类通知携带（W1-1 内联裁决）：前端弹窗据此直调
+	// POST /api/tasks/{id}/approve|deny。存量行 NULL → 空串 → JSON 键省略。
+	TaskID    string     `json:"task_id,omitempty"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type Preference struct {

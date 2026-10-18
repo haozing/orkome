@@ -571,8 +571,8 @@ func (a workBenchAdapter) GetWorkItemBrief(ctx context.Context, ws, wi string) (
 
 type approvalNotifier struct{ repo *notifpgrepo.Repo }
 
-func (a approvalNotifier) WriteApprovalRequest(ctx context.Context, ws, userID, taskID, payload string) error {
-	return a.repo.WriteApprovalRequest(ctx, ws, userID, taskID, payload)
+func (a approvalNotifier) WriteApprovalRequest(ctx context.Context, ws, userID, workItemID, taskID, payload string) error {
+	return a.repo.WriteApprovalRequest(ctx, ws, userID, workItemID, taskID, payload)
 }
 
 type subscriberPort struct{ wRepo *workpgrepo.Repo }
