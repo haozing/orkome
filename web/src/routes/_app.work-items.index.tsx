@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { CreateWorkItemDialog } from '@/components/work-item/create-work-item-dialog'
 import { statusMetaOf } from '@/components/work-item/meta'
+import { StarterChecklist } from '@/components/work-item/starter-checklist'
 import { WorkItemList } from '@/components/work-item/work-item-list'
 import { useWorkspaceStore } from '@/stores/workspace'
 const searchSchema = z.object({
@@ -186,11 +187,10 @@ function WorkItemsPage() {
         />
       )}
 
-      {list.isSuccess && items.length === 0 && (
-        <PageEmpty
-          title={hasFilter ? t('work.noMatch') : t('work.emptyTitle')}
-          description={hasFilter ? t('work.noMatchDesc') : t('work.emptyDesc')}
-        />
+      {list.isSuccess && items.length === 0 && !hasFilter && <StarterChecklist />}
+
+      {list.isSuccess && items.length === 0 && hasFilter && (
+        <PageEmpty title={t('work.noMatch')} description={t('work.noMatchDesc')} />
       )}
 
       {items.length > 0 && <WorkItemList items={items} />}

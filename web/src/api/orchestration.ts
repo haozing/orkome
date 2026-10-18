@@ -349,3 +349,14 @@ export function settleTask(taskId: string, approved: boolean, note?: string) {
 export function cancelWorkItemTask(workItemId: string, taskId: string) {
   return api.post<unknown>(`/api/work-items/${workItemId}/tasks/${taskId}/cancel`)
 }
+
+/** GET /api/setup-status → 冷启动探针（wiring_setupstatus.go）：一次请求回答
+ * 「这个工作区配置齐了吗」——凭证数 + 每个 agent 的 ready 态（runtime_config
+ * 的 model/credential_id/base_url 三键齐全）。 */
+export interface SetupStatus {
+  credential_count: number
+  agents: { id: string; name: string; archived: boolean; ready: boolean }[]
+}
+export function getSetupStatus(): Promise<SetupStatus> {
+  return api.get<SetupStatus>('/api/setup-status')
+}
