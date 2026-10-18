@@ -1,9 +1,12 @@
 package http
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/haozing/ploykit/identity/app"
 	"github.com/haozing/ploykit/platform/webx"
@@ -127,12 +130,21 @@ func (d Deps) handleRegister(w http.ResponseWriter, r *http.Request) {
 // context — the same value the Set-Cookie on this response carries — so
 // clients read csrf_token from the body and skip the re-fetch-/config round
 // trip every integration had to hardcode after session establishment.
+// The register flags (registered / provisioning_pending, ADR 0016) appear
+// only when set — omitting them keeps every existing response byte-compatible.
 func (d Deps) writeSessionEstablished(w http.ResponseWriter, r *http.Request, res *app.LoginResult) {
-	webx.WriteJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"user":       res.User,
 		"expires_at": res.Exp,
 		"csrf_token": webx.CSRFMaskedToken(r),
-	})
+	}
+	if res.Registered {
+		payload["registered"] = true
+	}
+	if res.ProvisioningPending {
+		payload["provisioning_pending"] = true
+	}
+	webx.WriteJSON(w, http.StatusOK, payload)
 }
 
 func (d Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +315,38 @@ func (d Deps) listPATs(w http.ResponseWriter, r *http.Request, p *webx.Principal
 	webx.WriteJSON(w, http.StatusOK, list)
 }
 
+// maxScopeWorkspaceIDs caps the per-PAT workspace scope list: scope is
+// security-boundary data and an unbounded list is a garbage-input magnet.
+const maxScopeWorkspaceIDs = 32
+
+// validatePATScope enforces the scope contract on the create face. The
+// semantics live in webx.CredentialScope: nil (or a nil list) = unrestricted,
+// a NON-NIL EMPTY list = allow nothing. The empty list is therefore an
+// ambiguous request — rejected outright instead of minting a 201 token that
+// can do nothing (orkome field report: exactly that token shipped silently).
+// Workspace ids must be UUIDs — a stray string can never match a workspace
+// and turns every later 403 into an unsolvable mystery.
+func validatePATScope(scope *webx.CredentialScope) *webx.Error {
+	if scope == nil {
+		return nil
+	}
+	if len(scope.WorkspaceIDs) == 0 && scope.WorkspaceIDs != nil {
+		return webx.NewValidation("scope.workspace_ids: an empty list means allow-nothing; omit the field for an unrestricted token, or list workspace ids")
+	}
+	if len(scope.Permissions) == 0 && scope.Permissions != nil {
+		return webx.NewValidation("scope.permissions: an empty list means allow-nothing; omit the field for an unrestricted token, or list permissions")
+	}
+	if len(scope.WorkspaceIDs) > maxScopeWorkspaceIDs {
+		return webx.NewValidation(fmt.Sprintf("scope.workspace_ids: %d entries exceeds the limit of %d", len(scope.WorkspaceIDs), maxScopeWorkspaceIDs))
+	}
+	for _, id := range scope.WorkspaceIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			return webx.NewValidation(fmt.Sprintf("scope.workspace_ids: %q is not a workspace id (expected a uuid)", id))
+		}
+	}
+	return nil
+}
+
 func (d Deps) createPAT(w http.ResponseWriter, r *http.Request, p *webx.Principal) {
 	var req struct {
 		Name     string `json:"name"`
@@ -311,6 +355,10 @@ func (d Deps) createPAT(w http.ResponseWriter, r *http.Request, p *webx.Principa
 		Scope *webx.CredentialScope `json:"scope"`
 	}
 	if !webx.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := validatePATScope(req.Scope); err != nil {
+		webx.WriteErr(w, err)
 		return
 	}
 	var ttl time.Duration

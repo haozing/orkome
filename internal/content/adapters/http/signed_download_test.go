@@ -50,6 +50,15 @@ func (f *sdStore) URL(key string) string { return key }
 func (f *sdStore) Presign(_ context.Context, key string, ttl time.Duration) (string, error) {
 	return key, nil
 }
+func (f *sdStore) List(_ context.Context, prefix string) ([]storagex.Object, error) {
+	var out []storagex.Object
+	for k, data := range f.objs {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, storagex.Object{Key: k, Size: int64(len(data))})
+		}
+	}
+	return out, nil
+}
 
 type sdRepo struct{ row *contentapp.Attachment }
 

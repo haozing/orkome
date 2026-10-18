@@ -56,6 +56,15 @@ func (f *fakeStore) URL(key string) string { return "/uploads/" + key }
 func (f *fakeStore) Presign(ctx context.Context, key string, ttl time.Duration) (string, error) {
 	return "/uploads/" + key, nil
 }
+func (f *fakeStore) List(_ context.Context, prefix string) ([]storagex.Object, error) {
+	var out []storagex.Object
+	for k, o := range f.objs {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, storagex.Object{Key: k, ContentType: o.ctype, Size: int64(len(o.data))})
+		}
+	}
+	return out, nil
+}
 
 type fakeRepo struct {
 	rows     map[string]Attachment

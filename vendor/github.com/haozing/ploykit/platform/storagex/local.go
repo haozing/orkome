@@ -1,12 +1,17 @@
 package storagex
 
 import (
+	"net/http"
+	"net/url"
+	"sort"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,23 +172,52 @@ func (l *LocalBackend) Open(_ context.Context, key string) (io.ReadCloser, Objec
 	if err != nil {
 		return nil, Object{}, err
 	}
-	mp := p + ".meta.json"
-	mb, err := os.ReadFile(mp)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, Object{}, os.ErrNotExist
-		}
-		return nil, Object{}, err
-	}
-	var m meta
-	if err := json.Unmarshal(mb, &m); err != nil {
-		return nil, Object{}, err
-	}
 	f, err := os.Open(p)
 	if err != nil {
 		return nil, Object{}, err
 	}
-	return f, Object{Key: key, ContentType: m.ContentType, Size: m.Size, SHA256: m.SHA256}, nil
+	obj, err := l.objectFor(key, p, f)
+	if err != nil {
+		f.Close()
+		return nil, Object{}, err
+	}
+	return f, obj, nil
+}
+
+// objectFor loads an object's Put-time metadata sidecar. Files written outside
+// Put (migration tools, rsync, manual copies) have no sidecar; failing those
+// closed made "file present but served 404, zero logs" a multi-hour incident
+// (field report: 12 blog images). A missing sidecar falls back to stat +
+// content sniffing and says so; a CORRUPT sidecar stays a hard error — that is
+// real metadata damage, not an absence.
+func (l *LocalBackend) objectFor(key, p string, f *os.File) (Object, error) {
+	mb, err := os.ReadFile(p+".meta.json")
+	if errors.Is(err, os.ErrNotExist) {
+		return sniffObject(key, f)
+	}
+	if err != nil {
+		return Object{}, err
+	}
+	var m meta
+	if err := json.Unmarshal(mb, &m); err != nil {
+		return Object{}, err
+	}
+	return Object{Key: key, ContentType: m.ContentType, Size: m.Size, SHA256: m.SHA256}, nil
+}
+
+func sniffObject(key string, f *os.File) (Object, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return Object{}, err
+	}
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	ct := http.DetectContentType(head[:n])
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return Object{}, err
+	}
+	slog.Warn("storagex: meta sidecar missing, serving with sniffed content type (object was written outside Put)", "key", key, "content_type", ct)
+	return Object{Key: key, ContentType: ct, Size: st.Size()}, nil
 }
 
 func (l *LocalBackend) Delete(_ context.Context, key string) error {
@@ -222,4 +256,63 @@ func (l *LocalBackend) LoadMeta(key string) (meta, error) {
 	}
 	var m meta
 	return m, json.Unmarshal(mb, &m)
+}
+
+// List walks the on-disk tree under the escaped prefix and materializes
+// Objects from the sidecar .meta.json files (storage-walk #10). Objects whose
+// sidecar is missing or unreadable are skipped rather than failing the walk —
+// a half-written or externally tampered file must not break quota accounting
+// for everything else.
+func (l *LocalBackend) List(ctx context.Context, prefix string) ([]Object, error) {
+	root, err := l.realRoot()
+	if err != nil {
+		return nil, err
+	}
+	escaped := escapeKey(prefix)
+	start := filepath.Join(root, filepath.FromSlash(escaped))
+	out := []Object{}
+	walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(p, ".meta.json") {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		key := strings.TrimSuffix(filepath.ToSlash(rel), ".meta.json")
+		if escaped != "" && !strings.HasPrefix(key, escaped) {
+			return nil
+		}
+		// key is escaped on disk; surface the unescaped form
+		if unescaped, uerr := url.PathUnescape(strings.ReplaceAll(key, "%2F", "%252F")); uerr == nil {
+			key = unescaped
+		}
+		mb, merr := os.ReadFile(p)
+		if merr != nil {
+			return nil // skip unreadable sidecars (see doc comment)
+		}
+		var m meta
+		if jerr := json.Unmarshal(mb, &m); jerr != nil {
+			return nil
+		}
+		out = append(out, Object{Key: key, ContentType: m.ContentType, Size: m.Size, SHA256: m.SHA256})
+		return nil
+	})
+	if walkErr != nil {
+		// A start path that doesn't exist yet (fresh prefix) is an empty
+		// listing, not an error.
+		if os.IsNotExist(walkErr) || (start != root && walkErr != nil && os.IsNotExist(walkErr)) {
+			return out, nil
+		}
+		return nil, walkErr
+	}
+	_ = ctx
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
 }

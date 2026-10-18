@@ -15,17 +15,17 @@ importers:
         specifier: ^5.0.0
         version: 5.9.1(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.5)
       '@ploykit/client':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.7.5
+        version: 0.7.5
       '@ploykit/hooks':
-        specifier: 0.7.0
-        version: 0.7.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
+        specifier: 0.8.0
+        version: 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@ploykit/runtime':
-        specifier: 0.7.0
-        version: 0.7.0(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
+        specifier: 0.7.4
+        version: 0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@ploykit/ui':
-        specifier: 0.7.0
-        version: 0.7.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
+        specifier: 0.8.1
+        version: 0.8.1(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
       '@tanstack/react-query':
         specifier: ^5.62.0
         version: 5.104.1(react@19.3.0)
@@ -310,6 +310,10 @@ packages:
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.0.0-0
+
+  '@babel/runtime@7.29.10':
+    resolution: {integrity: sha512-NpugTzbKgGrNe45Ui32cN8vCFFMxVtP/9rtfwv0nP5FRDAjvYBxJcLVpYA9mr1jxP6cnIT7x9LUzuDTbWYYNRA==}
+    engines: {node: '>=6.9.0'}
 
   '@babel/runtime@7.29.7':
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
@@ -850,24 +854,24 @@ packages:
   '@oxc-project/types@0.152.0':
     resolution: {integrity: sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==}
 
-  '@ploykit/client@0.7.0':
-    resolution: {integrity: sha512-rJ42USC7zg9tadlwssOGX9Y0P8kS+/DZ8/rzX7wuznxRbozUQCRCCwsGS7WdNG8ucdDdlVO9Md45i7Hc4joLdg==}
+  '@ploykit/client@0.7.5':
+    resolution: {integrity: sha512-G7cUi69pJ1xBzbMZkL9/wZQE2/zcFV9nzkbIil3bOcMsOqOUYyIUnMnR4yaw7rbm92FmqwUBTJSCvVATzNW9AQ==}
 
-  '@ploykit/hooks@0.7.0':
-    resolution: {integrity: sha512-oBbdkJzclvmbIm2MgLXPLDPjipBnn6mwvRp2KmkNeoVGn43AqTWAfDIGYxmMOvqzapiC6KW3794uDtduKKtH9Q==}
+  '@ploykit/hooks@0.8.0':
+    resolution: {integrity: sha512-0G+uOKbtb4zPgOPW1SoGlapL0McF/Zz8UkgcIbw0jYO6hJnGRdStzkz00X7PeLcWWjLBfjdzXcjTc07/KcfDag==}
     peerDependencies:
       '@tanstack/react-query': ^5.0.0
       react: ^19.0.0
 
-  '@ploykit/runtime@0.7.0':
-    resolution: {integrity: sha512-HkOG8JFwPr3u5S0G44x20vRIw3r5CmXWRCaLS41tJHFkCXvpP7iNCbCsXGN6sAVzGG2AdNXNc9fyfISz/hpEjg==}
+  '@ploykit/runtime@0.7.4':
+    resolution: {integrity: sha512-7Ircu0itKMrB7nxZbsZXFGU0JfIrSj5o6rnwzs/2CFv+/eXSqkezga9lKBf9pE8Xz+levpRYm2ycL8NO/KskOQ==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
       react-router: ^7.0.0
 
-  '@ploykit/ui@0.7.0':
-    resolution: {integrity: sha512-KO0c2EMrlRWcJSijzFikppygtsCATkZ9haiVk1wO9sMdhhSE+NmasE6hxOs7l+TvAtOecXfPTPSfF+A+b82yHQ==}
+  '@ploykit/ui@0.8.1':
+    resolution: {integrity: sha512-KtU0DH7fOVgCpTizevU9szg4H0kpBpDV15ESbP8ifrqp0cqeEbGo1OYMefXGg0WAHoc9pRp3BhxxSYIXZJVDRA==}
     peerDependencies:
       '@tanstack/react-query': ^5.0.0
       react: ^19.0.0
@@ -2909,8 +2913,8 @@ packages:
       '@types/react':
         optional: true
 
-  lucide-react@1.56.0:
-    resolution: {integrity: sha512-b+hqj30/trHBma5r1zlKb6yLewQp6tUtnz9loc3xdrYerPmvLYhlEbyPVCJ8DOg2/blBf6lwPLznftFVACka6A==}
+  lucide-react@1.59.0:
+    resolution: {integrity: sha512-5qgMyyCPU6OvnKpLS2t693+ZtiqA8oaSweWoUows0BLFKFf6V75m4+CptpmohZHpD5IuOVIBXHBBiv2vpLJmtw==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -4414,6 +4418,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@babel/runtime@7.29.10': {}
+
   '@babel/runtime@7.29.7': {}
 
   '@babel/template@7.29.7':
@@ -4822,13 +4828,13 @@ snapshots:
 
   '@oxc-project/types@0.152.0': {}
 
-  '@ploykit/client@0.7.0': {}
+  '@ploykit/client@0.7.5': {}
 
-  '@ploykit/hooks@0.7.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
+  '@ploykit/hooks@0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@hookform/resolvers': 5.9.1(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.5)
-      '@ploykit/client': 0.7.0
-      '@ploykit/runtime': 0.7.0(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
+      '@ploykit/client': 0.7.5
+      '@ploykit/runtime': 0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@tanstack/react-query': 5.104.1(react@19.3.0)
       react: 19.3.0
       react-hook-form: 7.89.0(@types/react@19.3.0)(react@19.3.0)
@@ -4861,22 +4867,22 @@ snapshots:
       - vest
       - yup
 
-  '@ploykit/runtime@0.7.0(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
+  '@ploykit/runtime@0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
     dependencies:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       react-router: 7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
-  '@ploykit/ui@0.7.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
+  '@ploykit/ui@0.8.1(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
     dependencies:
       '@base-ui/react': 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@ploykit/client': 0.7.0
-      '@ploykit/hooks': 0.7.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
+      '@ploykit/client': 0.7.5
+      '@ploykit/hooks': 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@tanstack/react-query': 5.104.1(react@19.3.0)
       class-variance-authority: 0.7.1
       clsx: 2.1.1
       cn: 0.4.0
-      lucide-react: 1.56.0(@types/react@19.3.0)(react@19.3.0)
+      lucide-react: 1.59.0(@types/react@19.3.0)(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       react-router: 7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -5328,7 +5334,7 @@ snapshots:
   '@testing-library/dom@10.4.2':
     dependencies:
       '@babel/code-frame': 7.29.7
-      '@babel/runtime': 7.29.7
+      '@babel/runtime': 7.29.10
       '@types/aria-query': 5.0.4
       aria-query: 5.3.0
       dom-accessibility-api: 0.5.16
@@ -6813,7 +6819,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
 
-  lucide-react@1.56.0(@types/react@19.3.0)(react@19.3.0):
+  lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.0):
     dependencies:
       react: 19.3.0
     optionalDependencies:
