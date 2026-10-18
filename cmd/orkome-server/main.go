@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -23,8 +24,8 @@ import (
 	"github.com/haozing/ploykit/platform/wswire"
 	webhookhttp "github.com/haozing/ploykit/webhooks/adapters/http"
 	workspacehttp "github.com/haozing/ploykit/workspace/adapters/http"
-	autohttp "orkome/internal/automation/adapters/http"
 	autobhttp "orkome/internal/automation/adapters/http"
+	autohttp "orkome/internal/automation/adapters/http"
 	chhttp "orkome/internal/channels/adapters/http"
 	chpgrepo "orkome/internal/channels/adapters/pgrepo"
 	chapp "orkome/internal/channels/app"
@@ -39,12 +40,12 @@ import (
 	orchhttp "orkome/internal/orchestration/adapters/http"
 	orchpgrepo "orkome/internal/orchestration/adapters/pgrepo"
 	orchapp "orkome/internal/orchestration/app"
+	packhttp "orkome/internal/pack/adapters/http"
 	"orkome/internal/platform/eventbus"
 	"orkome/internal/platform/flagsx"
 	"orkome/internal/platform/outboxx"
-	packhttp "orkome/internal/pack/adapters/http"
-	skillapp "orkome/internal/skills/app"
 	skillhttp "orkome/internal/skills/adapters/http"
+	skillapp "orkome/internal/skills/app"
 	workhttp "orkome/internal/work/adapters/http"
 	workpgrepo "orkome/internal/work/adapters/pgrepo"
 	workapp "orkome/internal/work/app"
@@ -52,10 +53,40 @@ import (
 	"orkome/migrations"
 )
 
-// buildVersion is the /config version field, injectable at link time via
-// -ldflags "-X orkome/cmd/orkome-server.buildVersion=v1.2.3"; the dev default
-// keeps local runs distinguishable from release builds.
+// buildVersion is the /config version field. Override paths, in order:
+// ① -ldflags "-X orkome/cmd/orkome-server.buildVersion=v1.2.3"（注意：本机
+// Go 1.27.0 windows/amd64 实测 -X 静默失效，最小复现见 2026-10-18 会话——
+// 故默认路径走 ②）；② go build 自动嵌入的 VCS 戳（revision@date，git 检出
+// 内构建即有）；③ 兜底 "dev"（go run / 非 git 环境）。
 var buildVersion = "dev"
+
+// productVersion 解析 /config 的 version 字段（见 buildVersion 注释）。
+func productVersion() string {
+	if buildVersion != "" && buildVersion != "dev" {
+		return buildVersion
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		var rev, date string
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.time":
+				date = s.Value
+			}
+		}
+		if rev != "" {
+			if len(rev) > 7 {
+				rev = rev[:7]
+			}
+			if len(date) >= 10 {
+				return rev + "@" + date[:10]
+			}
+			return rev
+		}
+	}
+	return "dev"
+}
 
 func main() {
 	cfg, err := ParseConfig()
@@ -391,7 +422,7 @@ func main() {
 	root.HandleFunc("GET /config", webx.ConfigHandler(webx.ConfigDeps{Extra: func() map[string]any {
 		// product/version：version 由框架 /config 的 framework_version 之外承载
 		// 产品自有版本；ldflags 注入（framework_version 是 ploykit 0.7.0 起自带键）。
-		return map[string]any{"product": "orkome", "version": buildVersion}
+		return map[string]any{"product": "orkome", "version": productVersion()}
 	}}))
 
 	// F21 fixed in ploykit v0.4.1 (statusRecorder passes Hijack through) —
