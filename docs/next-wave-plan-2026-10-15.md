@@ -1,8 +1,8 @@
 # 下一波实施计划：把"缝"接上（2026-10-15）
 
 > 依据：`docs/grokbot-code-analysis-2026-10-15.md`（Grok 0.18 源码级分析的 P1/P2 清单）+ chat 退役（`ef950d0`）清空的历史包袱
-> 状态：待实施（W1 双件可并行）
-> 边界：integrations 页重构在途（另一路工作），文件避让清单见 §5
+> 状态：W1 双件实施中（2026-10-18 起）；§3.2/§4 已按并行工作修订（能力包退役 / QA 409 语义增强）
+> 边界：integrations 页已收官（`3366feb`/`c9c03e5`），§6 避让清单随之作废
 
 ---
 
@@ -70,7 +70,7 @@
 - 后端 6 端点全绿零消费：`conversation/adapters/http/routes.go:117-125`；
 - 语义（照抄勿猜）：workspace+user 私有（Create 强制 `IsPrivate=true`，`service_quickaction.go:88`）；每用户上限 3（`MaxQuickActions`）；Run 解析**工单负责人**为执行 agent——负责人不是 agent（含小队）时 400 `"work item has no agent assignee"`（`service_quickaction.go:71`）。
 
-### 冻结 wire（实现时逐字段对照）
+### 冻结 wire（实现时逐字段对照；2026-10-18 按并行工作更新）
 
 | 端点 | 请求 | 响应 |
 |---|---|---|
@@ -78,8 +78,10 @@
 | POST `/api/quick-actions` | `{label,prompt}` | 201 单对象 QuickAction |
 | PATCH `/api/quick-actions/{id}` | `{label,prompt}` | 200 单对象 |
 | DELETE `/api/quick-actions/{id}` | — | 200 `{result:"deleted"}` |
-| POST `/api/work-items/{wi}/quick-actions/{id}/run` | — | 201 `{task_id}` |
+| POST `/api/work-items/{wi}/quick-actions/{id}/run` | — | 201 `{task_id}`；**409 `ActiveDuplicate` 带 Details `[{field:"active_task_id",problem:<id>},{field:"reason",problem:<reason>}]`**（6347945：在途任务可见化，前端可直达在途汇报）；400 `"work item has no agent assignee"`（语义未变，`service_quickaction.go:71`） |
 | POST `/api/work-items/{wi}/quick-actions/{id}/render` | — | 200 `{prompt}` |
+
+> 备选 wire：并行工作新增的 `POST /work-items/{id}/dispatch`（201/409/422 三态，`wiring_dispatch.go`）是"重派当前负责人"的通用入口——快捷动作若将来泛化为"对任意负责人派任意指令"，迁移到 dispatch 契约；本波仍用 quick-actions 专端点。
 
 ### UI 落位
 
@@ -111,8 +113,10 @@
 改动（单文件为主）：`_app.work-items.index.tsx` 空态升级为三件套卡片：
 
 1. **建第一个工单**——单字段（标题）快速创建（复用 `quickCreateWorkItem`），创建后直接进详情；
-2. **接一个能力包**——链 `/tools`（集成页；在途重构完成后即为最顺入口）；
+2. **接一个 MCP 服务器**——链 `/tools` 集成页 MCP 段（~~原「接一个能力包」已随能力包退役作废，`c9c03e5`/`3366feb`~~；或引导「配一个助理」→ `/access`，该页已交付"AI 即安装器"）；
 3. **邀请队友**——链 `/settings` 工作区段。
+
+> 可选增强：`GET /api/setup-status`（6347945 新增，agents[].ready 冷启动探针）可直接驱动卡片的完成态——已建 agent 且 ready 时第一/二卡自动打勾。
 
 - i18n `work.start.*`；
 - **不做独立 onboarding 页**——空态卡片=天然第二幕，零新路由。
@@ -132,13 +136,12 @@
 
 ---
 
-## 6. 并行纪律（integrations 在途避让）
+## 6. 并行纪律
 
-在途文件（另一路，本轮**勿碰**）：
-`web/src/components/integrations/**`、`packs-sections.tsx`、`_app.tools.tsx`、`_app.settings.tsx`、`pack-detail.tsx`、`api/packs.ts`、i18n `tools.*`/`settingsWs.*` 段、`migrations/1047_*`、`internal/orchestration/**/uientry*`
+~~在途文件避让清单~~ 已作废——integrations 页收官（`3366feb`/`c9c03e5`），相关文件全部入库。现行纪律：
 
-- W1 触及面与上述零交集；**迁移用 1048**；i18n 只动 `notif.*` 与 `work.qa.*`/`work.start.*`；
-- W1-2 与 W2 都动 `work.*` i18n 与工作项路由——若并行，两批 key 分前缀互不重叠（`work.qa.*` / `work.start.*`）。
+- W1-1 与 W1-2 文件零交集，可双 agent 并行（实施中，2026-10-18）；**唯一共享文件是 i18n 两份**——按段隔离（W1-1 只动 `notif.*`，W1-2 只动 `work.qa.*`），提交顺序 W1-1 先；
+- 迁移用 **1048**（1047 已被 ui_entry_manual_pack_key 占用且生产已补）。
 
 ---
 
