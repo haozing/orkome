@@ -14,7 +14,8 @@ import { listAgents } from '@/api/orchestration'
 import { membersQueryOptions } from '@/api/identity'
 import { useFieldUpdate } from '@/components/work-item/use-field-update'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { PRIORITY_META, STATUS_META } from '@/components/work-item/meta'
+import { PRIORITY_META, STATUS_META, statusMetaOf, TONE_DOT_CLASS } from '@/components/work-item/meta'
+import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,9 +113,6 @@ function useStatusCatalog() {
     queryFn: listStatuses,
     staleTime: 5 * 60000,
   })
-}
-function statusTone(key: string) {
-  return STATUS_META[key]?.tone ?? 'neutral'
 }
 function useBuiltinStatusLabel() {
   const { t } = useTranslation()
@@ -216,7 +214,11 @@ export function StatusToggle({ item }: { item: WorkItem }) {
     : (current?.name ?? item.status)
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="bg-secondary text-secondary-foreground flex shrink-0 cursor-default items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium outline-none hover:bg-zinc-200 data-[popup-open]:bg-zinc-200 dark:hover:bg-zinc-700 dark:data-[popup-open]:bg-zinc-700">
+      {/* 触发器以 kit Badge 为底（ui-sweep #11 状态 chip 三轨归一：StatusToggle
+          手写 pill / 详情行 BadgeDot / 列表 Badge 三态共用一套状态视觉） */}
+      <DropdownMenuTrigger
+        render={<Badge variant="secondary" className="gap-1 hover:bg-secondary/80" />}
+      >
         <BadgeDot status={item.status} />
         {label}
         <ChevronDown className="size-3 text-zinc-400" aria-hidden="true" />
@@ -379,14 +381,11 @@ export function ParentRow({ item }: { item: WorkItem }) {
   )
 }
 export function BadgeDot({ status }: { status: string }) {
-  const tone = statusTone(status)
-  const color =
-    tone === 'success'
-      ? 'bg-emerald-500'
-      : tone === 'warning'
-        ? 'bg-amber-500'
-        : tone === 'danger'
-          ? 'bg-red-500'
-          : 'bg-zinc-400'
-  return <span className={'size-2 rounded-full ' + color} aria-hidden="true" />
+  // 圆点底色走 meta.ts 的 TONE_DOT_CLASS（tone 映射唯一出处，ui-sweep #11）。
+  return (
+    <span
+      className={'size-2 rounded-full ' + TONE_DOT_CLASS[statusMetaOf(status).tone]}
+      aria-hidden="true"
+    />
+  )
 }

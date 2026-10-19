@@ -8,9 +8,25 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { server } from '../msw'
 
 // 快捷动作行（W1-2）组件测试：直接测组件（无路由桩）。
-// 覆盖六点：①agent 负责人渲染 chips ②点击 chip → run POST + 切执行 tab
-// ③409 ActiveDuplicate 带 active_task_id → 冲突提示 + 直达在途任务
+// 覆盖六点：①agent 负责人渲染 chips ②点击 chip → run POST + toast 成功 + 切执行 tab
+// ③409 ActiveDuplicate 带 active_task_id → warning toast 带"查看在途任务" action
 // ④管理 Dialog 新建 → POST body ⑤达上限 3 新建禁用 ⑥非 agent 负责人整行不渲染。
+// ui-sweep 后行内三色反馈段改全局 toast（kit sonner），无 Toaster 宿主的裸渲染
+// 里直接断言 toast 调用——mock '@ploykit/ui' 只换 toast，其余导出保真。
+
+const toastMocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
+}))
+
+vi.mock('@ploykit/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ploykit/ui')>()
+  return {
+    ...actual,
+    toast: Object.assign(() => undefined, toastMocks),
+  }
+})
 
 const patchSearch = vi.fn()
 
@@ -44,6 +60,9 @@ function setWorkspace(id: string | null) {
 beforeEach(() => {
   setWorkspace('ws-1')
   patchSearch.mockReset()
+  toastMocks.success.mockClear()
+  toastMocks.warning.mockClear()
+  toastMocks.error.mockClear()
   store = [
     QA({ id: 'qa-1', label: 'Inspect daily', prompt: 'Inspect all services and summarize' }),
     QA({ id: 'qa-2', label: 'Draft weekly', prompt: 'Draft the weekly report' }),
@@ -66,7 +85,7 @@ describe('quick-actions-row', () => {
     expect(screen.getByTestId('quick-actions-row')).toBeInTheDocument()
   })
 
-  it('clicking a chip runs POST and switches to the tasks tab', async () => {
+  it('clicking a chip runs POST, toasts success and switches to the tasks tab', async () => {
     let runHit = ''
     server.use(
       http.post('/api/work-items/wi-1/quick-actions/qa-1/run', ({ request }) => {
@@ -76,12 +95,12 @@ describe('quick-actions-row', () => {
     )
     renderRow('agent')
     fireEvent.click(await screen.findByText('Inspect daily'))
-    await screen.findByText('Task dispatched')
+    await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith('Task dispatched'))
     expect(runHit).toBe('/api/work-items/wi-1/quick-actions/qa-1/run')
     await waitFor(() => expect(patchSearch).toHaveBeenCalledWith({ tab: 'tasks' }))
   })
 
-  it('409 ActiveDuplicate shows conflict hint and links to the active task', async () => {
+  it('409 ActiveDuplicate toasts a warning with a jump-to-active-task action', async () => {
     // 真实 wire：webx.ErrorBody.Code 序列化为扁平字符串信封
     // {error:"E_CODE",message,details}（respond.go:14），客户端
     // `typeof body?.error === 'string'` 命中 → ApiError.details 保留
@@ -108,10 +127,16 @@ describe('quick-actions-row', () => {
     )
     renderRow('agent')
     fireEvent.click(await screen.findByText('Draft weekly'))
-    expect(await screen.findByText('This work item already has an active task')).toBeInTheDocument()
-    // 主路径从 Details 拿到 id：按钮出现且不触发兜底探针。
+    await waitFor(() => expect(toastMocks.warning).toHaveBeenCalledTimes(1))
+    const [message, opts] = toastMocks.warning.mock.calls[0]! as [
+      string,
+      { action?: { label: string; onClick: () => void } },
+    ]
+    expect(message).toBe('This work item already has an active task')
+    // 主路径从 Details 拿到 id：action 挂在 toast 上，且不触发兜底探针。
     expect(activeTaskHit).toBe(false)
-    fireEvent.click(await screen.findByRole('button', { name: 'View active task' }))
+    expect(opts.action?.label).toBe('View active task')
+    opts.action!.onClick()
     await waitFor(() =>
       expect(patchSearch).toHaveBeenCalledWith({ tab: 'tasks', task: 'task-77' }),
     )

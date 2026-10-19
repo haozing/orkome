@@ -132,10 +132,8 @@ export function LabelsBlock({ workItemId }: { workItemId: string }) {
             </DropdownMenuGroup>
           )}
           <DropdownMenuGroup>
-            <DropdownMenuLabel>
-              {t('labels.attached')}
-              {attachedList.length > 0 ? t('labels.clickToRemoveSuffix') : ''}
-            </DropdownMenuLabel>
+            {/* 「（点击移除）」后缀删（ui-sweep #10：点击行为自明，见条目即知） */}
+            <DropdownMenuLabel>{t('labels.attached')}</DropdownMenuLabel>
             {attachedList.length === 0 && (
               <p className="text-muted-foreground px-2 py-1 text-xs">{t('labels.noneAttached')}</p>
             )}

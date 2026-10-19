@@ -4,6 +4,7 @@ import { Plus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
+import { PageHeader } from '@ploykit/ui'
 import {
   listProjects,
   listStatuses,
@@ -14,6 +15,7 @@ import { membersQueryOptions } from '@/api/identity'
 import { listAgents } from '@/api/orchestration'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { CreateWorkItemDialog } from '@/components/work-item/create-work-item-dialog'
 import { statusMetaOf } from '@/components/work-item/meta'
@@ -33,8 +35,6 @@ export const Route = createFileRoute('/_app/work-items/')({
   },
   component: WorkItemsPage,
 })
-const SELECT_CLASS =
-  'h-8 rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
 function WorkItemsPage() {
   const { t } = useTranslation()
   const navigate = Route.useNavigate()
@@ -94,13 +94,15 @@ function WorkItemsPage() {
   }
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">{t('nav.allWork')}</h1>
-        <Button size="sm" aria-haspopup="dialog" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" aria-hidden="true" />
-          {t('work.newItem')}
-        </Button>
-      </div>
+      <PageHeader
+        title={t('nav.allWork')}
+        actions={
+          <Button size="sm" aria-haspopup="dialog" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden="true" />
+            {t('work.newItem')}
+          </Button>
+        }
+      />
 
       <CreateWorkItemDialog open={createOpen} onOpenChange={setCreateOpen} />
 
@@ -112,11 +114,11 @@ function WorkItemsPage() {
           aria-label={t('work.searchWorkItems')}
           className="h-8 w-56"
         />
-        <select
+        <Select
           value={search.project ?? ''}
           aria-label={t('myWork.projectAria')}
+          className="w-auto"
           onChange={(e) => patchSearch({ project: e.target.value || undefined })}
-          className={SELECT_CLASS}
         >
           <option value="">{t('work.allProjects')}</option>
           {projects.data?.map((p) => (
@@ -124,12 +126,12 @@ function WorkItemsPage() {
               {p.name}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           value={search.status ?? ''}
           aria-label={t('work.statusFilterAria')}
+          className="w-auto"
           onChange={(e) => patchSearch({ status: e.target.value || undefined })}
-          className={SELECT_CLASS}
         >
           <option value="">{t('work.allStatuses')}</option>
           {statuses.data?.map((s) => (
@@ -137,12 +139,12 @@ function WorkItemsPage() {
               {statusName(s.key)}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           value={search.assignee ?? ''}
           aria-label={t('work.assigneeFilterAria')}
+          className="w-auto"
           onChange={(e) => patchSearch({ assignee: e.target.value || undefined })}
-          className={SELECT_CLASS}
         >
           <option value="">{t('work.allAssignees')}</option>
           {members.data && members.data.length > 0 && (
@@ -163,7 +165,7 @@ function WorkItemsPage() {
               ))}
             </optgroup>
           )}
-        </select>
+        </Select>
         {hasFilter && (
           <Button variant="ghost" size="sm" onClick={reset}>
             <X className="size-3.5" aria-hidden="true" />
@@ -190,7 +192,8 @@ function WorkItemsPage() {
       {list.isSuccess && items.length === 0 && !hasFilter && <StarterChecklist />}
 
       {list.isSuccess && items.length === 0 && hasFilter && (
-        <PageEmpty title={t('work.noMatch')} description={t('work.noMatchDesc')} />
+        /* 「或清空筛选」复述重置按钮，删（ui-sweep #6：work.noMatchDesc 弃用） */
+        <PageEmpty title={t('work.noMatch')} />
       )}
 
       {items.length > 0 && <WorkItemList items={items} />}

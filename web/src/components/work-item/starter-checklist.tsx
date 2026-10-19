@@ -38,14 +38,13 @@ function CardBadge({ n, done }: { n: number; done?: boolean }) {
 }
 
 function LinkRow({ to, label }: { to: string; label: string }) {
+  // kit Button outline（ui-sweep #12：手写链接行归一按钮件）；render 合入
+  // router Link 保住 <a> 语义与导航。
   return (
-    <Link
-      to={to}
-      className="inline-flex h-8 shrink-0 items-center gap-1 self-start rounded-md border border-zinc-300 px-3 text-xs font-medium outline-none hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:hover:bg-zinc-800"
-    >
+    <Button variant="outline" size="sm" render={<Link to={to} />}>
       {label}
       <ArrowRight className="size-3.5" aria-hidden="true" />
-    </Link>
+    </Button>
   )
 }
 

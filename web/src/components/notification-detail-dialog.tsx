@@ -10,6 +10,7 @@ import {
   type NotificationItem,
 } from '@/api/notification'
 import { looksMarkdown, Markdown } from '@/components/markdown'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -87,9 +88,10 @@ export function NotificationDetailDialog({
         <DialogHeader className="gap-1.5">
           <DialogTitle className="pr-6 leading-snug">{shown?.title}</DialogTitle>
           <DialogDescription className="flex items-center gap-2 text-xs">
-            <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            {/* 类型 chip 归一 kit Badge secondary（ui-sweep #8：与列表行同款） */}
+            <Badge variant="secondary">
               {shown ? t(notificationTypeKey(shown.type)) : ''}
-            </span>
+            </Badge>
             <span>{shown ? formatTime(shown.created_at) : ''}</span>
           </DialogDescription>
         </DialogHeader>

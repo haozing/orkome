@@ -14,6 +14,14 @@ export const STATUS_META: Record<string, StatusMeta> = {
 export function statusMetaOf(key: string): StatusMeta {
   return STATUS_META[key] ?? { labelKey: key, tone: 'neutral' }
 }
+// tone→圆点底色的唯一映射（ui-sweep #11 收敛：BadgeDot 的手写三色 if/else
+// 与 kit statusTone 双实现归一到本 meta；Badge variant 同名 tone 已对齐）。
+export const TONE_DOT_CLASS: Record<StatusMeta['tone'], string> = {
+  neutral: 'bg-zinc-400',
+  warning: 'bg-amber-500',
+  success: 'bg-emerald-500',
+  danger: 'bg-red-500',
+}
 export const PRIORITY_META: Record<
   number,
   {

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isApiError } from '@ploykit/client'
+import { FormField, toast, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@ploykit/ui'
 import { Pencil, Plus, Trash2, Zap } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -42,8 +43,6 @@ import { useWorkspaceStore } from '@/stores/workspace'
 const MAX_ACTIONS = 3
 const MAX_LABEL_RUNES = 80
 
-const LABEL_CLS = 'mb-1 block text-xs text-zinc-500 dark:text-zinc-400'
-
 export type QuickActionSearchPatch = { tab?: string; task?: string }
 
 interface QuickActionsRowProps {
@@ -54,13 +53,6 @@ interface QuickActionsRowProps {
   patchSearch: (patch: QuickActionSearchPatch) => void
 }
 
-// 行内三态反馈（pack-detail 三态标注先例，无 toast 库）：保留至下次操作。
-type RunFeedback =
-  | { kind: 'dispatched' }
-  | { kind: 'active'; activeTaskId: string | null }
-  | { kind: 'error'; message: string }
-  | null
-
 const runeCount = (s: string) => [...s].length
 
 export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: QuickActionsRowProps) {
@@ -68,7 +60,6 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
   const qc = useQueryClient()
   const workspaceId = useWorkspaceStore((s) => s.currentId)
   const [manageOpen, setManageOpen] = useState(false)
-  const [feedback, setFeedback] = useState<RunFeedback>(null)
 
   const actions = useQuery({
     queryKey: ['quick-actions', workspaceId],
@@ -76,10 +67,11 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
     enabled: !!workspaceId,
   })
 
+  // 反馈走全局 toast（ui-sweep 裁决①：成功/状态反馈归 toast，不再手写行内三色段）。
   const run = useMutation({
     mutationFn: (id: string) => runQuickAction(workItemId, id),
     onSuccess: () => {
-      setFeedback({ kind: 'dispatched' })
+      toast.success(t('work.qa.dispatched'))
       void qc.invalidateQueries({ queryKey: ['work-item', workItemId, 'tasks'] })
       patchSearch({ tab: 'tasks' })
     },
@@ -88,20 +80,27 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
         // 409 Details 带 active_task_id（webx 扁平字符串信封，客户端保留
         // details）；Details 缺失时（非标准响应/代理改写）才兜底探
         // active-task 端点——同一 GetActiveTask 数据源。
-        const fromDetails = activeTaskIdFromError(err)
-        if (fromDetails) {
-          setFeedback({ kind: 'active', activeTaskId: fromDetails })
-          return
+        let activeTaskId = activeTaskIdFromError(err)
+        if (!activeTaskId) {
+          try {
+            const task = await getWorkItemActiveTask(workItemId)
+            activeTaskId = task?.id ?? null
+          } catch {
+            activeTaskId = null
+          }
         }
-        try {
-          const task = await getWorkItemActiveTask(workItemId)
-          setFeedback({ kind: 'active', activeTaskId: task?.id ?? null })
-        } catch {
-          setFeedback({ kind: 'active', activeTaskId: null })
-        }
+        const activeId = activeTaskId
+        toast.warning(t('work.qa.activeConflict'), {
+          action: activeId
+            ? {
+                label: t('work.qa.viewActive'),
+                onClick: () => patchSearch({ tab: 'tasks', task: activeId }),
+              }
+            : undefined,
+        })
         return
       }
-      setFeedback({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+      toast.error(err instanceof Error ? err.message : String(err))
     },
   })
 
@@ -129,18 +128,26 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
             <Zap className="size-3" aria-hidden="true" />
             {t('work.qa.runHint')}
           </span>
-          {list.map((qa) => (
-            <button
-              key={qa.id}
-              type="button"
-              disabled={run.isPending}
-              onClick={() => run.mutate(qa.id)}
-              title={qa.prompt}
-              className="inline-flex items-center rounded-full border border-zinc-200 px-2 py-0.5 text-xs outline-none hover:border-zinc-400 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-            >
-              {qa.label}
-            </button>
-          ))}
+          {/* prompt 全文走 kit Tooltip（ui-sweep #9：原生 title 属性升级） */}
+          <TooltipProvider>
+            {list.map((qa) => (
+              <Tooltip key={qa.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      disabled={run.isPending}
+                      onClick={() => run.mutate(qa.id)}
+                      className="inline-flex cursor-default items-center rounded-full border border-zinc-200 px-2 py-0.5 text-xs outline-none hover:border-zinc-400 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+                    />
+                  }
+                >
+                  {qa.label}
+                </TooltipTrigger>
+                <TooltipContent>{qa.prompt}</TooltipContent>
+              </Tooltip>
+            ))}
+          </TooltipProvider>
           <Button
             variant="ghost"
             size="sm"
@@ -150,32 +157,6 @@ export function QuickActionsRow({ workItemId, assigneeType, patchSearch }: Quick
             {t('work.qa.manage')}
           </Button>
         </div>
-      )}
-
-      {feedback?.kind === 'dispatched' && (
-        <p role="status" className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
-          {t('work.qa.dispatched')}
-        </p>
-      )}
-      {feedback?.kind === 'active' && (
-        <p className="mt-2 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
-          {t('work.qa.activeConflict')}
-          {feedback.activeTaskId && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => patchSearch({ tab: 'tasks', task: feedback.activeTaskId! })}
-            >
-              {t('work.qa.viewActive')}
-            </Button>
-          )}
-        </p>
-      )}
-      {feedback?.kind === 'error' && (
-        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
-          {feedback.message}
-        </p>
       )}
 
       {manageOpen && (
@@ -303,15 +284,12 @@ function ManageDialog({ workspaceId, list, onClose }: ManageDialogProps) {
             submit()
           }}
         >
-          <div>
-            <div className="flex items-center justify-between">
-              <label htmlFor="qa-label" className={LABEL_CLS}>
-                {t('work.qa.labelLabel')}
-              </label>
-              <span className="text-xs text-zinc-400">
-                {runeCount(label)}/{MAX_LABEL_RUNES}
-              </span>
-            </div>
+          {/* 手写表单行 → kit FormField（ui-sweep #9）：label/描述/a11y 关联收口 */}
+          <FormField
+            label={t('work.qa.labelLabel')}
+            htmlFor="qa-label"
+            description={`${runeCount(label)}/${MAX_LABEL_RUNES}`}
+          >
             <Input
               id="qa-label"
               value={label}
@@ -319,11 +297,8 @@ function ManageDialog({ workspaceId, list, onClose }: ManageDialogProps) {
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t('work.qa.labelPlaceholder')}
             />
-          </div>
-          <div>
-            <label htmlFor="qa-prompt" className={LABEL_CLS}>
-              {t('work.qa.promptLabel')}
-            </label>
+          </FormField>
+          <FormField label={t('work.qa.promptLabel')} htmlFor="qa-prompt">
             <Textarea
               id="qa-prompt"
               value={prompt}
@@ -331,7 +306,7 @@ function ManageDialog({ workspaceId, list, onClose }: ManageDialogProps) {
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={t('work.qa.promptPlaceholder')}
             />
-          </div>
+          </FormField>
           {formError && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400">
               {formError}

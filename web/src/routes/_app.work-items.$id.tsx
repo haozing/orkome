@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Tag } from 'lucide-react'
 import { z } from 'zod'
+import { PageHeader } from '@ploykit/ui'
 import { getWorkItem } from '@/api/work'
 import { PageError, PageLoading } from '@/components/ui/states'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -73,16 +74,19 @@ export function WorkItemDetailPage() {
   const showDetail = !search.tab || search.tab === 'detail' || (!knownStatic && !activeSlot)
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-1 pb-3 dark:border-zinc-800">
-        <StatusToggle item={wi} />
-        <h1 className="min-w-0 truncate text-lg font-semibold">{wi.title}</h1>
-        <span className="shrink-0 font-mono text-sm text-zinc-400">#{wi.number}</span>
-        <div className="ml-auto shrink-0">
-          <MoreMenu item={wi} />
-        </div>
-      </div>
+      {/* 页头 kit PageHeader 化（ui-sweep #13）；回溯方式保持现状（裁决⑤：有意不用面包屑） */}
+      <PageHeader
+        title={wi.title}
+        actions={
+          <div className="flex shrink-0 items-center gap-2">
+            <StatusToggle item={wi} />
+            <span className="font-mono text-sm text-zinc-400">#{wi.number}</span>
+            <MoreMenu item={wi} />
+          </div>
+        }
+      />
 
-      <div className="flex min-h-0 flex-1 gap-6 pt-4">
+      <div className="flex min-h-0 flex-1 gap-6">
         <div className="min-w-0 flex-1 overflow-auto">
           <Tabs
             value={search.tab ?? 'detail'}

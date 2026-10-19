@@ -12,8 +12,11 @@ import {
   notificationTypeKey,
   type NotificationItem,
 } from '@/api/notification'
+import { PageHeader } from '@ploykit/ui'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { NotificationDetailDialog } from '@/components/notification-detail-dialog'
+import { SegmentedControl } from '@/components/shared/segmented-control'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -93,9 +96,8 @@ function Row({
           >
             {item.title}
           </span>
-          <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            {t(notificationTypeKey(item.type))}
-          </span>
+          {/* 类型 chip 归一 kit Badge（ui-sweep #8：与详情弹窗同款 secondary） */}
+          <Badge variant="secondary">{t(notificationTypeKey(item.type))}</Badge>
         </p>
         {item.body && (
           <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -161,60 +163,50 @@ function NotificationsPage() {
     })
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">{t('nav.notifications')}</h1>
-        {view !== 'archived' && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!unreadCount || markAll.isPending}
-              onClick={() => markAll.mutate()}
-            >
-              <CheckCheck className="size-4" aria-hidden="true" />
-              {t('notif.markAllRead')}
-              {unreadCount ? ` (${unreadCount})` : ''}
-            </Button>
-            {view === 'all' && (
+      {/* 页头 + 双操作同行已是既有布局，kit PageHeader 化（ui-sweep #8/#13）；
+          「全部已读 (n)」改插值键 markAllReadN，不再手写字符串拼接 */}
+      <PageHeader
+        title={t('nav.notifications')}
+        actions={
+          view !== 'archived' ? (
+            <div className="flex items-center gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                disabled={archiveRead.isPending}
-                onClick={() => archiveRead.mutate()}
+                disabled={!unreadCount || markAll.isPending}
+                onClick={() => markAll.mutate()}
               >
-                <Archive className="size-4" aria-hidden="true" />
-                {t('notif.archiveAllRead')}
+                <CheckCheck className="size-4" aria-hidden="true" />
+                {unreadCount
+                  ? t('notif.markAllReadN', { n: unreadCount })
+                  : t('notif.markAllRead')}
               </Button>
-            )}
-          </div>
-        )}
-      </div>
+              {view === 'all' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={archiveRead.isPending}
+                  onClick={() => archiveRead.mutate()}
+                >
+                  <Archive className="size-4" aria-hidden="true" />
+                  {t('notif.archiveAllRead')}
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
+      />
 
-      <div className="flex gap-1" role="tablist" aria-label={t('notif.viewAria')}>
-        {(
-          [
-            { key: 'all', label: 'notif.viewAll' },
-            { key: 'unread', label: 'notif.viewUnread' },
-            { key: 'archived', label: 'notif.viewArchived' },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={view === tab.key}
-            className={
-              'cursor-default rounded-md px-3 py-1.5 text-sm outline-none ' +
-              (view === tab.key
-                ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200')
-            }
-            onClick={() => switchView(tab.key)}
-          >
-            {t(tab.label)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        ariaLabel={t('notif.viewAria')}
+        value={view}
+        onChange={switchView}
+        options={[
+          { value: 'all', label: t('notif.viewAll') },
+          { value: 'unread', label: t('notif.viewUnread') },
+          { value: 'archived', label: t('notif.viewArchived') },
+        ]}
+      />
 
       {list.isPending && <PageLoading label={t('notif.loading')} />}
 
@@ -227,6 +219,7 @@ function NotificationsPage() {
       )}
 
       {list.isSuccess && visible.length === 0 && (
+        /* 空态不再复述五类通知枚举（ui-sweep #6：notif.emptyDesc 删） */
         <PageEmpty
           title={
             view === 'unread'
@@ -235,7 +228,6 @@ function NotificationsPage() {
                 ? t('notif.emptyArchived')
                 : t('notif.empty')
           }
-          description={t('notif.emptyDesc')}
         />
       )}
 
@@ -249,7 +241,10 @@ function NotificationsPage() {
 
       <NotificationDetailDialog item={detail} onOpenChange={(o) => !o && setDetail(null)} />
 
-      {view !== 'unread' && list.hasNextPage && (
+      {/* unread 视图也渲染加载更多（真 bug 修复：visible 是客户端过滤，
+          过滤后列表可能为空但服务端仍有下一页——旧条件 view !== 'unread'
+          会把 unread 视图卡死在第一页 30 条，后到的未读永远拉不进来） */}
+      {list.hasNextPage && (
         <div className="text-center">
           <Button
             variant="outline"
