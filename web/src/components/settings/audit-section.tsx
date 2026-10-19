@@ -1,25 +1,34 @@
 import { useQuery } from '@tanstack/react-query'
 import { isApiError } from '@ploykit/client'
+import {
+  DataTable,
+  FormField,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  type Column,
+} from '@ploykit/ui'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { auditCsvDownload, listAudit, type AuditEntry, type AuditFilters } from '@/api/audit'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { PageEmpty } from '@/components/ui/states'
+import { PageEmpty, PageError } from '@/components/ui/states'
+import { INLINE_EMPTY_CLS, INLINE_ERROR_CLS } from '@/components/settings/shared'
 
 // 审计日志区块（settings 域设计 §3.7）：过滤栏 + 表格（metadata 点击展开）+
 // 分页（limit=50 按 offset）+「导出 CSV」。权限 audit:read 仅 owner/admin——
 // member 调用 403，query catch 后整块显权限空态（PageEmpty），不是整页崩。
-// 视觉：过滤栏 flex-wrap items-end，label/宽度统一 token；表格行分隔回 zinc-100。
+// 视觉（ui-sweep）：区块自身无边框（壳层 divide-y 分隔，security 范式）；
+// 表格用 kit DataTable（renderExpanded 展开行 + pagination，text-xs 紧凑密度）；
+// 截断单元格的原生 title 换 kit Tooltip。
 
 export interface AuditSectionProps {
   workspaceId: string
 }
 
 const PAGE_SIZE = 50
-
-const LABEL_CLS = 'mb-1 block text-xs text-zinc-500 dark:text-zinc-400'
 
 /** date 输入值（YYYY-MM-DD）→ 当日起止的 RFC3339（服务端要求 RFC3339 解析）。 */
 function dayToRfc3339(day: string, endOfDay: boolean): string | undefined {
@@ -53,7 +62,7 @@ export function AuditSection({ workspaceId }: AuditSectionProps) {
     queryFn: () => listAudit(workspaceId, filters, PAGE_SIZE, offset),
     retry: false,
   })
-  // 403（audit:read 缺失，member 访问）→ 权限空态；其他错误 → 普通错误行。
+  // 403（audit:read 缺失，member 访问）→ 权限空态；其他错误 → 行内错误态。
   const forbidden = audit.isError && isApiError(audit.error) && audit.error.status === 403
 
   const applyFilters = () => {
@@ -74,16 +83,100 @@ export function AuditSection({ workspaceId }: AuditSectionProps) {
     })
   const total = audit.data?.total ?? 0
   const items = audit.data?.items ?? []
-  const hasPrev = offset > 0
-  const hasNext = offset + PAGE_SIZE < total
+
+  // 表格密度对齐 orkome text-xs 紧凑风：列级 className 覆盖 DataTable 的
+  // px-4 py-3（kit cn 走 tailwind-merge，py-1.5/pr-3 生效）。
+  const columns: Column<AuditEntry>[] = [
+    {
+      key: 'time',
+      header: t('settingsWs.auditColTime'),
+      className: 'py-1.5 pr-3 whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400',
+      render: (entry) => fmtTime(entry.created_at),
+    },
+    {
+      key: 'actor',
+      header: t('settingsWs.auditColActor'),
+      className: 'py-1.5 pr-3 text-xs',
+      render: (entry) => {
+        const email = entry.actor_snapshot?.email
+        const text = email || entry.actor_id || '–'
+        return email ? (
+          <Tooltip>
+            <TooltipTrigger render={<span className="block max-w-48 truncate" />}>
+              {text}
+            </TooltipTrigger>
+            <TooltipContent>{email}</TooltipContent>
+          </Tooltip>
+        ) : (
+          text
+        )
+      },
+    },
+    {
+      key: 'actor_type',
+      header: t('settingsWs.auditColActorType'),
+      className: 'py-1.5 pr-3 text-xs',
+      render: (entry) => t(`settingsWs.actorType.${entry.actor_type}`),
+    },
+    {
+      key: 'action',
+      header: t('settingsWs.auditColAction'),
+      className: 'py-1.5 pr-3 font-mono text-xs',
+      render: (entry) => entry.action,
+    },
+    {
+      key: 'resource',
+      header: t('settingsWs.auditColResource'),
+      className: 'py-1.5 pr-3 text-xs',
+      render: (entry) => (
+        <>
+          <span className="font-mono">{entry.resource_type}</span>
+          {entry.resource_id && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="ml-1 max-w-32 truncate align-bottom font-mono text-zinc-400" />
+                }
+              >
+                {entry.resource_id}
+              </TooltipTrigger>
+              <TooltipContent>{entry.resource_id}</TooltipContent>
+            </Tooltip>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'metadata',
+      header: '',
+      className: 'py-1.5 text-right text-xs',
+      render: (entry) => {
+        const hasMetadata = entry.metadata && Object.keys(entry.metadata).length > 0
+        if (!hasMetadata) return null
+        const expanded = expandedId === entry.id
+        return (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-expanded={expanded}
+            aria-label={t('settingsWs.auditMetadataAria', { action: entry.action })}
+            data-testid="ws-audit-metadata-toggle"
+            onClick={() => setExpandedId((cur) => (cur === entry.id ? null : entry.id))}
+          >
+            {expanded ? (
+              <ChevronDown className="size-3" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="size-3" aria-hidden="true" />
+            )}
+            {t('settingsWs.auditColMetadata')}
+          </Button>
+        )
+      },
+    },
+  ]
 
   return (
-    <section
-      id="audit"
-      className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-      aria-label={t('settingsWs.auditTitle')}
-      data-testid="ws-audit-section"
-    >
+    <section id="audit" className="space-y-3" aria-label={t('settingsWs.auditTitle')} data-testid="ws-audit-section">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('settingsWs.auditTitle')}</h2>
         <Button
@@ -111,7 +204,7 @@ export function AuditSection({ workspaceId }: AuditSectionProps) {
         />
       ) : (
         <>
-          {/* 过滤栏：label 统一 mb-1 text-xs zinc-500；宽度 action/rtype w-40、date w-36 */}
+          {/* 过滤栏：kit FormField 接管 label/控件（ui-sweep 裁决④） */}
           <form
             className="flex flex-wrap items-end gap-2"
             onSubmit={(e) => {
@@ -119,219 +212,105 @@ export function AuditSection({ workspaceId }: AuditSectionProps) {
               applyFilters()
             }}
           >
-            <div>
-              <label htmlFor="ws-audit-action" className={LABEL_CLS}>
-                {t('settingsWs.auditActionLabel')}
-              </label>
-              <Input
-                id="ws-audit-action"
-                value={action}
-                onChange={(e) => setAction(e.target.value)}
-                placeholder="work_item.created"
-                className="w-40"
-                data-testid="ws-audit-action"
-              />
+            <div className="w-40">
+              <FormField label={t('settingsWs.auditActionLabel')} htmlFor="ws-audit-action">
+                <Input
+                  id="ws-audit-action"
+                  value={action}
+                  onChange={(e) => setAction(e.target.value)}
+                  placeholder="work_item.created"
+                  data-testid="ws-audit-action"
+                />
+              </FormField>
             </div>
-            <div>
-              <label htmlFor="ws-audit-rtype" className={LABEL_CLS}>
-                {t('settingsWs.auditResourceLabel')}
-              </label>
-              <Input
-                id="ws-audit-rtype"
-                value={resourceType}
-                onChange={(e) => setResourceType(e.target.value)}
-                placeholder="work_item"
-                className="w-40"
-                data-testid="ws-audit-rtype"
-              />
+            <div className="w-40">
+              <FormField label={t('settingsWs.auditResourceLabel')} htmlFor="ws-audit-rtype">
+                <Input
+                  id="ws-audit-rtype"
+                  value={resourceType}
+                  onChange={(e) => setResourceType(e.target.value)}
+                  placeholder="work_item"
+                  data-testid="ws-audit-rtype"
+                />
+              </FormField>
             </div>
-            <div>
-              <label htmlFor="ws-audit-from" className={LABEL_CLS}>
-                {t('settingsWs.auditFromLabel')}
-              </label>
-              <Input
-                id="ws-audit-from"
-                type="date"
-                value={fromDay}
-                onChange={(e) => {
-                  setFromDay(e.target.value)
-                  setOffset(0)
-                }}
-                className="w-36"
-                data-testid="ws-audit-from"
-              />
+            <div className="w-36">
+              <FormField label={t('settingsWs.auditFromLabel')} htmlFor="ws-audit-from">
+                <Input
+                  id="ws-audit-from"
+                  type="date"
+                  value={fromDay}
+                  onChange={(e) => {
+                    setFromDay(e.target.value)
+                    setOffset(0)
+                  }}
+                  data-testid="ws-audit-from"
+                />
+              </FormField>
             </div>
-            <div>
-              <label htmlFor="ws-audit-to" className={LABEL_CLS}>
-                {t('settingsWs.auditToLabel')}
-              </label>
-              <Input
-                id="ws-audit-to"
-                type="date"
-                value={toDay}
-                onChange={(e) => {
-                  setToDay(e.target.value)
-                  setOffset(0)
-                }}
-                className="w-36"
-                data-testid="ws-audit-to"
-              />
+            <div className="w-36">
+              <FormField label={t('settingsWs.auditToLabel')} htmlFor="ws-audit-to">
+                <Input
+                  id="ws-audit-to"
+                  type="date"
+                  value={toDay}
+                  onChange={(e) => {
+                    setToDay(e.target.value)
+                    setOffset(0)
+                  }}
+                  data-testid="ws-audit-to"
+                />
+              </FormField>
             </div>
             <Button type="submit" size="default" data-testid="ws-audit-apply">
               {t('settingsWs.auditApply')}
             </Button>
           </form>
 
-          {audit.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
-          {audit.isError && !forbidden && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {isApiError(audit.error) ? audit.error.message : t('settingsWs.loadFailed')}
-            </p>
-          )}
-          {!audit.isPending && !audit.isError && items.length === 0 && (
-            <p className="py-8 text-center text-xs text-zinc-400">{t('settingsWs.auditEmpty')}</p>
-          )}
-
-          {items.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs" data-testid="ws-audit-table">
-                <thead>
-                  <tr className="border-b border-zinc-200 text-xs text-zinc-500 dark:border-zinc-800">
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.auditColTime')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.auditColActor')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.auditColActorType')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.auditColAction')}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t('settingsWs.auditColResource')}</th>
-                    <th className="py-1.5 font-medium" aria-label={t('settingsWs.auditColMetadata')} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((entry: AuditEntry) => (
-                    <AuditRow
-                      key={entry.id}
-                      entry={entry}
-                      expanded={expandedId === entry.id}
-                      fmtTime={fmtTime}
-                      onToggle={() => setExpandedId((cur) => (cur === entry.id ? null : entry.id))}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* 分页：limit=50，上一页/下一页按 offset（total 来自信封） */}
-          {(hasPrev || hasNext) && (
-            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-              <span data-testid="ws-audit-total">
-                {t('settingsWs.auditTotal', { total })}
-              </span>
-              <span className="flex gap-2">
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={!hasPrev}
-                  data-testid="ws-audit-prev"
-                  onClick={() => {
-                    setOffset(Math.max(0, offset - PAGE_SIZE))
-                    setExpandedId(null)
-                  }}
-                >
-                  {t('settingsWs.auditPrev')}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={!hasNext}
-                  data-testid="ws-audit-next"
-                  onClick={() => {
-                    setOffset(offset + PAGE_SIZE)
-                    setExpandedId(null)
-                  }}
-                >
-                  {t('settingsWs.auditNext')}
-                </Button>
-              </span>
-            </div>
+          {audit.isError && !forbidden ? (
+            <PageError
+              title={t('settingsWs.loadFailed')}
+              message={isApiError(audit.error) ? audit.error.message : undefined}
+              onRetry={() => void audit.refetch()}
+              className={INLINE_ERROR_CLS}
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              rows={items}
+              rowKey={(entry) => entry.id}
+              loading={audit.isPending}
+              empty={
+                <PageEmpty
+                  title={t('settingsWs.auditEmpty')}
+                  className={INLINE_EMPTY_CLS}
+                />
+              }
+              renderExpanded={(entry) => {
+                const hasMetadata = entry.metadata && Object.keys(entry.metadata).length > 0
+                if (expandedId !== entry.id || !hasMetadata) return null
+                return (
+                  <pre
+                    className="overflow-x-auto rounded-md bg-zinc-50 p-2 font-mono text-xs leading-relaxed dark:bg-zinc-900"
+                    data-testid="ws-audit-metadata"
+                  >
+                    {JSON.stringify(entry.metadata, null, 2)}
+                  </pre>
+                )
+              }}
+              pagination={{
+                page: Math.floor(offset / PAGE_SIZE) + 1,
+                pageSize: PAGE_SIZE,
+                total,
+                onPageChange: (page) => {
+                  setOffset((page - 1) * PAGE_SIZE)
+                  setExpandedId(null)
+                },
+              }}
+            />
           )}
         </>
       )}
     </section>
-  )
-}
-
-/** 审计表一行 + metadata 展开行（JSON.stringify 缩进，pre 折叠）。 */
-function AuditRow({
-  entry,
-  expanded,
-  fmtTime,
-  onToggle,
-}: {
-  entry: AuditEntry
-  expanded: boolean
-  fmtTime: (iso: string) => string
-  onToggle: () => void
-}) {
-  const { t } = useTranslation()
-  const hasMetadata = entry.metadata && Object.keys(entry.metadata).length > 0
-  return (
-    <>
-      <tr
-        className="border-b border-zinc-100 dark:border-zinc-800/60"
-        data-testid="ws-audit-row"
-        data-entry-id={entry.id}
-      >
-        <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-          {fmtTime(entry.created_at)}
-        </td>
-        <td className="max-w-48 truncate py-1.5 pr-3" title={entry.actor_snapshot?.email}>
-          {entry.actor_snapshot?.email || entry.actor_id || '–'}
-        </td>
-        <td className="py-1.5 pr-3">{entry.actor_type}</td>
-        <td className="py-1.5 pr-3 font-mono">{entry.action}</td>
-        <td className="py-1.5 pr-3">
-          <span className="font-mono">{entry.resource_type}</span>
-          {entry.resource_id && (
-            <span
-              className="ml-1 max-w-32 truncate align-bottom font-mono text-zinc-400"
-              title={entry.resource_id}
-            >
-              {entry.resource_id}
-            </span>
-          )}
-        </td>
-        <td className="py-1.5 text-right">
-          {hasMetadata && (
-            <Button
-              size="xs"
-              variant="ghost"
-              aria-expanded={expanded}
-              aria-label={t('settingsWs.auditMetadataAria', { action: entry.action })}
-              data-testid="ws-audit-metadata-toggle"
-              onClick={onToggle}
-            >
-              {expanded ? (
-                <ChevronDown className="size-3" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="size-3" aria-hidden="true" />
-              )}
-              {t('settingsWs.auditColMetadata')}
-            </Button>
-          )}
-        </td>
-      </tr>
-      {expanded && hasMetadata && (
-        <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-          <td colSpan={6} className="py-2 pl-6 pr-3">
-            <pre
-              className="overflow-x-auto rounded-md bg-zinc-50 p-2 font-mono text-xs leading-relaxed dark:bg-zinc-900"
-              data-testid="ws-audit-metadata"
-            >
-              {JSON.stringify(entry.metadata, null, 2)}
-            </pre>
-          </td>
-        </tr>
-      )}
-    </>
   )
 }

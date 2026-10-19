@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isApiError } from '@ploykit/client'
-import { Check, Copy, Link2, Radio, Trash2, UserPlus } from 'lucide-react'
+import {
+  DataTable,
+  FormField,
+  SecretModal,
+  useConfirm,
+  type Column,
+} from '@ploykit/ui'
+import { Link2, Trash2, UserPlus } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { membersQueryOptions, type Member } from '@/api/identity'
@@ -18,23 +25,23 @@ import {
 } from '@/api/workspace-admin'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import {
+  INLINE_EMPTY_CLS,
+  INLINE_ERROR_CLS,
+  INLINE_LOADING_CLS,
+} from '@/components/settings/shared'
 
 // 成员与邀请区块（settings 域设计 §3.5）：成员表（改角色/移除）+ 邀请管理 +
 // 分享链接三段。member 可读（members:read / invites:read），写控件仅对
 // owner/admin 渲染（设计 §4.3：区块按 me.workspaces 的 role 条件渲染）。
 // 一次性 share code 只存组件 useState，不进 query 缓存（设计 §4.4）。
-// 视觉：三个子段 space-y-3 + divide-y 分隔；子段标题 text-sm font-medium，
-// 描述 text-xs text-zinc-500；角色/邀请/分享一律 ui/select；危险操作统一
-// ghost xs 红字 + Trash2（照 workflow-editor StageCard 删除钮参照）。
+// 视觉（ui-sweep）：区块自身无边框（壳层 divide-y 分隔，security 范式）；
+// 成员表用 kit DataTable（text-xs 紧凑密度）；角色/邀请/分享一律 ui/select；
+// 危险确认统一 useConfirm；一次性码展示统一 SecretModal；
+// 危险按钮统一 ghost xs 红字 + Trash2（照 workflow-editor StageCard 删除钮参照）。
 
 export interface MembersSectionProps {
   workspaceId: string
@@ -45,7 +52,6 @@ export interface MembersSectionProps {
 const ROLES = ['admin', 'member'] as const
 type AssignableRole = (typeof ROLES)[number]
 
-const FIELD_LABEL_CLS = 'block text-xs text-zinc-500 dark:text-zinc-400'
 // 「移除/吊销」危险按钮统一皮（§危险按钮：ghost xs 红字 + Trash2）。
 const DANGER_BTN_CLS = 'text-red-600 hover:text-red-600 dark:text-red-400'
 
@@ -53,25 +59,14 @@ function errMsg(err: unknown, fallback: string): string {
   return isApiError(err) ? err.message : fallback
 }
 
-function SubsectionHeader({
-  icon,
-  title,
-  hint,
-}: {
-  icon: ReactNode
-  title: string
-  hint: string
-}) {
+function SubsectionHeader({ icon, title }: { icon: ReactNode; title: string }) {
   return (
-    <div className="space-y-0.5">
-      <p className="flex items-center gap-1.5 text-sm font-medium">
-        <span className="flex items-center text-zinc-400 dark:text-zinc-500" aria-hidden="true">
-          {icon}
-        </span>
-        {title}
-      </p>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>
-    </div>
+    <p className="flex items-center gap-1.5 text-sm font-medium">
+      <span className="flex items-center text-zinc-400 dark:text-zinc-500" aria-hidden="true">
+        {icon}
+      </span>
+      {title}
+    </p>
   )
 }
 
@@ -79,11 +74,7 @@ export function MembersSection({ workspaceId, role }: MembersSectionProps) {
   const { t, i18n } = useTranslation()
   const canWrite = role === 'owner' || role === 'admin'
   return (
-    <section
-      className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-      aria-label={t('settingsWs.membersTitle')}
-      data-testid="ws-members-section"
-    >
+    <section className="space-y-3" aria-label={t('settingsWs.membersTitle')} data-testid="ws-members-section">
       <h2 className="text-sm font-semibold">{t('settingsWs.membersTitle')}</h2>
       <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         <div className="space-y-3 pb-3">
@@ -105,10 +96,10 @@ export function MembersSection({ workspaceId, role }: MembersSectionProps) {
 function MembersTable({ workspaceId, role }: { workspaceId: string; role: string | undefined }) {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const canWrite = role === 'owner' || role === 'admin'
   const members = useQuery(membersQueryOptions(workspaceId))
   const [rowError, setRowError] = useState<string | null>(null)
-  const [removing, setRemoving] = useState<Member | null>(null)
 
   const changeRole = useMutation({
     mutationFn: ({ userId, next }: { userId: string; next: AssignableRole }) =>
@@ -122,14 +113,10 @@ function MembersTable({ workspaceId, role }: { workspaceId: string; role: string
   const remove = useMutation({
     mutationFn: (userId: string) => removeMember(workspaceId, userId),
     onSuccess: () => {
-      setRemoving(null)
       setRowError(null)
       void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'members'] })
     },
-    onError: (err) => {
-      setRemoving(null)
-      setRowError(errMsg(err, t('settingsWs.actionFailed')))
-    },
+    onError: (err) => setRowError(errMsg(err, t('settingsWs.actionFailed'))),
   })
 
   const fmtDate = (iso: string): string =>
@@ -139,120 +126,109 @@ function MembersTable({ workspaceId, role }: { workspaceId: string; role: string
       day: 'numeric',
     })
 
+  // 移除成员二次确认（useConfirm，不能移除自己/最后 owner 由服务端兜底 403/409）。
+  const confirmRemove = async (m: Member) => {
+    const ok = await confirm({
+      title: t('settingsWs.removeTitle'),
+      description: t('settingsWs.removeDesc', { email: m.email }),
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok) remove.mutate(m.user_id)
+  }
+
+  // 表格密度对齐 orkome text-xs 紧凑风：列级 className 覆盖 DataTable 的
+  // px-4 py-3（kit cn 走 tailwind-merge，py-1.5/pr-3 生效）。
+  const columns: Column<Member>[] = [
+    {
+      key: 'email',
+      header: t('settingsWs.colEmail'),
+      className: 'max-w-52 truncate py-1.5 pr-3 font-mono text-xs',
+      render: (m) => m.email,
+    },
+    {
+      key: 'display_name',
+      header: t('settingsWs.colDisplayName'),
+      className: 'py-1.5 pr-3 text-xs',
+      render: (m) => m.display_name || '–',
+    },
+    {
+      key: 'role',
+      header: t('settingsWs.colRole'),
+      className: 'py-1.5 pr-3 text-xs',
+      render: (m) =>
+        canWrite && m.role !== 'owner' ? (
+          <Select
+            value={m.role}
+            aria-label={t('settingsWs.roleAria', { email: m.email })}
+            className="w-24"
+            data-testid="ws-member-role-select"
+            disabled={changeRole.isPending}
+            onChange={(e) =>
+              changeRole.mutate({ userId: m.user_id, next: e.target.value as AssignableRole })
+            }
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {t(`settingsWs.role.${r}`)}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <Badge variant="secondary">{t(`settingsWs.role.${m.role}`)}</Badge>
+        ),
+    },
+    {
+      key: 'joined',
+      header: t('settingsWs.colJoined'),
+      className: 'py-1.5 pr-3 whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400',
+      render: (m) => fmtDate(m.created_at),
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'py-1.5 text-right text-xs',
+      render: (m) =>
+        canWrite ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            className={DANGER_BTN_CLS}
+            aria-label={t('settingsWs.removeMemberAria', { email: m.email })}
+            data-testid="ws-member-remove"
+            onClick={() => void confirmRemove(m)}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            {t('common.remove')}
+          </Button>
+        ) : null,
+    },
+  ]
+
   return (
     <div className="space-y-3">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settingsWs.membersHint')}</p>
-      {members.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
-      {members.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {errMsg(members.error, t('settingsWs.loadFailed'))}
-        </p>
-      )}
-      {members.data && members.data.length === 0 && (
-        <p className="text-sm text-zinc-500">{t('settingsWs.membersEmpty')}</p>
-      )}
-      {members.data && members.data.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs" data-testid="ws-members-table">
-            <thead>
-              <tr className="border-b text-zinc-500 dark:text-zinc-400">
-                <th className="py-1.5 pr-3 font-medium">{t('settingsWs.colEmail')}</th>
-                <th className="py-1.5 pr-3 font-medium">{t('settingsWs.colDisplayName')}</th>
-                <th className="py-1.5 pr-3 font-medium">{t('settingsWs.colRole')}</th>
-                <th className="py-1.5 pr-3 font-medium">{t('settingsWs.colJoined')}</th>
-                <th className="py-1.5 font-medium" aria-label={t('common.actions')} />
-              </tr>
-            </thead>
-            <tbody>
-              {members.data.map((m) => (
-                <tr
-                  key={m.user_id}
-                  className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-                  data-testid="ws-member-row"
-                  data-user-id={m.user_id}
-                >
-                  <td className="max-w-52 truncate py-1.5 pr-3 font-mono">{m.email}</td>
-                  <td className="py-1.5 pr-3">{m.display_name || '–'}</td>
-                  <td className="py-1.5 pr-3">
-                    {canWrite && m.role !== 'owner' ? (
-                      <Select
-                        value={m.role}
-                        aria-label={t('settingsWs.roleAria', { email: m.email })}
-                        className="w-24"
-                        data-testid="ws-member-role-select"
-                        disabled={changeRole.isPending}
-                        onChange={(e) =>
-                          changeRole.mutate({ userId: m.user_id, next: e.target.value as AssignableRole })
-                        }
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {t(`settingsWs.role.${r}`)}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Badge variant="secondary">{t(`settingsWs.role.${m.role}`)}</Badge>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap text-zinc-500 dark:text-zinc-400">
-                    {fmtDate(m.created_at)}
-                  </td>
-                  <td className="py-1.5 text-right">
-                    {canWrite && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        className={DANGER_BTN_CLS}
-                        aria-label={t('settingsWs.removeMemberAria', { email: m.email })}
-                        data-testid="ws-member-remove"
-                        onClick={() => setRemoving(m)}
-                      >
-                        <Trash2 className="size-3.5" aria-hidden="true" />
-                        {t('common.remove')}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {members.isError ? (
+        <PageError
+          title={t('settingsWs.loadFailed')}
+          message={errMsg(members.error, '')}
+          onRetry={() => void members.refetch()}
+          className={INLINE_ERROR_CLS}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={members.data ?? []}
+          rowKey={(m) => m.user_id}
+          loading={members.isPending}
+          empty={<PageEmpty title={t('settingsWs.membersEmpty')} className={INLINE_EMPTY_CLS} />}
+        />
       )}
       {rowError && (
         <p role="alert" className="text-xs text-destructive">
           {rowError}
         </p>
       )}
-      {/* 移除成员二次确认（不能移除自己/最后 owner 由服务端兜底 403/409） */}
-      <Dialog
-        open={removing !== null}
-        onOpenChange={(next) => {
-          if (!next) setRemoving(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('settingsWs.removeTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('settingsWs.removeDesc', { email: removing?.email ?? '' })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setRemoving(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="danger"
-              disabled={remove.isPending}
-              data-testid="ws-member-remove-confirm"
-              onClick={() => removing && remove.mutate(removing.user_id)}
-            >
-              {remove.isPending ? t('common.loading') : t('common.confirm')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -303,51 +279,42 @@ function InvitationsBlock({ workspaceId, canWrite }: { workspaceId: string; canW
 
   return (
     <div className="space-y-3">
-      <SubsectionHeader
-        icon={<UserPlus className="size-3.5" />}
-        title={t('settingsWs.invitesTitle')}
-        hint={t('settingsWs.invitesHint')}
-      />
+      <SubsectionHeader icon={<UserPlus className="size-3.5" />} title={t('settingsWs.invitesTitle')} />
       {canWrite && (
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex max-w-md flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
           }}
         >
-          <div className="flex flex-col gap-1">
-            <label htmlFor="ws-invite-email" className={FIELD_LABEL_CLS}>
-              {t('settingsWs.inviteEmailLabel')}
-            </label>
-            <Input
-              id="ws-invite-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-              aria-label={t('settingsWs.inviteEmailLabel')}
-              className="min-w-48 flex-1"
-              data-testid="ws-invite-email"
-            />
+          <div className="min-w-48 flex-1">
+            <FormField label={t('settingsWs.inviteEmailLabel')} htmlFor="ws-invite-email">
+              <Input
+                id="ws-invite-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                data-testid="ws-invite-email"
+              />
+            </FormField>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="ws-invite-role" className={FIELD_LABEL_CLS}>
-              {t('settingsWs.inviteRoleLabel')}
-            </label>
-            <Select
-              id="ws-invite-role"
-              value={inviteRole}
-              className="w-28"
-              data-testid="ws-invite-role"
-              onChange={(e) => setInviteRole(e.target.value as AssignableRole)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {t(`settingsWs.role.${r}`)}
-                </option>
-              ))}
-            </Select>
+          <div className="w-28">
+            <FormField label={t('settingsWs.inviteRoleLabel')} htmlFor="ws-invite-role">
+              <Select
+                id="ws-invite-role"
+                value={inviteRole}
+                data-testid="ws-invite-role"
+                onChange={(e) => setInviteRole(e.target.value as AssignableRole)}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {t(`settingsWs.role.${r}`)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
           </div>
           <Button type="submit" disabled={!email.trim() || create.isPending} data-testid="ws-invite-submit">
             {create.isPending ? t('common.loading') : t('settingsWs.inviteSubmit')}
@@ -359,11 +326,16 @@ function InvitationsBlock({ workspaceId, canWrite }: { workspaceId: string; canW
           {formError}
         </p>
       )}
-      {invitations.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {invitations.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {invitations.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {errMsg(invitations.error, t('settingsWs.loadFailed'))}
-        </p>
+        <PageError
+          title={t('settingsWs.loadFailed')}
+          message={errMsg(invitations.error, '')}
+          onRetry={() => void invitations.refetch()}
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {invitations.data && invitations.data.length === 0 && (
         <p className="text-sm text-zinc-500">{t('settingsWs.invitesEmpty')}</p>
@@ -425,9 +397,8 @@ function ShareLinksBlock({
   const [maxUses, setMaxUses] = useState('10')
   const [ttlHours, setTtlHours] = useState('168')
   const [formError, setFormError] = useState<string | null>(null)
-  // 一次性 code：仅存本组件 state，关 Dialog 即不可再取（设计 §4.4）。
+  // 一次性 code：仅存本组件 state，SecretModal 关闭即不可再取（设计 §4.4）。
   const [createdCode, setCreatedCode] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['ws-share-links', workspaceId] })
   const create = useMutation({
@@ -435,7 +406,6 @@ function ShareLinksBlock({
       createShareLink(workspaceId, linkRole, Number(maxUses), Number(ttlHours)),
     onSuccess: (res) => {
       setCreatedCode(res.code)
-      setCopied(false)
       setFormError(null)
       invalidate()
     },
@@ -470,79 +440,59 @@ function ShareLinksBlock({
     }
     create.mutate()
   }
-  const copyCode = () => {
-    if (!createdCode) return
-    void navigator.clipboard.writeText(createdCode).then(
-      () => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      },
-      () => {},
-    )
-  }
 
   return (
     <div className="space-y-3">
-      <SubsectionHeader
-        icon={<Link2 className="size-3.5" />}
-        title={t('settingsWs.shareTitle')}
-        hint={t('settingsWs.shareHint')}
-      />
+      <SubsectionHeader icon={<Link2 className="size-3.5" />} title={t('settingsWs.shareTitle')} />
       {canWrite && (
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex max-w-md flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
           }}
         >
-          <div className="flex flex-col gap-1">
-            <label htmlFor="ws-share-role" className={FIELD_LABEL_CLS}>
-              {t('settingsWs.shareRoleLabel')}
-            </label>
-            <Select
-              id="ws-share-role"
-              value={linkRole}
-              className="w-28"
-              data-testid="ws-share-role"
-              onChange={(e) => setLinkRole(e.target.value as AssignableRole)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {t(`settingsWs.role.${r}`)}
-                </option>
-              ))}
-            </Select>
+          <div className="w-28">
+            <FormField label={t('settingsWs.shareRoleLabel')} htmlFor="ws-share-role">
+              <Select
+                id="ws-share-role"
+                value={linkRole}
+                data-testid="ws-share-role"
+                onChange={(e) => setLinkRole(e.target.value as AssignableRole)}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {t(`settingsWs.role.${r}`)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="ws-share-uses" className={FIELD_LABEL_CLS}>
-              {t('settingsWs.shareUsesLabel')}
-            </label>
-            <Input
-              id="ws-share-uses"
-              type="number"
-              min={MAX_USES_MIN}
-              max={MAX_USES_MAX}
-              value={maxUses}
-              onChange={(e) => setMaxUses(e.target.value)}
-              className="w-28"
-              data-testid="ws-share-uses"
-            />
+          <div className="w-28">
+            <FormField label={t('settingsWs.shareUsesLabel')} htmlFor="ws-share-uses">
+              <Input
+                id="ws-share-uses"
+                type="number"
+                min={MAX_USES_MIN}
+                max={MAX_USES_MAX}
+                value={maxUses}
+                onChange={(e) => setMaxUses(e.target.value)}
+                data-testid="ws-share-uses"
+              />
+            </FormField>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="ws-share-ttl" className={FIELD_LABEL_CLS}>
-              {t('settingsWs.shareTtlLabel')}
-            </label>
-            <Input
-              id="ws-share-ttl"
-              type="number"
-              min={TTL_MIN}
-              max={TTL_MAX}
-              value={ttlHours}
-              onChange={(e) => setTtlHours(e.target.value)}
-              className="w-28"
-              data-testid="ws-share-ttl"
-            />
+          <div className="w-28">
+            <FormField label={t('settingsWs.shareTtlLabel')} htmlFor="ws-share-ttl">
+              <Input
+                id="ws-share-ttl"
+                type="number"
+                min={TTL_MIN}
+                max={TTL_MAX}
+                value={ttlHours}
+                onChange={(e) => setTtlHours(e.target.value)}
+                data-testid="ws-share-ttl"
+              />
+            </FormField>
           </div>
           <Button type="submit" disabled={!rangeValid || create.isPending} data-testid="ws-share-submit">
             {create.isPending ? t('common.loading') : t('settingsWs.shareSubmit')}
@@ -554,11 +504,16 @@ function ShareLinksBlock({
           {formError}
         </p>
       )}
-      {links.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {links.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {links.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {errMsg(links.error, t('settingsWs.loadFailed'))}
-        </p>
+        <PageError
+          title={t('settingsWs.loadFailed')}
+          message={errMsg(links.error, '')}
+          onRetry={() => void links.refetch()}
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {links.data && links.data.length === 0 && (
         <p className="text-sm text-zinc-500">{t('settingsWs.shareEmpty')}</p>
@@ -594,35 +549,18 @@ function ShareLinksBlock({
         </ul>
       )}
 
-      {/* 一次性 code 展示 Dialog：警示关闭后不可再取（照 MFA 备份码/PAT 风格） */}
-      <Dialog
-        open={createdCode !== null}
-        onOpenChange={(next) => {
-          if (!next) setCreatedCode(null)
-        }}
-      >
-        <DialogContent data-testid="ws-share-code-dialog">
-          <DialogHeader>
-            <DialogTitle>{t('settingsWs.shareCodeTitle')}</DialogTitle>
-            <DialogDescription>{t('settingsWs.shareCodeDesc')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 rounded-md bg-zinc-50 p-2.5 font-mono text-sm break-all dark:bg-zinc-900">
-              {createdCode}
-            </code>
-            <Button size="icon-sm" variant="outline" aria-label={t('common.copy')} onClick={copyCode}>
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            </Button>
-          </div>
-          <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-            <Radio className="size-3.5 shrink-0" aria-hidden="true" />
-            {t('settingsWs.shareCodeWarning')}
-          </p>
-          <div className="flex justify-end">
-            <Button onClick={() => setCreatedCode(null)}>{t('common.ok')}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* 一次性 code 展示（ui-sweep 裁决③）：SecretModal 收口，警示内置只说一次 */}
+      {createdCode && (
+        <SecretModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setCreatedCode(null)
+          }}
+          secretName={t('settingsWs.shareCodeTitle')}
+          secretValue={createdCode}
+          title={t('settingsWs.shareCodeTitle')}
+        />
+      )}
     </div>
   )
 }

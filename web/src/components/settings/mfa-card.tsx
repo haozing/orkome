@@ -1,18 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy } from 'lucide-react'
+import { useConfirm } from '@ploykit/ui'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '@ploykit/client'
 import { mfaDisable, mfaEnable, mfaEnroll, mfaStatusQueryOptions } from '@/api/identity'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,22 +13,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { signOutEverywhere } from '@/components/settings/shared'
+import { CopyButton, signOutEverywhere } from '@/components/settings/shared'
 
 // MFA（TOTP）卡片（design §3.2b）：
 // 未启用 → enroll（展示 otpauth_uri 文本 + secret 手输回退，不引 qrcode 依赖）
 //        → enable（6 位码）→ 备份码一次性 Dialog（复制 + 离开不可再取警示）。
-// 已启用 → disable 二次确认（AlertDialog，警示吊销全部会话含当前 → 登出流程）。
+// 已启用 → disable 二次确认（useConfirm，警示吊销全部会话含当前 → 登出流程）。
 export function MfaCard() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const status = useQuery(mfaStatusQueryOptions)
 
   // enroll 产物只存组件 state（secret 一次性，不入缓存不入 localStorage）。
   const [enrollment, setEnrollment] = useState<{ otpauth_uri: string; secret: string } | null>(null)
   const [code, setCode] = useState('')
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null)
-  const [confirmDisable, setConfirmDisable] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: mfaStatusQueryOptions.queryKey })
@@ -67,24 +58,31 @@ export function MfaCard() {
   const disable = useMutation({
     mutationFn: mfaDisable,
     onSuccess: () => {
-      setConfirmDisable(false)
       invalidate()
       void signOutEverywhere(queryClient)
     },
-    onError: (err) => {
-      setConfirmDisable(false)
-      setError(err instanceof ApiError ? err.message : String(err))
-    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   })
 
   const codeReady = /^\d{6}$/.test(code.trim())
+
+  // disable 吊销全部会话含当前——确认后执行，成功走登出流程。
+  const confirmDisable = async () => {
+    const ok = await confirm({
+      title: t('settings.mfa.disableConfirmTitle'),
+      description: t('settings.mfa.disableConfirmDesc'),
+      confirmText: t('settings.mfa.disableConfirmAction'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok) disable.mutate()
+  }
 
   return (
     <div className="space-y-3" data-testid="mfa-card">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium">{t('settings.mfa.title')}</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settings.mfa.desc')}</p>
         </div>
         {status.isPending ? (
           <span className="text-xs text-zinc-400">{t('common.loading')}</span>
@@ -93,7 +91,7 @@ export function MfaCard() {
             variant="outline"
             size="sm"
             className="text-red-600 dark:text-red-400"
-            onClick={() => setConfirmDisable(true)}
+            onClick={() => void confirmDisable()}
             data-testid="mfa-disable"
           >
             {t('settings.mfa.disable')}
@@ -190,58 +188,23 @@ export function MfaCard() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={confirmDisable} onOpenChange={setConfirmDisable}>
-        <AlertDialogContent>
-          <AlertDialogTitle>{t('settings.mfa.disableConfirmTitle')}</AlertDialogTitle>
-          <AlertDialogDescription>{t('settings.mfa.disableConfirmDesc')}</AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="danger"
-              disabled={disable.isPending}
-              onClick={() => disable.mutate()}
-              data-testid="mfa-disable-confirm"
-            >
-              {t('settings.mfa.disableConfirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
 
-// 只读代码块（otpauth 链接 / secret 手输回退）：等宽 + 全断行 + 复制按钮，
-// 视觉参照 access 页 Snippet 的代码块（浅 zinc 底，紧凑行高）。
+// 只读代码块（otpauth 链接 / secret 手输回退）：等宽 + 全断行 + 复制按钮
+// （共享 CopyButton，ghost xs 次级形态），视觉参照 access 页 Snippet 的代码块
+// （浅 zinc 底，紧凑行高）。
 function CodeField({ value }: { value: string }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
   return (
     <div className="flex items-start gap-2 rounded-md bg-zinc-50 p-2.5 dark:bg-zinc-900">
       <code className="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed">{value}</code>
-      <Button
+      <CopyButton
+        text={value}
         variant="ghost"
         size="xs"
         className="shrink-0 text-zinc-500 dark:text-zinc-400"
-        onClick={() => {
-          void navigator.clipboard.writeText(value).then(
-            () => {
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1500)
-            },
-            () => {},
-          )
-        }}
-        aria-label={t('common.copy')}
-      >
-        {copied ? (
-          <Check className="size-3.5" aria-hidden="true" />
-        ) : (
-          <Copy className="size-3.5" aria-hidden="true" />
-        )}
-        {copied ? t('common.copied') : t('common.copy')}
-      </Button>
+      />
     </div>
   )
 }

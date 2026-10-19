@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Check, Copy } from 'lucide-react'
-import { useState } from 'react'
+import { PageHeader } from '@ploykit/ui'
 import { useTranslation } from 'react-i18next'
 import { TokensSection } from '@/components/settings/tokens-section'
-import { Button } from '@/components/ui/button'
+import { CopyButton } from '@/components/settings/shared'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // 助理接入页（docs/assistant-access-design-2026-10-14.md §五，v4 纯助理）：
@@ -59,28 +58,6 @@ const MCP_TOOLS: {
 const CARD_CLASS = 'rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
 const CARD_TITLE_CLASS = 'mb-1 text-sm font-semibold'
 const CARD_DESC_CLASS = 'mb-3 text-xs text-zinc-500 dark:text-zinc-400'
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          },
-          () => {},
-        )
-      }}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? t('common.copied') : t('common.copy')}
-    </Button>
-  )
-}
 function Snippet({ title, file, code }: { title: string; file?: string; code: string }) {
   return (
     <div>
@@ -126,10 +103,7 @@ export function AccessPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-lg font-semibold">{t('access.pageTitle')}</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('access.pageIntro')}</p>
-      </div>
+      <PageHeader title={t('access.pageTitle')} description={t('access.pageIntro')} />
 
       {/* 第 1 段（置顶）：通用一键接入（2026-10-16 用户裁决）——接入即一份
           skill 文档：用户把文档地址发给任意 AI 客户端，AI 读完自行完成 MCP
@@ -157,6 +131,7 @@ export function AccessPage() {
         <p className="mb-3 text-xs">
           <Link
             to="/settings"
+            hash="tokens"
             className="text-primary underline-offset-4 hover:underline"
             data-testid="access-tokens-link"
           >
@@ -166,7 +141,7 @@ export function AccessPage() {
         <TokensSection />
       </section>
 
-      {/* 第 3 段：工具清单（23 个真实注册面，按 读/写/任务协议/恢复/配置 分组） */}
+      {/* 第 3 段：工具清单（真实注册面，按 读/写/任务协议/恢复/配置 分组，计数随清单推导） */}
       <section className={CARD_CLASS}>
         <h2 className={CARD_TITLE_CLASS}>{t('mcp.toolsTitle')}</h2>
         <p className={CARD_DESC_CLASS}>{t('mcp.toolsDesc')}</p>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy } from 'lucide-react'
+import { Checkbox, SecretModal } from '@ploykit/ui'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -12,7 +12,14 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useSettingsTimeFormatter } from '@/components/settings/shared'
+import { Select } from '@/components/ui/select'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import {
+  INLINE_EMPTY_CLS,
+  INLINE_ERROR_CLS,
+  INLINE_LOADING_CLS,
+  useSettingsTimeFormatter,
+} from '@/components/settings/shared'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // PAT 管理面（design §3.3）：从 /access 页抽出的共享组件——settings 渲染完整面，
@@ -38,29 +45,6 @@ function tokenStatus(t: PatToken): { key: string; tone: 'success' | 'warning' | 
   if (t.expires_at && new Date(t.expires_at) < new Date())
     return { key: 'mcp.tokExpired', tone: 'warning' }
   return { key: 'mcp.tokActive', tone: 'success' }
-}
-
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          },
-          () => {},
-        )
-      }}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? t('common.copied') : t('common.copy')}
-    </Button>
-  )
 }
 
 export function TokensSection() {
@@ -109,26 +93,18 @@ export function TokensSection() {
 
   return (
     <div>
-      {/* 一次性 token 明文：离开此条即不可再取。 */}
+      {/* 一次性 token 明文（ui-sweep 裁决③）：kit SecretModal 收口——勾选
+          「已保存」前关不掉，不可再取的警示由组件内置说一次。 */}
       {secret && (
-        <div
-          role="status"
-          className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950"
-          data-testid="token-created-once"
-        >
-          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
-            {t('mcp.createdOnce', { name: secret.name })}
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white px-3 py-2 font-mono text-xs dark:bg-zinc-900">
-              {secret.token}
-            </code>
-            <CopyButton text={secret.token} />
-            <Button variant="ghost" size="sm" onClick={() => setSecret(null)}>
-              {t('common.ok')}
-            </Button>
-          </div>
-        </div>
+        <SecretModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setSecret(null)
+          }}
+          secretName={secret.name}
+          secretValue={secret.token}
+          title={t('mcp.createdOnce', { name: secret.name })}
+        />
       )}
 
       <div className="flex flex-wrap gap-2">
@@ -144,32 +120,30 @@ export function TokensSection() {
           className="min-w-0 flex-1"
           data-testid="token-name-input"
         />
-        <select
+        <Select
           value={ttl}
           onChange={(e) => setTtl(Number(e.target.value))}
           aria-label={t('mcp.ttlLabel')}
-          className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+          className="w-28"
         >
           {TTL_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {t(opt.key)}
             </option>
           ))}
-        </select>
+        </Select>
         <Button onClick={submitCreate} disabled={!name.trim() || create.isPending} data-testid="token-create">
           {create.isPending ? t('mcp.creating') : t('mcp.createToken')}
         </Button>
       </div>
       <label
-        className="mt-2 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400"
+        className="mt-2 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400"
         data-testid="token-scope-limit"
       >
-        <input
-          type="checkbox"
+        <Checkbox
           checked={limitToWs && !!currentId}
-          onChange={(e) => setLimitToWs(e.target.checked)}
+          onCheckedChange={(c) => setLimitToWs(c === true)}
           disabled={!currentId}
-          className="size-3 accent-zinc-700 dark:accent-zinc-300"
         />
         <span>{t('mcp.tokensScopeLimit')}</span>
         <span className="text-zinc-400 dark:text-zinc-500">{t('mcp.tokensScopeLimitDesc')}</span>
@@ -179,12 +153,19 @@ export function TokensSection() {
       )}
 
       <div className="mt-4 border-t border-zinc-200 dark:border-zinc-800">
-        {tokens.isPending && <p className="pt-3 text-sm text-zinc-500">{t('common.loading')}</p>}
+        {tokens.isPending && (
+          <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+        )}
         {tokens.error && (
-          <p className="pt-3 text-sm text-red-600 dark:text-red-400">{tokens.error.message}</p>
+          <PageError
+            title={t('common.error')}
+            message={tokens.error.message}
+            onRetry={() => void tokens.refetch()}
+            className={INLINE_ERROR_CLS}
+          />
         )}
         {tokens.data && tokens.data.length === 0 && (
-          <p className="pt-3 text-sm text-zinc-500">{t('mcp.noCredentials')}</p>
+          <PageEmpty title={t('mcp.noCredentials')} className={INLINE_EMPTY_CLS} />
         )}
         {tokens.data && tokens.data.length > 0 && (
           <>

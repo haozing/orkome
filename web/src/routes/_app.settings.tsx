@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ApiError } from '@ploykit/client'
+import { PageHeader } from '@ploykit/ui'
 import { useTranslation } from 'react-i18next'
 import {
   MUTABLE_NOTIFICATION_TYPES,
@@ -19,6 +20,7 @@ import { Switch } from '@base-ui/react/switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageError, PageLoading } from '@/components/ui/states'
+import { INLINE_ERROR_CLS, INLINE_LOADING_CLS } from '@/components/settings/shared'
 import { switchWorkspace } from '@/services/workspace-switch'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useState } from 'react'
@@ -64,95 +66,107 @@ export function SettingsPage() {
   const current = me.data?.workspaces.find((ws) => ws.id === currentId)
   const unauthenticated = me.error instanceof ApiError && me.error.status === 401
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-      <AnchorNav />
-      <div className="min-w-0 flex-1 space-y-6">
-        {/* ---- 【账户】 ---- */}
-        <div id="account" className={`${SECTION_CLASS} space-y-4`}>
-          <h2 className="text-sm font-semibold">{t('settings.nav.account')}</h2>
-          <InvitationsBanner />
-          {unauthenticated ? (
-            <div className="space-y-2 text-sm">
-              <p className="text-zinc-500">{t('settings.notLoggedIn')}</p>
-              <Link to="/login">
-                <Button size="sm">{t('settings.goLogin')}</Button>
-              </Link>
-            </div>
-          ) : (
+    <div>
+      <PageHeader title={t('common.settings')} />
+      <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+        <AnchorNav />
+        <div className="min-w-0 flex-1 space-y-6">
+          {/* ---- 【账户】 ---- */}
+          <div id="account" className={`${SECTION_CLASS} space-y-4`}>
+            <h2 className="text-sm font-semibold">{t('settings.nav.account')}</h2>
+            <InvitationsBanner />
+            {unauthenticated ? (
+              <div className="space-y-2 text-sm">
+                <p className="text-zinc-500">{t('settings.notLoggedIn')}</p>
+                <Link to="/login">
+                  <Button size="sm">{t('settings.goLogin')}</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {me.data && <div className="pb-4"><ProfileSection user={me.data.user} /></div>}
+                {me.isPending && (
+                  <div className="py-4">
+                    <PageLoading label={t('settings.loadingSession')} />
+                  </div>
+                )}
+                <div className="py-4"><SecuritySection /></div>
+                {/* 偏好端点要求登录会话（webx.RequireAuth），未登录时整块隐藏避免常驻报错 */}
+                {me.data && <div className="pt-4"><NotificationPreferencesSection /></div>}
+              </div>
+            )}
+          </div>
+
+          <div id="tokens" className={`${SECTION_CLASS} space-y-3`}>
+            <h2 className="text-sm font-semibold">{t('settings.tokens.title')}</h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settings.tokens.desc')}</p>
+            <TokensSection />
+          </div>
+
+          {/* ---- 【工作区】 ---- */}
+          <div id="workspace" className={`${SECTION_CLASS} space-y-3`}>
+            <h2 className="text-sm font-semibold">{t('settings.nav.workspace')}</h2>
+            {/* 概览/成员/审计改 divide-y 分隔（security 范式），块卡不再自带边框 */}
             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {me.data && <div className="pb-4"><ProfileSection user={me.data.user} /></div>}
-              {me.isPending && (
-                <div className="py-4">
-                  <PageLoading label={t('settings.loadingSession')} />
+              {me.data && me.data.workspaces.length > 0 && (
+                <div className="space-y-2 pb-4 text-sm">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {t('settings.workspaceHint')}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {me.data.workspaces.map((ws) => (
+                      <Button
+                        key={ws.id}
+                        variant={ws.id === currentId ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => switchWorkspace(queryClient, ws.id)}
+                      >
+                        {ws.name}
+                        <span className="font-mono text-xs opacity-60">/{ws.slug}</span>
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
-              <div className="py-4"><SecuritySection /></div>
-              {/* 偏好端点要求登录会话（webx.RequireAuth），未登录时整块隐藏避免常驻报错 */}
-              {me.data && <div className="pt-4"><NotificationPreferencesSection /></div>}
+              {me.data && current && (
+                <>
+                  <div className="py-4">
+                    <WorkspaceOverviewSection
+                      workspaceId={current.id}
+                      workspace={current}
+                      role={current.role}
+                    />
+                  </div>
+                  <div className="py-4">
+                    <MembersSection workspaceId={current.id} role={current.role} />
+                  </div>
+                  <div className="pt-4">
+                    <AuditSection workspaceId={current.id} />
+                  </div>
+                </>
+              )}
             </div>
-          )}
-        </div>
+          </div>
 
-        <div id="tokens" className={`${SECTION_CLASS} space-y-3`}>
-          <h2 className="text-sm font-semibold">{t('settings.tokens.title')}</h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('settings.tokens.desc')}</p>
-          <TokensSection />
-        </div>
-
-        {/* ---- 【工作区】 ---- */}
-        <div id="workspace" className={`${SECTION_CLASS} space-y-3`}>
-          <h2 className="text-sm font-semibold">{t('settings.nav.workspace')}</h2>
-          {me.data && me.data.workspaces.length > 0 && (
-            <div className="space-y-2 text-sm">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {t('settings.workspaceHint')}
+          {/* ---- 【服务端】 ---- */}
+          <div id="server" className={`${SECTION_CLASS} space-y-3`}>
+            <h2 className="text-sm font-semibold">{t('settings.nav.server')}</h2>
+            {config.isPending && <PageLoading label={t('settings.connecting')} className="pt-2" />}
+            {config.data && (
+              <p className="font-mono text-sm">
+                {t('settings.version')}{' '}
+                <span className="text-zinc-500">{config.data.version || 'unknown'}</span>
               </p>
-              <div className="flex flex-wrap gap-1">
-                {me.data.workspaces.map((ws) => (
-                  <Button
-                    key={ws.id}
-                    variant={ws.id === currentId ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => switchWorkspace(queryClient, ws.id)}
-                  >
-                    {ws.name}
-                    <span className="font-mono text-xs opacity-60">/{ws.slug}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-          {me.data && current && (
-            <div className="space-y-6">
-              <WorkspaceOverviewSection
-                workspaceId={current.id}
-                workspace={current}
-                role={current.role}
+            )}
+            {config.error && (
+              <PageError
+                title={t('settings.unreachable')}
+                message={t('settings.unreachableDesc')}
+                onRetry={() => void config.refetch()}
+                className="pt-4"
               />
-              <MembersSection workspaceId={current.id} role={current.role} />
-              <AuditSection workspaceId={current.id} />
-            </div>
-          )}
-        </div>
-
-        {/* ---- 【服务端】 ---- */}
-        <div id="server" className={`${SECTION_CLASS} space-y-3`}>
-          <h2 className="text-sm font-semibold">{t('settings.nav.server')}</h2>
-          {config.isPending && <PageLoading label={t('settings.connecting')} className="pt-2" />}
-          {config.data && (
-            <p className="font-mono text-sm">
-              {t('settings.version')}{' '}
-              <span className="text-zinc-500">{config.data.version || 'unknown'}</span>
-            </p>
-          )}
-          {config.error && (
-            <PageError
-              title={t('settings.unreachable')}
-              message={t('settings.unreachableDesc')}
-              onRetry={() => void config.refetch()}
-              className="pt-4"
-            />
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -168,32 +182,26 @@ const PREFERENCE_ID_GROUP_CAP = 200
 const MUTABLE_TYPE_DEFS: {
   type: (typeof MUTABLE_NOTIFICATION_TYPES)[number]
   labelKey: string
-  descKey: string
 }[] = [
   {
     type: 'task.completed',
     labelKey: 'notifications.muteTaskCompleted',
-    descKey: 'notifications.muteTaskCompletedDesc',
   },
   {
     type: 'task.failed',
     labelKey: 'notifications.muteTaskFailed',
-    descKey: 'notifications.muteTaskFailedDesc',
   },
   {
     type: 'comment.created',
     labelKey: 'notifications.muteCommentCreated',
-    descKey: 'notifications.muteCommentCreatedDesc',
   },
   {
     type: 'approval_request',
     labelKey: 'notifications.muteApprovalRequest',
-    descKey: 'notifications.muteApprovalRequestDesc',
   },
   {
     type: 'eval_report',
     labelKey: 'notifications.muteEvalReport',
-    descKey: 'notifications.muteEvalReportDesc',
   },
 ]
 
@@ -225,23 +233,18 @@ function PrefSwitch({
 
 function PrefRow({
   label,
-  desc,
   checked,
   disabled,
   onCheckedChange,
 }: {
   label: string
-  desc: string
   checked: boolean
   disabled?: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2">
-      <div className="min-w-0">
-        <p className="text-sm">{label}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{desc}</p>
-      </div>
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <p className="min-w-0 text-sm">{label}</p>
       <PrefSwitch
         checked={checked}
         disabled={disabled}
@@ -313,23 +316,23 @@ function NotificationPreferencesSection() {
 
   if (prefs.isPending) {
     return (
-      <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" data-testid="prefs-section">
-        <h2 className="mb-3 text-sm font-semibold">{t('notifications.title')}</h2>
-        <PageLoading label={t('notifications.loading')} className="pt-2" />
-      </section>
+      <div className="space-y-2" data-testid="prefs-section">
+        <h2 className="text-sm font-semibold">{t('notifications.title')}</h2>
+        <PageLoading label={t('notifications.loading')} className={INLINE_LOADING_CLS} />
+      </div>
     )
   }
   if (prefs.isError || !prefs.data) {
     return (
-      <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" data-testid="prefs-section">
-        <h2 className="mb-3 text-sm font-semibold">{t('notifications.title')}</h2>
+      <div className="space-y-2" data-testid="prefs-section">
+        <h2 className="text-sm font-semibold">{t('notifications.title')}</h2>
         <PageError
           title={t('notifications.loadFailed')}
           message={prefs.error instanceof ApiError ? prefs.error.message : String(prefs.error)}
           onRetry={() => void prefs.refetch()}
-          className="pt-2"
+          className={INLINE_ERROR_CLS}
         />
-      </section>
+      </div>
     )
   }
 
@@ -358,17 +361,15 @@ function NotificationPreferencesSection() {
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" data-testid="prefs-section">
+    <div className="space-y-2" data-testid="prefs-section">
       <h2 className="text-sm font-semibold">{t('notifications.title')}</h2>
-      <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{t('notifications.desc')}</p>
 
-      <div className="mt-2 space-y-4">
+      <div className="space-y-4">
         <div>
           <p className="text-sm font-medium">{t('notifications.groupTypes')}</p>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             <PrefRow
               label={t('notifications.allTypes')}
-              desc={t('notifications.allTypesDesc')}
               checked={types.includes('*')}
               disabled={pending}
               onCheckedChange={(c) => setTypeMuted('*', c)}
@@ -377,7 +378,6 @@ function NotificationPreferencesSection() {
               <PrefRow
                 key={def.type}
                 label={t(def.labelKey)}
-                desc={t(def.descKey)}
                 checked={types.includes(def.type)}
                 disabled={pending}
                 onCheckedChange={(c) => setTypeMuted(def.type, c)}
@@ -387,13 +387,8 @@ function NotificationPreferencesSection() {
         </div>
 
         <div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">{t('notifications.groupWorkItems')}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {t('notifications.groupWorkItemsDesc')}
-              </p>
-            </div>
+          <div className="flex items-center justify-between gap-4">
+            <p className="min-w-0 text-sm font-medium">{t('notifications.groupWorkItems')}</p>
             <PrefSwitch
               label={t('notifications.groupWorkItems')}
               checked={workItems.length > 0}
@@ -442,13 +437,8 @@ function NotificationPreferencesSection() {
         </div>
 
         <div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">{t('notifications.groupConversations')}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {t('notifications.groupConversationsDesc')}
-              </p>
-            </div>
+          <div className="flex items-center justify-between gap-4">
+            <p className="min-w-0 text-sm font-medium">{t('notifications.groupConversations')}</p>
             <PrefSwitch
               label={t('notifications.groupConversations')}
               checked={conversations.length > 0}
@@ -514,6 +504,6 @@ function NotificationPreferencesSection() {
           )}
         </p>
       </div>
-    </section>
+    </div>
   )
 }

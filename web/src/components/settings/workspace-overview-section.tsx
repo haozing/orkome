@@ -77,13 +77,9 @@ export function WorkspaceOverviewSection({
     })
 
   return (
-    <section
-      className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-      aria-label={t('settingsWs.overviewTitle')}
-      data-testid="ws-overview-section"
-    >
+    <section className="space-y-3" aria-label={t('settingsWs.overviewTitle')} data-testid="ws-overview-section">
       <h2 className="text-sm font-semibold">{t('settingsWs.overviewTitle')}</h2>
-      <div className="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         {/* 名称编辑行独立置顶：label + Input + 保存按钮同行 */}
         <div className="space-y-2 pb-3">
           {canEdit ? (

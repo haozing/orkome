@@ -70,7 +70,7 @@ export function InvitationsBanner() {
             <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
               /{inv.workspace_slug}
             </span>
-            <Badge variant="neutral">{t('settings.invitations.role', { role: inv.role })}</Badge>
+            <Badge variant="neutral">{t(`settingsWs.role.${inv.role}`)}</Badge>
             <span className="min-w-0 flex-1" />
             <Button
               size="sm"

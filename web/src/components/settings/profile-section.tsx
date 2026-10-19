@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FormField } from '@ploykit/ui'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '@ploykit/client'
@@ -63,10 +64,7 @@ export function ProfileSection({ user }: { user: User }) {
   return (
     <div className="space-y-4">
       <div className="max-w-md space-y-3">
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" htmlFor="settings-profile-name">
-            {t('settings.profile.displayName')}
-          </label>
+        <FormField label={t('settings.profile.displayName')} htmlFor="settings-profile-name">
           <Input
             id="settings-profile-name"
             value={displayName}
@@ -74,11 +72,12 @@ export function ProfileSection({ user }: { user: User }) {
             maxLength={100}
             data-testid="profile-name-input"
           />
-        </div>
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" htmlFor="settings-profile-avatar">
-            {t('settings.profile.avatar')}
-          </label>
+        </FormField>
+        <FormField
+          label={t('settings.profile.avatar')}
+          htmlFor="settings-profile-avatar"
+          description={t('settings.profile.avatarHint')}
+        >
           <Input
             id="settings-profile-avatar"
             value={avatarUrl}
@@ -87,10 +86,7 @@ export function ProfileSection({ user }: { user: User }) {
             placeholder="https://…"
             data-testid="profile-avatar-input"
           />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t('settings.profile.avatarHint')}
-          </p>
-        </div>
+        </FormField>
       </div>
       <div className="flex items-center gap-3">
         <Button onClick={() => save.mutate()} disabled={!canSave} data-testid="profile-save">
