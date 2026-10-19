@@ -1,15 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ConfirmProvider, Toaster, toast } from '@ploykit/ui'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Autopilot, Wakeup } from '@/api/automation'
 import i18n from '@/i18n'
 import { AutomationPage, datetimeLocalToCron } from '@/routes/_app.automation'
 import { server } from '../msw'
 
-// automation 页 MVP（wave3 P3）：列表三态、创建往返（含 cron 真源校验）、
-// 手动触发、删除 409 分流（触发器挡 / 运行挡）、wakeups 列表+新建+删除。
+// automation 页（wave3 P3 MVP + ui-sweep 整修）：列表三态（states 组合件）、
+// 创建往返（含 cron 真源校验 + 下次触发预览）、手动触发（toast + 状态 Badge）、
+// 删除统一走 kit useConfirm（409 分流不变）、wakeups 列表+新建+删除。
 // setup.ts 固定 i18n=en，断言用英文文案。
 
 const AGENT = {
@@ -78,10 +80,18 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <AutomationPage />
+      {/* ui-sweep 后页面依赖全站确认（useConfirm）与成功反馈（toast）宿主 */}
+      <ConfirmProvider>
+        <Toaster />
+        <AutomationPage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   )
 }
+// sonner 的 toast 存全局 store，跨用例残留会污染后续 renderPage 的断言面
+afterEach(() => {
+  toast.dismiss()
+})
 
 describe('autopilot list (three states)', () => {
   it('empty: shows onboarding copy, no rows', async () => {
@@ -142,12 +152,14 @@ describe('create autopilot round-trip', () => {
     await user.selectOptions(screen.getByLabelText('Target agent'), 'agent-1')
     await user.click(screen.getByRole('button', { name: 'Create' }))
     await waitFor(() => expect(bodies).toHaveLength(1))
+    // ui-sweep：时区默认浏览器 IANA 名（原为空串=UTC）
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
     expect(bodies[0]).toMatchObject({
       name: 'Made it',
       exec_mode: 'create_work_item',
       target_agent_id: 'agent-1',
       cron_expression: '',
-      timezone: '',
+      timezone: tz,
     })
     // 对话框关闭 + 列表失效重取
     expect(await screen.findByTestId('autopilot-row')).toBeInTheDocument()
@@ -197,7 +209,7 @@ describe('create autopilot round-trip', () => {
 })
 
 describe('manual trigger', () => {
-  it('posts trigger, shows dispatched feedback with run status and task id', async () => {
+  it('posts trigger, toasts the dispatched feedback with a status badge', async () => {
     autopilotList = [AP()]
     server.use(
       ...defaultHandlers(),
@@ -216,8 +228,11 @@ describe('manual trigger', () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByRole('button', { name: 'Trigger now' }))
-    expect(await screen.findByText(/triggered \(run status: running/)).toBeInTheDocument()
-    expect(screen.getByText('Task dispatched (task-123).')).toBeInTheDocument()
+    // ui-sweep：灰条直出枚举/原因码 → toast + 状态 Badge（taskStatus.running）
+    expect(
+      await screen.findByText('"Daily sweep" triggered; task dispatched.'),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Running')).toBeInTheDocument()
   })
 })
 
@@ -383,6 +398,7 @@ describe('datetimeLocalToCron', () => {
 
 describe('automation i18n keys exist in both locales', () => {
   const KEYS = [
+    'automation.pageTitle',
     'automation.newBtn',
     'automation.newTitle',
     'automation.nameLabel',
@@ -398,14 +414,17 @@ describe('automation i18n keys exist in both locales', () => {
     'automation.cronLabel',
     'automation.cronHint',
     'automation.cronInvalid',
+    'automation.cronNext',
     'automation.timezoneLabel',
     'automation.tzUtc',
     'automation.creating',
     'automation.delBlockedTriggers',
     'automation.delBlockedRuns',
-    'automation.triggeredTask',
+    'automation.deleteApTitle',
+    'automation.deleteConfirmDesc',
+    'automation.wakeDeleteTitle',
+    'automation.wakeDeleteDesc',
     'automation.wakeTitle',
-    'automation.wakeDesc',
     'automation.wakeEmpty',
     'automation.wakeNewBtn',
     'automation.wakeNewTitle',

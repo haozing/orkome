@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { PageHeader, Tooltip, TooltipContent, TooltipTrigger } from '@ploykit/ui'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -11,6 +12,7 @@ import {
 import { TaskTranscriptDrawer } from '@/components/run-logs/task-transcript-drawer'
 import { TaskStatusBadge } from '@/components/task-status-badge'
 import { Button } from '@/components/ui/button'
+import { Select } from '@/components/ui/select'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 const searchSchema = z.object({
   status: z.enum(['active', 'failed', 'completed', 'all']).optional(),
@@ -39,7 +41,7 @@ const TRIGGER_KEYS: Record<string, string> = {
   rule: 'agents.triggerRule',
   rerun: 'agents.triggerRerun',
 }
-function RunLogsPage() {
+export function RunLogsPage() {
   const { t } = useTranslation()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -71,12 +73,14 @@ function RunLogsPage() {
   const openTaskRow = openTask ? (rows.find((r) => r.id === openTask.id) ?? openTask) : null
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">{t('runLogs.title')}</h1>
-        <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
-          {t('agents.refresh')}
-        </Button>
-      </div>
+      <PageHeader
+        title={t('runLogs.title')}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
+            {t('agents.refresh')}
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div
@@ -102,11 +106,13 @@ function RunLogsPage() {
             </button>
           ))}
         </div>
-        <select
+        {/* 原生 select → 本地 Select 原语（ui-sweep 同套标准）；w-auto 覆盖原语的
+            w-full（筛选行是 flex 容器，不占满整行） */}
+        <Select
           aria-label={t('runLogs.agentFilter')}
           value={agentId}
           onChange={(e) => patchSearch({ agent: e.target.value || undefined })}
-          className="h-8 max-w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          className="w-auto max-w-full"
         >
           <option value="">{t('runLogs.allAgents')}</option>
           {(agents.data ?? []).map((a) => (
@@ -114,7 +120,7 @@ function RunLogsPage() {
               {a.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {list.isPending && <PageLoading label={t('runLogs.loading')} />}
@@ -180,37 +186,44 @@ function TaskRowView({ task, onOpen }: { task: WorkspaceTaskRow; onOpen: () => v
     })
   return (
     <div className="space-y-1 px-3 py-2.5">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex w-full cursor-default items-center gap-3 py-1 text-left text-sm outline-none"
-        title={t('runLogs.viewTranscript')}
-      >
-        <TaskStatusBadge status={task.status} />
-        <span className="hidden shrink-0 text-sm sm:inline">{task.agent_name}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
-          {task.work_item_title
-            ? task.work_item_title
-            : task.work_item_id
-              ? t('runLogs.workItemDeleted')
-              : t('agents.directTask')}
-        </span>
-        {task.trigger_evidence_kind && (
+      {/* 打开转写的可点击行；原生 title → kit Tooltip（ui-sweep 同套标准） */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onClick={onOpen}
+              className="flex w-full cursor-default items-center gap-3 py-1 text-left text-sm outline-none"
+            />
+          }
+        >
+          <TaskStatusBadge status={task.status} />
+          <span className="hidden shrink-0 text-sm sm:inline">{task.agent_name}</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
+            {task.work_item_title
+              ? task.work_item_title
+              : task.work_item_id
+                ? t('runLogs.workItemDeleted')
+                : t('agents.directTask')}
+          </span>
+          {task.trigger_evidence_kind && (
+            <span className="hidden shrink-0 text-xs text-zinc-400 sm:inline">
+              {TRIGGER_KEYS[task.trigger_evidence_kind]
+                ? t(TRIGGER_KEYS[task.trigger_evidence_kind])
+                : task.trigger_evidence_kind}
+            </span>
+          )}
+          {task.attempt > 1 && (
+            <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
+              {t('agents.retryAttempt', { attempt: task.attempt, max: task.max_attempts })}
+            </span>
+          )}
           <span className="hidden shrink-0 text-xs text-zinc-400 sm:inline">
-            {TRIGGER_KEYS[task.trigger_evidence_kind]
-              ? t(TRIGGER_KEYS[task.trigger_evidence_kind])
-              : task.trigger_evidence_kind}
+            {formatTime(task.created_at)}
           </span>
-        )}
-        {task.attempt > 1 && (
-          <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
-            {t('agents.retryAttempt', { attempt: task.attempt, max: task.max_attempts })}
-          </span>
-        )}
-        <span className="hidden shrink-0 text-xs text-zinc-400 sm:inline">
-          {formatTime(task.created_at)}
-        </span>
-      </button>
+        </TooltipTrigger>
+        <TooltipContent>{t('runLogs.viewTranscript')}</TooltipContent>
+      </Tooltip>
       {task.failure_reason && (
         <p className="pl-1 font-mono text-xs text-red-600 dark:text-red-400">
           {task.failure_reason}
