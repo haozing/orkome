@@ -13,11 +13,13 @@ import {
   refreshSkill,
   type SkillFile,
 } from '@/api/skills'
+import { FormField, Skeleton, toast, useConfirm } from '@ploykit/ui'
+import { ApiError } from '@ploykit/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageError, PageLoading } from '@/components/ui/states'
-import { ApiError } from '@ploykit/client'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 const RichEditor = lazy(() =>
   import('@/components/editor/rich-editor').then((m) => ({ default: m.RichEditor })),
@@ -30,7 +32,7 @@ const ORIGIN_KEYS: Record<string, { key: string; tone: 'neutral' | 'success' | '
   import: { key: 'skills.originImport', tone: 'success' },
   url: { key: 'skills.originUrl', tone: 'warning' },
 }
-function SkillDetailPage() {
+export function SkillDetailPage() {
   const { t, i18n } = useTranslation()
   const { skillId } = Route.useParams()
   const navigate = useNavigate()
@@ -43,8 +45,7 @@ function SkillDetailPage() {
   })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [refreshNote, setRefreshNote] = useState<string | null>(null)
+  const confirm = useConfirm()
   const invalidateFiles = () => {
     void queryClient.invalidateQueries({ queryKey: ['skill-files', skillId] })
     void queryClient.invalidateQueries({ queryKey: ['skill', skillId] })
@@ -52,10 +53,13 @@ function SkillDetailPage() {
   const refresh = useMutation({
     mutationFn: () => refreshSkill(skillId),
     onSuccess: (r) => {
-      setRefreshNote(
+      toast.success(
         r.refreshed > 0 ? t('skills.refreshedN', { n: r.refreshed }) : t('skills.noChange'),
       )
       invalidateFiles()
+    },
+    onError: (e) => {
+      toast.error(e instanceof ApiError ? e.message : t('common.error'))
     },
   })
   const remove = useMutation({
@@ -65,6 +69,16 @@ function SkillDetailPage() {
       void navigate({ to: '/skills' })
     },
   })
+  const confirmRemoveSkill = async () => {
+    const ok = await confirm({
+      title: t('skills.deleteSkill'),
+      description: t('skills.deleteHint'),
+      confirmText: t('skills.confirmDelete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok && !remove.isPending) remove.mutate()
+  }
   if (skill.isPending) return <PageLoading label={t('skills.loading')} />
   if (skill.isError) {
     return (
@@ -108,44 +122,26 @@ function SkillDetailPage() {
               disabled={refresh.isPending}
               onClick={() => refresh.mutate()}
             >
-              <RotateCw className="size-3.5" aria-hidden="true" />
+              {refresh.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <RotateCw className="size-3.5" aria-hidden="true" />
+              )}
               {t('skills.refetch')}
             </Button>
           )}
-          {confirmingDelete ? (
-            <>
-              <Button
-                size="sm"
-                variant="danger"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate()}
-              >
-                {t('skills.confirmDelete')}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-                {t('common.cancel')}
-              </Button>
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-600 dark:text-red-400"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <Trash2 className="size-3.5" aria-hidden="true" />
-              {t('skills.deleteSkill')}
-            </Button>
-          )}
-          {refresh.isPending && (
-            <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-red-600 dark:text-red-400"
+            disabled={remove.isPending}
+            onClick={() => void confirmRemoveSkill()}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            {t('skills.deleteSkill')}
+          </Button>
         </div>
       </div>
-      {confirmingDelete && <p className="text-xs text-zinc-500">{t('skills.deleteHint')}</p>}
-      {refreshNote && (
-        <p className="text-xs text-emerald-600 dark:text-emerald-400">{refreshNote}</p>
-      )}
       {s.description && <p className="text-sm text-zinc-500 dark:text-zinc-400">{s.description}</p>}
 
       <BoundAgentsBar skillId={skillId} />
@@ -237,7 +233,7 @@ function FileRow({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [confirming, setConfirming] = useState(false)
+  const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const isMain = file.path === 'SKILL.md'
   const del = useMutation({
@@ -248,6 +244,15 @@ function FileRow({
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : t('skills.deleteFailed')),
   })
+  const confirmRemoveFile = async () => {
+    const ok = await confirm({
+      title: t('skills.deleteFileAria', { path: file.path }),
+      confirmText: t('skills.confirmDelete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok && !del.isPending) del.mutate()
+  }
   return (
     <li className="group relative">
       <button
@@ -261,34 +266,16 @@ function FileRow({
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
         <span className="shrink-0 text-[11px] text-zinc-400">{formatSize(file.size_bytes)}</span>
       </button>
-      {!isMain &&
-        (confirming ? (
-          <div className="flex items-center gap-1 px-3 pb-1.5">
-            <button
-              type="button"
-              className="text-[11px] text-red-600 underline-offset-2 hover:underline dark:text-red-400"
-              onClick={() => del.mutate()}
-            >
-              {t('agents.confirmDelete')}
-            </button>
-            <button
-              type="button"
-              className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-              onClick={() => setConfirming(false)}
-            >
-              {t('common.cancel')}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            aria-label={t('skills.deleteFileAria', { path: file.path })}
-            className="absolute top-2 right-2 hidden text-zinc-400 group-hover:block hover:text-red-600 dark:hover:text-red-400"
-            onClick={() => setConfirming(true)}
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-          </button>
-        ))}
+      {!isMain && (
+        <button
+          type="button"
+          aria-label={t('skills.deleteFileAria', { path: file.path })}
+          className="absolute top-2 right-2 text-zinc-400 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:text-red-600 dark:hover:text-red-400"
+          onClick={() => void confirmRemoveFile()}
+        >
+          <Trash2 className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
       {error && <p className="px-3 pb-1.5 text-[11px] text-red-600 dark:text-red-400">{error}</p>}
     </li>
   )
@@ -343,10 +330,7 @@ function FileEditor({
 
       {isMain && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor="skill-fm-name" className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
-              {t('skills.fmName')}
-            </label>
+          <FormField label={t('skills.fmName')} htmlFor="skill-fm-name">
             <Input
               id="skill-fm-name"
               value={fmName}
@@ -354,26 +338,21 @@ function FileEditor({
               onChange={(e) => setFmName(e.target.value)}
               className="font-mono text-xs"
             />
-          </div>
-          <div>
-            <label htmlFor="skill-fm-desc" className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
-              {t('skills.fmDesc')}
-            </label>
+          </FormField>
+          <FormField label={t('skills.fmDesc')} htmlFor="skill-fm-desc">
             <Input
               id="skill-fm-desc"
               value={fmDesc}
               maxLength={500}
               onChange={(e) => setFmDesc(e.target.value)}
             />
-          </div>
+          </FormField>
         </div>
       )}
 
       {isMarkdown ? (
         <div className="min-h-[22rem] rounded-md border border-zinc-200 dark:border-zinc-800">
-          <Suspense
-            fallback={<div className="p-3 text-sm text-zinc-400">{t('work.editorLoading')}</div>}
-          >
+          <Suspense fallback={<Skeleton className="h-[22rem] w-full" />}>
             <RichEditor
               content={body}
               onChange={setBody}
@@ -385,12 +364,12 @@ function FileEditor({
           </Suspense>
         </div>
       ) : (
-        <textarea
+        <Textarea
           aria-label={t('skills.editFileAria', { path: file.path })}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           spellCheck={false}
-          className="h-[26rem] w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+          className="h-[26rem] resize-y p-3 font-mono text-xs leading-relaxed"
         />
       )}
       {save.error && (
@@ -477,9 +456,7 @@ function NewFileForm({
       </div>
       {isMarkdown ? (
         <div className="min-h-72 rounded-md border border-zinc-200 dark:border-zinc-800">
-          <Suspense
-            fallback={<div className="p-3 text-sm text-zinc-400">{t('work.editorLoading')}</div>}
-          >
+          <Suspense fallback={<Skeleton className="h-72 w-full" />}>
             <RichEditor
               content={content}
               onChange={setContent}
@@ -491,13 +468,13 @@ function NewFileForm({
           </Suspense>
         </div>
       ) : (
-        <textarea
+        <Textarea
           aria-label={t('skills.newFileContent')}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           spellCheck={false}
           placeholder={t('skills.fileContentPlaceholder')}
-          className="h-72 w-full resize-y rounded-md border border-zinc-300 bg-white p-3 font-mono text-xs leading-relaxed outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+          className="h-72 resize-y p-3 font-mono text-xs leading-relaxed"
         />
       )}
       {create.error && (
