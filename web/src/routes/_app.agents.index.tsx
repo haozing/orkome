@@ -14,7 +14,7 @@ export const Route = createFileRoute('/_app/agents/')({
   component: AgentsPage,
 })
 type Filter = 'all' | 'active' | 'archived'
-function AgentsPage() {
+export function AgentsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [filter, setFilter] = useState<Filter>('all')
@@ -35,7 +35,9 @@ function AgentsPage() {
         </Button>
       </div>
 
-      <div className="flex gap-1" role="tablist" aria-label={t('agentsList.filterAria')}>
+      {/* 筛选是切换按钮组（aria-pressed），不是 tablist——无对应 tabpanel 的
+          role=tab 会被读屏报语义错（ui-sweep 裁决）。 */}
+      <div className="flex gap-1" role="group" aria-label={t('agentsList.filterAria')}>
         {(
           [
             ['all', 'agentsList.all'],
@@ -46,8 +48,7 @@ function AgentsPage() {
           <button
             key={key}
             type="button"
-            role="tab"
-            aria-selected={filter === key}
+            aria-pressed={filter === key}
             className={
               'cursor-default rounded-md px-3 py-1.5 text-sm outline-none ' +
               (filter === key

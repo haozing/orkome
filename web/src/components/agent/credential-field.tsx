@@ -1,16 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createCredential, listCredentials } from '@/api/credentials'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { FormField, PasswordField } from '@ploykit/ui'
 import { ApiError } from '@ploykit/client'
-const SELECT_CLASS =
-  'h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
 export function CredentialField({
+  id,
   value,
   onChange,
 }: {
+  /** 透传到内层 select，供 FormField htmlFor 关联（否则 label 不落焦点） */
+  id?: string
   value: string
   onChange: (credentialId: string) => void
 }) {
@@ -37,11 +41,11 @@ export function CredentialField({
   return (
     <div>
       <div className="flex items-center gap-2">
-        <select
-          aria-label={t('cred.aria')}
+        <Select
+          id={id}
+          aria-label={id ? undefined : t('cred.aria')}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={SELECT_CLASS}
         >
           <option value="">{t('cred.none')}</option>
           {(credentials.data ?? []).map((c) => (
@@ -52,7 +56,7 @@ export function CredentialField({
               )}
             </option>
           ))}
-        </select>
+        </Select>
         <Button
           type="button"
           variant="secondary"
@@ -60,24 +64,35 @@ export function CredentialField({
           className="shrink-0"
           onClick={() => setFormOpen((v) => !v)}
         >
-          {formOpen ? t('cred.collapse') : t('cred.add')}
+          {formOpen ? (
+            t('cred.collapse')
+          ) : (
+            <>
+              <Plus className="size-3.5" aria-hidden="true" />
+              {t('cred.add')}
+            </>
+          )}
         </Button>
       </div>
       {formOpen && (
         <div className="mt-2 space-y-2 rounded-md border border-zinc-200 p-2.5 dark:border-zinc-800">
-          <Input
-            aria-label={t('cred.providerAria')}
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            placeholder={t('cred.providerPlaceholder')}
-          />
-          <Input
-            aria-label={t('cred.secretAria')}
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder={t('cred.secretPlaceholder')}
-          />
+          <FormField label={t('cred.providerAria')} htmlFor="credential-provider">
+            <Input
+              id="credential-provider"
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              placeholder={t('cred.providerPlaceholder')}
+            />
+          </FormField>
+          <FormField label={t('cred.secretAria')} htmlFor="credential-secret">
+            <PasswordField
+              id="credential-secret"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder={t('cred.secretPlaceholder')}
+              autoComplete="off"
+            />
+          </FormField>
           {create.error && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400">
               {create.error instanceof ApiError ? create.error.message : t('cred.createFailed')}

@@ -14,6 +14,8 @@ export function visibilityMeta(visibility: string): {
   labelKey: string
   tone: 'neutral' | 'warning' | 'outline'
 } {
-  return VISIBILITY_META[visibility] ?? { labelKey: visibility, tone: 'neutral' }
+  // 未知枚举不能把原始值当 i18n 键直出（旧兜底 `{ labelKey: visibility }` 会把
+  // 'whatever' 渲染成徽标文案）——退到中性「受限」，按最小披露处理。
+  return VISIBILITY_META[visibility] ?? { labelKey: 'agents.visUnknown', tone: 'neutral' }
 }
 export type VisibilityTone = NonNullable<Parameters<typeof Badge>[0]['variant']>

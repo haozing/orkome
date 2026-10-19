@@ -1,10 +1,10 @@
-import { Dialog } from '@base-ui/react/dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
+import { FormField, PasswordField, Switch, toast, useConfirm } from '@ploykit/ui'
 import {
   archiveAgent,
   cancelAgentTasks,
@@ -34,9 +34,18 @@ import { CredentialField } from '@/components/agent/credential-field'
 import { visibilityMeta } from '@/components/agent/visibility'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import { Select } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { TaskStatusBadge } from '@/components/task-status-badge'
 import { ApiError } from '@ploykit/client'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -70,7 +79,37 @@ function AgentDetailPage() {
     mutationFn: () => cancelAgentTasks(agentId),
     onSuccess: invalidate,
   })
-  const [confirming, setConfirming] = useState<'archive' | 'restore' | 'cancel' | null>(null)
+  const confirm = useConfirm()
+  // 归档/恢复/取消任务三类危险操作统一走 useConfirm（后果说明只进弹窗 description，
+  // 页面不再常驻提示行）；成功反馈走 toast。
+  const requestArchive = async () => {
+    const ok = await confirm({
+      title: t('agents.archive'),
+      description: t('agents.archiveHint'),
+      confirmText: t('agents.confirmArchive'),
+      danger: true,
+    })
+    if (ok) archive.mutate(true, { onSuccess: () => toast.success(t('agents.archived')) })
+  }
+  const requestRestore = async () => {
+    const ok = await confirm({
+      title: t('agents.restore'),
+      confirmText: t('agents.confirmRestore'),
+    })
+    if (ok) archive.mutate(false, { onSuccess: () => toast.success(t('agents.restored')) })
+  }
+  const requestCancelTasks = async () => {
+    const ok = await confirm({
+      title: t('agents.cancelAll'),
+      confirmText: t('agents.confirmCancelAll'),
+      danger: true,
+    })
+    if (ok) {
+      cancelTasks.mutate(undefined, {
+        onSuccess: () => toast.success(t('agents.tasksCancelled')),
+      })
+    }
+  }
   if (agent.isPending) return <PageLoading label={t('agents.loadingAgent')} />
   if (agent.isError) {
     return (
@@ -106,73 +145,39 @@ function AgentDetailPage() {
 
         <div className="ml-auto flex items-center gap-2">
           {a.archived ? (
-            confirming === 'restore' ? (
-              <>
-                <Button
-                  size="sm"
-                  disabled={archive.isPending}
-                  onClick={() => archive.mutate(false)}
-                >
-                  {t('agents.confirmRestore')}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                  {t('common.cancel')}
-                </Button>
-              </>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => setConfirming('restore')}>
-                {t('agents.restore')}
-              </Button>
-            )
-          ) : confirming === 'archive' ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={archive.isPending}
+              onClick={() => void requestRestore()}
+            >
+              {t('agents.restore')}
+            </Button>
+          ) : (
             <>
               <Button
                 size="sm"
-                variant="danger"
+                variant="outline"
                 disabled={archive.isPending}
-                onClick={() => archive.mutate(true)}
+                onClick={() => void requestArchive()}
               >
-                {t('agents.confirmArchive')}
+                {t('agents.archive')}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                {t('common.cancel')}
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => setConfirming('archive')}>
-              {t('agents.archive')}
-            </Button>
-          )}
-
-          {!a.archived &&
-            (confirming === 'cancel' ? (
-              <>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  disabled={cancelTasks.isPending}
-                  onClick={() => cancelTasks.mutate()}
-                >
-                  {t('agents.confirmCancelAll')}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                  {t('common.cancel')}
-                </Button>
-              </>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => setConfirming('cancel')}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={cancelTasks.isPending}
+                onClick={() => void requestCancelTasks()}
+              >
                 {t('agents.cancelAll')}
               </Button>
-            ))}
+            </>
+          )}
           {(archive.isPending || cancelTasks.isPending) && (
             <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
           )}
         </div>
       </div>
-
-      {confirming === 'archive' && (
-        <p className="text-xs text-zinc-500">{t('agents.archiveHint')}</p>
-      )}
 
       <Tabs
         value={search.tab ?? 'base'}
@@ -217,9 +222,6 @@ function AgentDetailPage() {
     </div>
   )
 }
-const LABEL_CLASS = 'mb-1 block text-xs text-zinc-500'
-const TEXTAREA_CLASS =
-  'w-full resize-none rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
 function BaseInfoForm({ agent }: { agent: Agent }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -250,30 +252,24 @@ function BaseInfoForm({ agent }: { agent: Agent }) {
         if (name.trim() && dirty) save.mutate()
       }}
     >
-      <div>
-        <label htmlFor="agent-name" className={LABEL_CLASS}>
-          {t('agents.name')}
-        </label>
+      <FormField label={t('agents.name')} htmlFor="agent-name">
         <Input
           id="agent-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
         />
-      </div>
+      </FormField>
 
-      <div>
-        <label htmlFor="agent-desc" className={LABEL_CLASS}>
-          {t('agents.descLabel')}
-        </label>
-        <textarea
+      <FormField label={t('agents.descLabel')} htmlFor="agent-desc">
+        <Textarea
           id="agent-desc"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={6}
-          className={TEXTAREA_CLASS}
+          className="resize-none"
         />
-      </div>
+      </FormField>
 
       {save.error && (
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">
@@ -333,61 +329,51 @@ function ModelForm({ agent }: { agent: Agent }) {
         }}
       >
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="model-provider" className={LABEL_CLASS}>
-              {t('agents.provider')}
-            </label>
+          <FormField label={t('agents.provider')} htmlFor="model-provider">
             <Input
               id="model-provider"
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
               placeholder="openai"
             />
-          </div>
-          <div>
-            <label htmlFor="model-model" className={LABEL_CLASS}>
-              {t('agents.model')}
-            </label>
+          </FormField>
+          <FormField label={t('agents.model')} htmlFor="model-model">
             <Input
               id="model-model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder="gpt-4o-mini"
             />
-          </div>
+          </FormField>
         </div>
-        <div>
-          <label htmlFor="model-baseurl" className={LABEL_CLASS}>
-            {t('agents.baseUrlLabel')}
-          </label>
+        <FormField label={t('agents.baseUrlLabel')} htmlFor="model-baseurl">
           <Input
             id="model-baseurl"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://your-gateway.example/v1"
           />
-        </div>
-        <div>
-          <span className={LABEL_CLASS}>{t('agents.credentialLabel')}</span>
-          <CredentialField value={credentialId} onChange={setCredentialId} />
-        </div>
+        </FormField>
+        <FormField label={t('agents.credentialLabel')} htmlFor="agent-credential">
+          <CredentialField id="agent-credential" value={credentialId} onChange={setCredentialId} />
+        </FormField>
         <div className="max-w-40">
-          <label htmlFor="model-concurrent" className={LABEL_CLASS}>
-            {t('agents.concurrentLabel')}
-          </label>
-          <Input
-            id="model-concurrent"
-            type="number"
-            min={1}
-            max={50}
-            value={maxConcurrent}
-            onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-          />
+          <FormField label={t('agents.concurrentLabel')} htmlFor="model-concurrent">
+            <Input
+              id="model-concurrent"
+              type="number"
+              min={1}
+              max={50}
+              value={maxConcurrent}
+              onChange={(e) => setMaxConcurrent(Number(e.target.value))}
+            />
+          </FormField>
         </div>
 
         {rc.params && Object.keys(rc.params).length > 0 && (
           <div>
-            <span className={LABEL_CLASS}>{t('agents.paramsLabel')}</span>
+            {/* params 是只读展示行（<pre> 非表单控件），不进 FormField 的 label 关联 */}
+            <span className="mb-1 block text-xs text-zinc-500">{t('agents.paramsLabel')}</span>
             <pre className="overflow-x-auto rounded-md bg-zinc-100 p-3 font-mono text-xs dark:bg-zinc-900">
               {JSON.stringify(rc.params, null, 2)}
             </pre>
@@ -424,9 +410,15 @@ function EnvEditor({ agentId }: { agentId: string }) {
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] })
     },
   })
-  if (env.isPending) return <p className="text-xs text-zinc-400">{t('agents.envLoading')}</p>
+  if (env.isPending) return <PageLoading className="py-6" label={t('agents.envLoading')} />
   if (env.isError) {
-    return <p className="text-xs text-red-600 dark:text-red-400">{t('agents.envLoadFailed')}</p>
+    return (
+      <PageError
+        className="py-6"
+        title={t('agents.envLoadFailed')}
+        onRetry={() => void env.refetch()}
+      />
+    )
   }
   return (
     <EnvEditorForm
@@ -499,6 +491,7 @@ function EnvEditorForm({
           size="sm"
           onClick={() => setRows((p) => [...p, ['', '']])}
         >
+          <Plus className="size-3.5" aria-hidden="true" />
           {t('agents.addEnvVar')}
         </Button>
         <Button type="submit" size="sm" disabled={!dirty || save.isPending}>
@@ -538,9 +531,9 @@ function AgentSkillsTab({ agentId }: { agentId: string }) {
   })
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('agents.skillsHint')}</p>
+      <div className="flex justify-end">
         <Button size="sm" onClick={() => setPickerOpen(true)}>
+          <Plus className="size-3.5" aria-hidden="true" />
           {t('agents.addSkill')}
         </Button>
       </div>
@@ -571,18 +564,18 @@ function AgentSkillsTab({ agentId }: { agentId: string }) {
                   </p>
                 )}
               </div>
-              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                <input
-                  type="checkbox"
+              <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <Switch
+                  id={'skill-' + sk.skill_id + '-enabled'}
+                  size="sm"
                   checked={sk.enabled}
                   disabled={toggle.isPending}
-                  onChange={(e) =>
-                    toggle.mutate({ skillId: sk.skill_id, enabled: e.target.checked })
+                  onCheckedChange={(checked) =>
+                    toggle.mutate({ skillId: sk.skill_id, enabled: checked })
                   }
-                  className="size-3.5 accent-zinc-700"
                 />
-                {t('agents.enable')}
-              </label>
+                <label htmlFor={'skill-' + sk.skill_id + '-enabled'}>{t('agents.enable')}</label>
+              </div>
               {removingId === sk.skill_id ? (
                 <span className="flex shrink-0 items-center gap-1">
                   <button
@@ -658,63 +651,58 @@ function SkillPickerDialog({
     onError: (e) => setError(e instanceof ApiError ? e.message : t('agents.bindFailed')),
   })
   return (
-    <Dialog.Root open onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <Dialog.Title className="mb-3 text-sm font-semibold">
-            {t('agents.bindSkill')}
-          </Dialog.Title>
-          <Input
-            autoFocus
-            aria-label={t('agents.searchSkill')}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('agents.searchSkillPlaceholder')}
-          />
-          <ul className="mt-3 max-h-64 divide-y divide-zinc-200 overflow-y-auto rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {(results.data ?? []).map((s) => {
-              const isBound = boundIds.has(s.id)
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    disabled={isBound || add.isPending}
-                    className="flex w-full cursor-default items-center gap-2 px-3 py-2 text-left text-sm outline-none hover:bg-zinc-50 disabled:opacity-40 dark:hover:bg-zinc-900/50"
-                    onClick={() => add.mutate(s.id)}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {s.name}
-                      {s.description && (
-                        <span className="ml-2 truncate text-xs text-zinc-400">{s.description}</span>
-                      )}
-                    </span>
-                    <span className="shrink-0 text-xs text-zinc-400">
-                      {isBound ? t('agents.bound') : t('agents.bind')}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-            {results.data && results.data.length === 0 && (
-              <li className="px-3 py-3 text-center text-xs text-zinc-400">
-                {t('agents.noSkillMatch')}
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="text-sm font-semibold">{t('agents.bindSkill')}</DialogTitle>
+        <Input
+          autoFocus
+          aria-label={t('agents.searchSkill')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('agents.searchSkillPlaceholder')}
+        />
+        <ul className="max-h-64 divide-y divide-zinc-200 overflow-y-auto rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+          {(results.data ?? []).map((s) => {
+            const isBound = boundIds.has(s.id)
+            return (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  disabled={isBound || add.isPending}
+                  className="flex w-full cursor-default items-center gap-2 px-3 py-2 text-left text-sm outline-none hover:bg-zinc-50 disabled:opacity-40 dark:hover:bg-zinc-900/50"
+                  onClick={() => add.mutate(s.id)}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {s.name}
+                    {s.description && (
+                      <span className="ml-2 truncate text-xs text-zinc-400">{s.description}</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-400">
+                    {isBound ? t('agents.bound') : t('agents.bind')}
+                  </span>
+                </button>
               </li>
-            )}
-          </ul>
-          {error && (
-            <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
-              {error}
-            </p>
+            )
+          })}
+          {results.data && results.data.length === 0 && (
+            <li className="px-3 py-3 text-center text-xs text-zinc-400">
+              {t('agents.noSkillMatch')}
+            </li>
           )}
-          <div className="mt-3 flex justify-end">
-            <Dialog.Close className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
-              {t('common.close')}
-            </Dialog.Close>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </ul>
+        {error && (
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" type="button" />}>
+            {t('common.close')}
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 function AgentMcpTab({ agentId }: { agentId: string }) {
@@ -757,16 +745,17 @@ function AgentMcpTab({ agentId }: { agentId: string }) {
           </Button>
         </div>
 
-        {own.isPending && <p className="text-xs text-zinc-400">{t('agents.loadingServers')}</p>}
+        {own.isPending && <PageLoading className="py-6" label={t('agents.loadingServers')} />}
         {own.isError && (
           <PageError
+            className="py-6"
             title={t('agents.serversFailed')}
             message={own.error instanceof Error ? own.error.message : undefined}
             onRetry={() => void own.refetch()}
           />
         )}
         {own.data && own.data.length === 0 && (
-          <p className="text-xs text-zinc-400">{t('agents.noOwnServers')}</p>
+          <PageEmpty className="py-6" title={t('agents.noOwnServers')} />
         )}
 
         {own.data && own.data.length > 0 && (
@@ -780,16 +769,16 @@ function AgentMcpTab({ agentId }: { agentId: string }) {
                   </p>
                   <p className="truncate font-mono text-xs text-zinc-400">{s.url}</p>
                 </div>
-                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  <input
-                    type="checkbox"
+                <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <Switch
+                    id={'mcp-' + s.id + '-enabled'}
+                    size="sm"
                     checked={s.enabled}
                     disabled={toggle.isPending}
-                    onChange={() => toggle.mutate(s)}
-                    className="size-3.5 accent-zinc-700"
+                    onCheckedChange={() => toggle.mutate(s)}
                   />
-                  {t('agents.enable')}
-                </label>
+                  <label htmlFor={'mcp-' + s.id + '-enabled'}>{t('agents.enable')}</label>
+                </div>
                 <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
                   {t('common.edit')}
                 </Button>
@@ -828,10 +817,9 @@ function AgentMcpTab({ agentId }: { agentId: string }) {
 
       <section className="space-y-2">
         <p className="text-sm font-semibold">{t('agents.resolvedTitle')}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('agents.resolvedHint')}</p>
-        {resolved.isPending && <p className="text-xs text-zinc-400">{t('agents.resolving')}</p>}
+        {resolved.isPending && <PageLoading className="py-6" label={t('agents.resolving')} />}
         {resolved.data && resolved.data.length === 0 && (
-          <p className="text-xs text-zinc-400">{t('agents.noResolved')}</p>
+          <PageEmpty className="py-6" title={t('agents.noResolved')} />
         )}
         {resolved.data && resolved.data.length > 0 && (
           <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
@@ -903,104 +891,86 @@ function McpServerDialog({
     },
   })
   return (
-    <Dialog.Root open onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <Dialog.Title className="mb-4 text-sm font-semibold">
-            {server ? t('agents.editServer') : t('agents.addServer')}
-          </Dialog.Title>
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (name.trim() && url.trim() && !save.isPending) save.mutate()
-            }}
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="text-sm font-semibold">
+          {server ? t('agents.editServer') : t('agents.addServer')}
+        </DialogTitle>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim() && url.trim() && !save.isPending) save.mutate()
+          }}
+        >
+          <FormField label={t('agents.serverNameLabel')} htmlFor="mcp-name">
+            <Input
+              id="mcp-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              placeholder="web-search"
+            />
+          </FormField>
+          <FormField label={t('agents.serverUrlLabel')} htmlFor="mcp-url">
+            <Input
+              id="mcp-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://mcp.example.com/sse"
+            />
+          </FormField>
+          <FormField
+            label={server ? t('agents.apiKeyKeepLabel') : t('agents.apiKeyLabel')}
+            htmlFor="mcp-key"
           >
-            <div>
-              <label htmlFor="mcp-name" className={LABEL_CLASS}>
-                {t('agents.serverNameLabel')}
-              </label>
-              <Input
-                id="mcp-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-                placeholder="web-search"
+            <PasswordField
+              id="mcp-key"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value)
+                if (e.target.value) setClearCreds(false)
+              }}
+              placeholder="sk-…"
+              autoComplete="off"
+            />
+          </FormField>
+          {server && server.has_credentials && !apiKey.trim() && (
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              <Switch
+                id="mcp-clear-creds"
+                size="sm"
+                checked={clearCreds}
+                onCheckedChange={setClearCreds}
               />
+              <label htmlFor="mcp-clear-creds">{t('agents.apiKeyClearToggle')}</label>
             </div>
-            <div>
-              <label htmlFor="mcp-url" className={LABEL_CLASS}>
-                {t('agents.serverUrlLabel')}
-              </label>
-              <Input
-                id="mcp-url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://mcp.example.com/sse"
-              />
-            </div>
-            <div>
-              <label htmlFor="mcp-key" className={LABEL_CLASS}>
-                {server ? t('agents.apiKeyKeepLabel') : t('agents.apiKeyLabel')}
-              </label>
-              <Input
-                id="mcp-key"
-                type="password"
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value)
-                  if (e.target.value) setClearCreds(false)
-                }}
-                placeholder="sk-…"
-              />
-              {server && server.has_credentials && !apiKey.trim() && (
-                <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  <input
-                    type="checkbox"
-                    checked={clearCreds}
-                    onChange={(e) => setClearCreds(e.target.checked)}
-                    className="size-3 accent-zinc-700"
-                  />
-                  {t('agents.apiKeyClearToggle')}
-                </label>
-              )}
-              {clearCreds && (
-                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                  {t('agents.apiKeyClearWarning')}
-                </p>
-              )}
-            </div>
-            <label className="flex cursor-pointer items-center gap-1.5 text-sm">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-                className="size-3.5 accent-zinc-700"
-              />
-              {t('agents.enable')}
-            </label>
-            {save.error && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                {save.error instanceof ApiError ? save.error.message : t('common.saveFailed')}
-              </p>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Dialog.Close className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
-                {t('common.cancel')}
-              </Dialog.Close>
-              <button
-                type="submit"
-                disabled={!name.trim() || !url.trim() || save.isPending}
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {save.isPending ? t('common.saving') : t('common.save')}
-              </button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+          )}
+          {clearCreds && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t('agents.apiKeyClearWarning')}
+            </p>
+          )}
+          <div className="flex items-center gap-1.5 text-sm">
+            <Switch id="mcp-enabled" checked={enabled} onCheckedChange={setEnabled} />
+            <label htmlFor="mcp-enabled">{t('agents.enable')}</label>
+          </div>
+          {save.error && (
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {save.error instanceof ApiError ? save.error.message : t('common.saveFailed')}
+            </p>
+          )}
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" type="button" />}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button type="submit" disabled={!name.trim() || !url.trim() || save.isPending}>
+              {save.isPending ? t('common.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 const VISIBILITY_OPTIONS = [
@@ -1120,14 +1090,13 @@ function PermForm({ agent }: { agent: Agent }) {
                 {t('agents.allMembers')}
               </Button>
             )}
-            <select
+            <Select
               aria-label={t('agents.addMemberToAllowlist')}
               value=""
               onChange={(e) => {
                 const uid = e.target.value
                 if (uid) setTargets((prev) => [...prev, { type: 'member', user_id: uid }])
               }}
-              className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
             >
               <option value="">{t('agents.addMemberOption')}</option>
               {addableMembers.map((m) => (
@@ -1135,7 +1104,7 @@ function PermForm({ agent }: { agent: Agent }) {
                   {m.display_name || m.email}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
       ) : (
