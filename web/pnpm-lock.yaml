@@ -20,12 +20,9 @@ importers:
       '@ploykit/hooks':
         specifier: 0.8.0
         version: 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
-      '@ploykit/runtime':
-        specifier: 0.7.4
-        version: 0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@ploykit/ui':
-        specifier: 0.9.0
-        version: 0.9.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
+        specifier: 2.0.1
+        version: 2.0.1(@tanstack/react-query@5.104.1(react@19.3.0))(@tanstack/react-router@1.170.41(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
       '@tanstack/react-query':
         specifier: ^5.62.0
         version: 5.104.1(react@19.3.0)
@@ -870,13 +867,13 @@ packages:
       react-dom: ^19.0.0
       react-router: ^7.0.0
 
-  '@ploykit/ui@0.9.0':
-    resolution: {integrity: sha512-fCaq00nbdv6KF0tKxvjC87oneLILh2LPUbLg/KkCKNAJ9K5lgCcs4d2YLAj7PX2ldKKP7GrBgotXLa5UZjh+gQ==}
+  '@ploykit/ui@2.0.1':
+    resolution: {integrity: sha512-Ua9Ulvo8gKhjLkWRyPzqtH444T63rGxqgUsE/5l/X9i+seQjDCOYVl/0M9s8eDtJJBRvMhrZgoMrB98MJG4lIQ==}
     peerDependencies:
       '@tanstack/react-query': ^5.0.0
+      '@tanstack/react-router': ^1.170.0
       react: ^19.0.0
       react-dom: ^19.0.0
-      react-router: ^7.0.0
       tailwindcss: ^4.0.0
 
   '@rolldown/binding-android-arm-eabi@1.2.12':
@@ -4873,19 +4870,19 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       react-router: 7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
-  '@ploykit/ui@0.9.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
+  '@ploykit/ui@2.0.1(@tanstack/react-query@5.104.1(react@19.3.0))(@tanstack/react-router@1.170.41(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
     dependencies:
       '@base-ui/react': 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@ploykit/client': 0.7.6
       '@ploykit/hooks': 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@tanstack/react-query': 5.104.1(react@19.3.0)
+      '@tanstack/react-router': 1.170.41(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       class-variance-authority: 0.7.1
       clsx: 2.1.1
       cn: 0.4.0
       lucide-react: 1.59.0(@types/react@19.3.0)(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      react-router: 7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       sonner: 2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       tailwind-merge: 3.7.0
       tailwindcss: 4.3.3
@@ -4912,6 +4909,7 @@ snapshots:
       - io-ts
       - joi
       - nope-validator
+      - react-router
       - superstruct
       - typanion
       - valibot

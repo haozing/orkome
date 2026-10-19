@@ -579,6 +579,24 @@ func TestWorkspaceHardDeleteIntegration(t *testing.T) {
 	t.Run("full type data hard delete then 404", func(t *testing.T) {
 		s.login("owner", "wsdel-owner@test.orkome.dev")
 		ws := s.createWS("owner", "wsdel-full")
+
+		// ploykit v0.10.1 role_perms：GET /api/workspaces 的每行 membership
+		// 必须携带请求者角色的生效权限集（owner = 全量目录），证明框架增量
+		// 字段确实到达 orkome 载荷。
+		listRec := s.do("owner", http.MethodGet, "/api/workspaces", nil)
+		require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
+		var mine []struct {
+			ID        string   `json:"id"`
+			Role      string   `json:"role"`
+			RolePerms []string `json:"role_perms"`
+		}
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &mine))
+		require.NotEmpty(t, mine)
+		for _, m := range mine {
+			require.Equal(t, "owner", m.Role)
+			require.NotEmpty(t, m.RolePerms, "workspace %s must carry role_perms", m.ID)
+		}
+
 		s.seedFullTypeWorkspace(t, ws)
 
 		// 前置：残留下数得出（种子确实活了）

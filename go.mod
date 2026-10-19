@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/csrf v1.7.3
 	github.com/gorilla/websocket v1.5.3
-	github.com/haozing/ploykit v0.9.1
+	github.com/haozing/ploykit v0.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mark3labs/mcp-go v0.43.0
 	github.com/redis/go-redis/v9 v9.22.0
