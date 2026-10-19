@@ -197,3 +197,10 @@
     @apply pointer-events-none float-left h-0 text-zinc-400;
   }
 }
+
+/* ploykit：AppShell/sidebar 等组件类的 source 注册（Tailwind v4 自动探测跳过
+   node_modules）。等价于 `@import "@ploykit/ui/tailwind.css";`（该文件仅含同款
+   @source）——bare-subpath 的 @import 在 vite8/rolldown 的 css 管线里被错误解析
+   成 dist/index.js/tailwind.css（ENOENT），故按 example 的 @source 形态就地声明。
+   sidebar/breadcrumb 的 shadcn token（--color-sidebar-* 等）已在上方 @theme 定义。 */
+@source "../../node_modules/@ploykit/ui/src";
