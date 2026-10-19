@@ -1,20 +1,28 @@
-import { Dialog } from '@base-ui/react/dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Plus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { listAgents } from '@/api/orchestration'
 import { createSquad, listSquads, type Squad } from '@/api/squads'
+import { FormField } from '@ploykit/ui'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@ploykit/client'
 import { useTranslation } from 'react-i18next'
 export const Route = createFileRoute('/_app/squads/')({
   component: SquadsPage,
 })
-const LABEL_CLASS = 'mb-1 block text-xs text-zinc-500'
-function SquadsPage() {
+// 组件具名导出（路由内仅注册）：测试用路由桩直接渲染，绕开 router 装配。
+export function SquadsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
@@ -108,65 +116,53 @@ function CreateSquadDialog({
     },
   })
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <Dialog.Title className="mb-4 text-sm font-semibold">{t('squadsList.new')}</Dialog.Title>
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (name.trim() && !create.isPending) create.mutate()
-            }}
-          >
-            <div>
-              <label htmlFor="squad-name" className={LABEL_CLASS}>
-                {t('agents.nameRequired')}
-              </label>
-              <Input
-                id="squad-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                autoFocus
-                placeholder={t('squadsList.namePlaceholder')}
-              />
-            </div>
-            <div>
-              <label htmlFor="squad-instructions" className={LABEL_CLASS}>
-                {t('squadsList.instructionsLabel')}
-              </label>
-              <textarea
-                id="squad-instructions"
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                rows={3}
-                placeholder={t('squadsList.instructionsPlaceholder')}
-                className="w-full resize-none rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </div>
-            {create.error && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                {create.error instanceof ApiError ? create.error.message : t('skills.createFailed')}
-              </p>
-            )}
-            <p className="text-xs text-zinc-400">{t('squadsList.createHint')}</p>
-            <div className="flex justify-end gap-2 pt-1">
-              <Dialog.Close className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
-                {t('common.cancel')}
-              </Dialog.Close>
-              <button
-                type="submit"
-                disabled={!name.trim() || create.isPending}
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {create.isPending ? t('skills.creating') : t('common.create')}
-              </button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('squadsList.new')}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim() && !create.isPending) create.mutate()
+          }}
+        >
+          <FormField label={t('agents.nameRequired')} htmlFor="squad-name">
+            <Input
+              id="squad-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              autoFocus
+              placeholder={t('squadsList.namePlaceholder')}
+            />
+          </FormField>
+          <FormField label={t('squadsList.instructionsLabel')} htmlFor="squad-instructions">
+            <Textarea
+              id="squad-instructions"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              placeholder={t('squadsList.instructionsPlaceholder')}
+              className="resize-none"
+            />
+          </FormField>
+          {create.error && (
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {create.error instanceof ApiError ? create.error.message : t('skills.createFailed')}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose render={<Button variant="outline" type="button" />}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button type="submit" disabled={!name.trim() || create.isPending}>
+              {create.isPending ? t('skills.creating') : t('common.create')}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

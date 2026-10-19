@@ -1,4 +1,3 @@
-import { Dialog } from '@base-ui/react/dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
@@ -16,42 +15,73 @@ import {
   updateSquadMemberRole,
   type Squad,
 } from '@/api/squads'
+import {
+  FormField,
+  Skeleton,
+  StatusBadge,
+  toast,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  useConfirm,
+} from '@ploykit/ui'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { PageError, PageLoading } from '@/components/ui/states'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@ploykit/client'
 export const Route = createFileRoute('/_app/squads/$squadId')({
   component: SquadDetailPage,
 })
-const LABEL_CLASS = 'mb-1 block text-xs text-zinc-500'
-const SELECT_CLASS =
-  'h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900'
-const STATUS_KEYS: Record<string, { label: string; cls: string }> = {
-  running: { label: 'squads.statusRunning', cls: 'bg-emerald-500' },
-  queued: { label: 'squads.statusQueued', cls: 'bg-amber-400' },
-  idle: { label: 'squads.statusIdle', cls: 'bg-zinc-300 dark:bg-zinc-600' },
-}
-function SquadDetailPage() {
+// 成员运行状态单轨呈现：色点+原生 title → kit StatusBadge（文字即状态，无需 hint）。
+const STATUS_TONES: Record<string, { labelKey: string; tone: 'positive' | 'warning' | 'neutral' }> =
+  {
+    running: { labelKey: 'squads.statusRunning', tone: 'positive' },
+    queued: { labelKey: 'squads.statusQueued', tone: 'warning' },
+    idle: { labelKey: 'squads.statusIdle', tone: 'neutral' },
+  }
+// 组件具名导出（路由内仅注册）：测试用路由桩直接渲染，绕开 router 装配。
+export function SquadDetailPage() {
   const { t } = useTranslation()
   const { squadId } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const squad = useQuery({ queryKey: ['squad', squadId], queryFn: () => getSquad(squadId) })
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['squads'] })
     void queryClient.invalidateQueries({ queryKey: ['squad', squadId] })
     void queryClient.invalidateQueries({ queryKey: ['squad-members', squadId] })
   }
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const removeSquad = useMutation({
     mutationFn: () => deleteSquad(squadId),
     onSuccess: () => {
+      toast.success(t('squads.deleteSuccess'))
       void queryClient.invalidateQueries({ queryKey: ['squads'] })
       void navigate({ to: '/squads' })
     },
-    onError: (e) => setDeleteError(e instanceof ApiError ? e.message : t('squads.deleteFailed')),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('squads.deleteFailed')),
   })
+  // 删除两段式 → useConfirm 统一形态：后果说明（deleteHint）只在弹窗 description 里说一次。
+  const askDeleteSquad = async () => {
+    const ok = await confirm({
+      title: t('squads.deleteSquad'),
+      description: t('squads.deleteHint'),
+      confirmText: t('squads.confirmDelete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok) removeSquad.mutate()
+  }
   if (squad.isPending) return <PageLoading label={t('squads.loading')} />
   if (squad.isError) {
     return (
@@ -74,45 +104,21 @@ function SquadDetailPage() {
         </Link>
         <h1 className="min-w-0 truncate text-lg font-semibold">{sq.name}</h1>
         <div className="ml-auto flex items-center gap-2">
-          {confirmingDelete ? (
-            <>
-              <Button
-                size="sm"
-                variant="danger"
-                disabled={removeSquad.isPending}
-                onClick={() => removeSquad.mutate()}
-              >
-                {t('squads.confirmDelete')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setConfirmingDelete(false)
-                  setDeleteError(null)
-                }}
-              >
-                {t('common.cancel')}
-              </Button>
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-red-600 dark:text-red-400"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <Trash2 className="size-3.5" aria-hidden="true" />
-              {t('squads.deleteSquad')}
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-red-600 dark:text-red-400"
+            disabled={removeSquad.isPending}
+            onClick={() => void askDeleteSquad()}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            {t('squads.deleteSquad')}
+          </Button>
           {removeSquad.isPending && (
             <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
           )}
         </div>
       </div>
-      {confirmingDelete && <p className="text-xs text-zinc-500">{t('squads.deleteHint')}</p>}
-      {deleteError && <p className="text-xs text-red-600 dark:text-red-400">{deleteError}</p>}
 
       <SquadBasicForm
         key={'base:' + sq.id + ':' + squad.dataUpdatedAt}
@@ -157,48 +163,42 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
     >
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-48 flex-1">
-          <label htmlFor="squad-name" className={LABEL_CLASS}>
-            {t('agents.name')}
-          </label>
-          <Input
-            id="squad-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={100}
-          />
+          <FormField label={t('agents.name')} htmlFor="squad-name">
+            <Input
+              id="squad-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+            />
+          </FormField>
         </div>
         <div className="min-w-48 flex-1">
-          <label htmlFor="squad-leader" className={LABEL_CLASS}>
-            {t('squads.leaderLabel')}
-          </label>
-          <select
-            id="squad-leader"
-            value={leaderId}
-            onChange={(e) => setLeaderId(e.target.value)}
-            className={SELECT_CLASS}
-          >
-            <option value="">{t('squads.leaderUnset')}</option>
-            {activeAgents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          <FormField label={t('squads.leaderLabel')} htmlFor="squad-leader">
+            <Select
+              id="squad-leader"
+              value={leaderId}
+              onChange={(e) => setLeaderId(e.target.value)}
+            >
+              <option value="">{t('squads.leaderUnset')}</option>
+              {activeAgents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </FormField>
         </div>
       </div>
 
-      <div>
-        <label htmlFor="squad-instructions" className={LABEL_CLASS}>
-          {t('squads.instructionsLabel')}
-        </label>
-        <textarea
+      <FormField label={t('squads.instructionsLabel')} htmlFor="squad-instructions">
+        <Textarea
           id="squad-instructions"
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
           rows={3}
-          className="w-full resize-none rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+          className="resize-none"
         />
-      </div>
+      </FormField>
 
       {save.error && (
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">
@@ -215,9 +215,8 @@ function SquadBasicForm({ squad, onSaved }: { squad: Squad; onSaved: () => void 
 }
 function SquadMembersSection({ squadId, onChanged }: { squadId: string; onChanged: () => void }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [addOpen, setAddOpen] = useState(false)
-  const [removingId, setRemovingId] = useState<string | null>(null)
-  const [memberError, setMemberError] = useState<string | null>(null)
   const members = useQuery({
     queryKey: ['squad-members', squadId],
     queryFn: () => listSquadMembers(squadId),
@@ -231,14 +230,25 @@ function SquadMembersSection({ squadId, onChanged }: { squadId: string; onChange
   const remove = useMutation({
     mutationFn: (agentId: string) => removeSquadMember(squadId, agentId),
     onSuccess: () => {
-      setRemovingId(null)
-      setMemberError(null)
+      toast.success(t('squads.removeSuccess'))
       onChanged()
     },
-    onError: (e) => setMemberError(e instanceof ApiError ? e.message : t('squads.removeFailed')),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('squads.removeFailed')),
   })
+  // 移除两段式 → useConfirm 统一形态：对象与后果在弹窗里说一次，行内不再放确认链。
+  const askRemoveMember = async (agentId: string, name: string) => {
+    const ok = await confirm({
+      title: t('squads.confirmRemove'),
+      description: t('squads.removeHint', { name }),
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      danger: true,
+    })
+    if (ok) remove.mutate(agentId)
+  }
   return (
-    <section className="space-y-3">
+    // 区块容器与基本信息表单统一为同一张边框卡。
+    <section className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">
           {t('squads.membersTitle', { n: members.data?.length ?? 0 })}
@@ -249,7 +259,13 @@ function SquadMembersSection({ squadId, onChanged }: { squadId: string; onChange
         </Button>
       </div>
 
-      {members.isPending && <p className="text-xs text-zinc-400">{t('squads.loadingMembers')}</p>}
+      {members.isPending && (
+        <div className="space-y-2" aria-hidden="true">
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+        </div>
+      )}
       {members.isError && (
         <PageError
           title={t('squads.membersFailed')}
@@ -259,28 +275,29 @@ function SquadMembersSection({ squadId, onChanged }: { squadId: string; onChange
       )}
 
       {members.data && members.data.length === 0 && (
-        <p className="text-xs text-zinc-400">{t('squads.noMembers')}</p>
+        <PageEmpty title={t('squads.noMembers')} className="py-8" />
       )}
 
       {members.data && members.data.length > 0 && (
         <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {members.data.map((m) => {
             const st = statusByAgent.get(m.agent_id)
-            const dot = STATUS_KEYS[st?.status ?? 'idle'] ?? STATUS_KEYS.idle!
+            const meta = STATUS_TONES[st?.status ?? 'idle'] ?? STATUS_TONES.idle!
             return (
               <li key={m.agent_id} className="flex items-center gap-3 px-3 py-2.5">
-                <span
-                  className={'size-2 shrink-0 rounded-full ' + dot.cls}
-                  title={t(dot.label)}
-                  aria-label={t(dot.label)}
+                <StatusBadge
+                  status={st?.status}
+                  label={t(meta.labelKey)}
+                  tone={meta.tone}
+                  className="shrink-0"
                 />
                 <div className="min-w-0 flex-1">
                   <p className={'truncate text-sm font-medium ' + (m.archived ? 'opacity-55' : '')}>
                     {m.name}
                     {m.archived && (
-                      <span className="ml-1.5 text-xs text-zinc-400">
+                      <Badge variant="neutral" className="ml-1.5 align-middle">
                         {t('squads.memberArchived')}
-                      </span>
+                      </Badge>
                     )}
                   </p>
                   {st && (st.active_tasks?.length ?? 0) > 0 && (
@@ -295,39 +312,19 @@ function SquadMembersSection({ squadId, onChanged }: { squadId: string; onChange
                   role={m.role}
                   onChanged={onChanged}
                 />
-                {removingId === m.agent_id ? (
-                  <span className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      className="text-xs text-red-600 underline-offset-2 hover:underline dark:text-red-400"
-                      onClick={() => remove.mutate(m.agent_id)}
-                    >
-                      {t('squads.confirmRemove')}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                      onClick={() => setRemovingId(null)}
-                    >
-                      {t('common.cancel')}
-                    </button>
-                  </span>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="shrink-0 text-red-600 dark:text-red-400"
-                    onClick={() => setRemovingId(m.agent_id)}
-                  >
-                    {t('common.remove')}
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-red-600 dark:text-red-400"
+                  onClick={() => void askRemoveMember(m.agent_id, m.name)}
+                >
+                  {t('common.remove')}
+                </Button>
               </li>
             )
           })}
         </ul>
       )}
-      {memberError && <p className="text-xs text-red-600 dark:text-red-400">{memberError}</p>}
 
       {addOpen && (
         <AddMemberDialog
@@ -364,15 +361,29 @@ function RoleEditor({
     },
   })
   if (!editing) {
+    // 角色 chip：手写 pill+原生 title → Badge secondary + kit Tooltip；可点编辑的
+    // affordance 交给真实按钮的 hover 态，不再用常驻教学文案。
     return (
-      <button
-        type="button"
-        title={t('squads.editRoleHint')}
-        className="shrink-0 cursor-default rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 outline-none hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-        onClick={() => setEditing(true)}
-      >
-        {role}
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Badge
+              variant="secondary"
+              render={
+                <button
+                  type="button"
+                  className="cursor-pointer"
+                  aria-label={t('squads.role')}
+                  onClick={() => setEditing(true)}
+                />
+              }
+            />
+          }
+        >
+          {role}
+        </TooltipTrigger>
+        <TooltipContent>{t('squads.role')}</TooltipContent>
+      </Tooltip>
     )
   }
   return (
@@ -444,74 +455,61 @@ function AddMemberDialog({
     onError: (e) => setError(e instanceof ApiError ? e.message : t('squads.addFailed')),
   })
   return (
-    <Dialog.Root open onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <Dialog.Title className="mb-4 text-sm font-semibold">
-            {t('squads.addMember')}
-          </Dialog.Title>
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (agentId && !add.isPending) add.mutate()
-            }}
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('squads.addMember')}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (agentId && !add.isPending) add.mutate()
+          }}
+        >
+          <FormField
+            label={t('squads.agentLabel')}
+            htmlFor="member-agent"
+            description={candidates.length === 0 ? t('squads.noCandidates') : undefined}
           >
-            <div>
-              <label htmlFor="member-agent" className={LABEL_CLASS}>
-                {t('squads.agentLabel')}
-              </label>
-              <select
-                id="member-agent"
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                className={SELECT_CLASS}
-                autoFocus
-              >
-                <option value="">{t('squads.selectAgent')}</option>
-                {candidates.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-              {candidates.length === 0 && (
-                <p className="mt-1 text-xs text-zinc-400">{t('squads.noCandidates')}</p>
-              )}
-            </div>
-            <div>
-              <label htmlFor="member-role" className={LABEL_CLASS}>
-                {t('squads.roleLabel')}
-              </label>
-              <Input
-                id="member-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                maxLength={80}
-                placeholder="member"
-              />
-            </div>
-            {error && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                {error}
-              </p>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Dialog.Close className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
-                {t('common.cancel')}
-              </Dialog.Close>
-              <button
-                type="submit"
-                disabled={!agentId || add.isPending}
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {add.isPending ? t('squads.adding') : t('squads.add')}
-              </button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+            <Select
+              id="member-agent"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              autoFocus
+            >
+              <option value="">{t('squads.selectAgent')}</option>
+              {candidates.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label={t('squads.roleLabel')} htmlFor="member-role">
+            <Input
+              id="member-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              maxLength={80}
+              placeholder="member"
+            />
+          </FormField>
+          {error && (
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose render={<Button variant="outline" type="button" />}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button type="submit" disabled={!agentId || add.isPending}>
+              {add.isPending ? t('squads.adding') : t('squads.add')}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
