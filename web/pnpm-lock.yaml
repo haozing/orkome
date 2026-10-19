@@ -15,8 +15,8 @@ importers:
         specifier: ^5.0.0
         version: 5.9.1(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.5)
       '@ploykit/client':
-        specifier: 0.7.5
-        version: 0.7.5
+        specifier: 0.7.6
+        version: 0.7.6
       '@ploykit/hooks':
         specifier: 0.8.0
         version: 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
@@ -24,8 +24,8 @@ importers:
         specifier: 0.7.4
         version: 0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@ploykit/ui':
-        specifier: 0.8.1
-        version: 0.8.1(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
+        specifier: 0.9.0
+        version: 0.9.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
       '@tanstack/react-query':
         specifier: ^5.62.0
         version: 5.104.1(react@19.3.0)
@@ -854,8 +854,8 @@ packages:
   '@oxc-project/types@0.152.0':
     resolution: {integrity: sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==}
 
-  '@ploykit/client@0.7.5':
-    resolution: {integrity: sha512-G7cUi69pJ1xBzbMZkL9/wZQE2/zcFV9nzkbIil3bOcMsOqOUYyIUnMnR4yaw7rbm92FmqwUBTJSCvVATzNW9AQ==}
+  '@ploykit/client@0.7.6':
+    resolution: {integrity: sha512-mMtvMWNnvEBsy6e1rDQHNkRN3N6ZilmvPXv5LHoyzm9WZhu44dbYeyIV6eAiQb50Laj5vfLZ1VZQDrmYgb2NxA==}
 
   '@ploykit/hooks@0.8.0':
     resolution: {integrity: sha512-0G+uOKbtb4zPgOPW1SoGlapL0McF/Zz8UkgcIbw0jYO6hJnGRdStzkz00X7PeLcWWjLBfjdzXcjTc07/KcfDag==}
@@ -870,8 +870,8 @@ packages:
       react-dom: ^19.0.0
       react-router: ^7.0.0
 
-  '@ploykit/ui@0.8.1':
-    resolution: {integrity: sha512-KtU0DH7fOVgCpTizevU9szg4H0kpBpDV15ESbP8ifrqp0cqeEbGo1OYMefXGg0WAHoc9pRp3BhxxSYIXZJVDRA==}
+  '@ploykit/ui@0.9.0':
+    resolution: {integrity: sha512-fCaq00nbdv6KF0tKxvjC87oneLILh2LPUbLg/KkCKNAJ9K5lgCcs4d2YLAj7PX2ldKKP7GrBgotXLa5UZjh+gQ==}
     peerDependencies:
       '@tanstack/react-query': ^5.0.0
       react: ^19.0.0
@@ -4828,12 +4828,12 @@ snapshots:
 
   '@oxc-project/types@0.152.0': {}
 
-  '@ploykit/client@0.7.5': {}
+  '@ploykit/client@0.7.6': {}
 
   '@ploykit/hooks@0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@hookform/resolvers': 5.9.1(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.5)
-      '@ploykit/client': 0.7.5
+      '@ploykit/client': 0.7.6
       '@ploykit/runtime': 0.7.4(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@tanstack/react-query': 5.104.1(react@19.3.0)
       react: 19.3.0
@@ -4873,10 +4873,10 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       react-router: 7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
 
-  '@ploykit/ui@0.8.1(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
+  '@ploykit/ui@0.9.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)':
     dependencies:
       '@base-ui/react': 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@ploykit/client': 0.7.5
+      '@ploykit/client': 0.7.6
       '@ploykit/hooks': 0.8.0(@tanstack/react-query@5.104.1(react@19.3.0))(@types/react@19.3.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-dom@19.3.0(react@19.3.0))(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       '@tanstack/react-query': 5.104.1(react@19.3.0)
       class-variance-authority: 0.7.1
