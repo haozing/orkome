@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '@ploykit/ui'
+import i18n from '@/i18n'
 import { server } from '../msw'
 import type { PackUIEntry } from '@/api/packs'
 import { aggregateHealth, PackDetailView } from '@/components/pack-detail'
@@ -104,7 +106,13 @@ const DETAIL = (over: Record<string, unknown> = {}) => ({
 
 function render_ui(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  // ConfirmProvider：移除两段式收口 useConfirm（ui-sweep 裁决①）后，
+  // UiEntriesSection 的删除流程需要确认弹窗宿主。
+  return render(
+    <QueryClientProvider client={qc}>
+      <ConfirmProvider>{ui}</ConfirmProvider>
+    </QueryClientProvider>,
+  )
 }
 
 describe('aggregateHealth (probe three-state rollup)', () => {
@@ -200,8 +208,11 @@ describe('/packs/$packId detail (five sections)', () => {
     expect(archivedRow!.textContent).toContain('editor')
     expect(archivedRow!.className).toContain('text-zinc-400')
     expect(screen.getByTestId('pack-skill-row').textContent).toContain('seo-style')
-    // 健康态初始未知
-    expect(screen.getByTestId('pack-overview-health').textContent).toContain('Not probed yet')
+    // 健康态初始未知（healthUnknown 随 ui-sweep 文案 patch 缩为 'Not probed'，
+    // 去掉「use Probe in the top right」教学尾巴；按词条断言防文案再动时失联）
+    expect(screen.getByTestId('pack-overview-health').textContent).toContain(
+      i18n.t('packs2.healthUnknown'),
+    )
   })
 
   it('probe button: rolls all server probes up into the three-state badge', async () => {

@@ -5,9 +5,10 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import { logout, createWorkspace, joinByShareCode, meQueryOptions } from '@/api/identity'
+import { AuthShell, Card, CardContent, CardDescription, CardHeader, CardTitle, FormField } from '@ploykit/ui'
+import { ApiError } from '@ploykit/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ApiError } from '@ploykit/client'
 import { wsClient } from '@/realtime/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 export const Route = createFileRoute('/onboarding')({
@@ -96,85 +97,101 @@ function OnboardingPage() {
     wsClient.close()
     void navigate({ to: '/login' })
   }
-  const fieldError = (msg?: string) =>
-    msg && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{msg}</p>
   const mutationError = (err: unknown) =>
     err ? (
-      <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+      <p role="alert" className="text-sm text-destructive">
         {err instanceof ApiError ? err.message : t('common.requestFailed')}
       </p>
     ) : null
   return (
-    <div className="flex min-h-dvh items-center justify-center p-6">
-      <div className="grid w-full max-w-2xl gap-6 md:grid-cols-2">
-        <section className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-800">
-          <h1 className="mb-1 text-base font-semibold">{t('onboarding.createTitle')}</h1>
-          <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-            {t('onboarding.createDesc')}
-          </p>
-          <form
-            className="space-y-3"
-            noValidate
-            onSubmit={createForm.handleSubmit((v) => create.mutate(v))}
-          >
-            <div>
-              <label htmlFor="ws-name" className="mb-1 block text-sm font-medium">
-                {t('agents.name')}
-              </label>
-              <Input
-                id="ws-name"
-                autoFocus
-                {...createForm.register('name', {
-                  onBlur: (e) => {
-                    if (!createForm.getValues('slug')) {
-                      createForm.setValue('slug', suggestSlug(e.target.value))
-                    }
-                  },
-                })}
-              />
-              {fieldError(createForm.formState.errors.name?.message)}
-            </div>
-            <div>
-              <label htmlFor="ws-slug" className="mb-1 block text-sm font-medium">
-                {t('onboarding.slugLabel')}
-              </label>
-              <Input id="ws-slug" {...createForm.register('slug')} />
-              {fieldError(createForm.formState.errors.slug?.message)}
-            </div>
-            {mutationError(create.error)}
-            <Button type="submit" className="w-full" disabled={create.isPending}>
-              {create.isPending ? t('skills.creating') : t('common.create')}
-            </Button>
-          </form>
-        </section>
+    // AuthShell 内容槽固定 max-w-sm；双卡布局需要 2xl——外层用任意变体选择器
+    // 覆写内层宽度（.wrapper>div>div 特异性高于 .max-w-sm，稳定胜出）。
+    <div className="w-full [&>div>div]:max-w-2xl">
+      <AuthShell
+        brand={<span className="text-lg font-bold text-foreground">Orkome</span>}
+        footer={
+          // 第二条逃生通道（audit FP-17 P1-1）：退出登录回 /login。
+          // 旧实现按钮挂在外层 flex 行容器上，mt-6 在 row 方向失效、
+          // 按钮被挤到卡片右侧（ui-sweep 真 bug①）；footer 槽天然纵向归位。
+          <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+            {t('onboarding.useAnotherAccount')}
+          </Button>
+        }
+      >
+        <div className="space-y-6">
+          <h1 className="text-center text-xl font-semibold">{t('onboarding.title')}</h1>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('onboarding.createTitle')}</CardTitle>
+                <CardDescription>{t('onboarding.createDesc')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  className="space-y-3"
+                  noValidate
+                  onSubmit={createForm.handleSubmit((v) => create.mutate(v))}
+                >
+                  <FormField
+                    label={t('onboarding.nameLabel')}
+                    htmlFor="ws-name"
+                    error={createForm.formState.errors.name?.message}
+                  >
+                    <Input
+                      id="ws-name"
+                      autoFocus
+                      {...createForm.register('name', {
+                        onBlur: (e) => {
+                          if (!createForm.getValues('slug')) {
+                            createForm.setValue('slug', suggestSlug(e.target.value))
+                          }
+                        },
+                      })}
+                    />
+                  </FormField>
+                  <FormField
+                    label={t('onboarding.slugLabel')}
+                    htmlFor="ws-slug"
+                    error={createForm.formState.errors.slug?.message}
+                  >
+                    <Input id="ws-slug" {...createForm.register('slug')} />
+                  </FormField>
+                  {mutationError(create.error)}
+                  <Button type="submit" className="w-full" disabled={create.isPending}>
+                    {create.isPending ? t('onboarding.creating') : t('common.create')}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
 
-        <section className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-800">
-          <h1 className="mb-1 text-base font-semibold">{t('onboarding.joinTitle')}</h1>
-          <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-            {t('onboarding.joinDesc')}
-          </p>
-          <form
-            className="space-y-3"
-            noValidate
-            onSubmit={joinForm.handleSubmit((v) => join.mutate(v))}
-          >
-            <div>
-              <label htmlFor="join-code" className="mb-1 block text-sm font-medium">
-                {t('onboarding.codeLabel')}
-              </label>
-              <Input id="join-code" {...joinForm.register('code')} />
-              {fieldError(joinForm.formState.errors.code?.message)}
-            </div>
-            {mutationError(join.error)}
-            <Button type="submit" variant="outline" className="w-full" disabled={join.isPending}>
-              {join.isPending ? t('onboarding.joining') : t('onboarding.join')}
-            </Button>
-          </form>
-        </section>
-      </div>
-      <Button variant="ghost" size="sm" className="mt-6" onClick={() => void signOut()}>
-        {t('onboarding.useAnotherAccount')}
-      </Button>
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('onboarding.joinTitle')}</CardTitle>
+                <CardDescription>{t('onboarding.joinDesc')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  className="space-y-3"
+                  noValidate
+                  onSubmit={joinForm.handleSubmit((v) => join.mutate(v))}
+                >
+                  <FormField
+                    label={t('onboarding.codeLabel')}
+                    htmlFor="join-code"
+                    error={joinForm.formState.errors.code?.message}
+                  >
+                    <Input id="join-code" {...joinForm.register('code')} />
+                  </FormField>
+                  {mutationError(join.error)}
+                  <Button type="submit" variant="outline" className="w-full" disabled={join.isPending}>
+                    {join.isPending ? t('onboarding.joining') : t('onboarding.join')}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </AuthShell>
     </div>
   )
 }

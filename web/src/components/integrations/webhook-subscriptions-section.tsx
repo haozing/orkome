@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Checkbox, FormField, Label } from '@ploykit/ui'
 import {
   createWebhookSubscription,
   deleteWebhookSubscription,
@@ -38,6 +39,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 
 // Webhook 订阅区块（2026-10-15 自 settings 迁入集成页段②，docs/integrations-page-design-2026-10-15.md §2.2）。
 // 原 settings 域设计 §3.6 的形态：订阅列表 + 行操作（Ping/暂停恢复/
@@ -55,6 +57,13 @@ export interface WebhookSubscriptionsSectionProps {
 }
 
 const LABEL_CLS = 'mb-1 block text-xs text-zinc-500 dark:text-zinc-400'
+
+// states 组合件的行内规格（ui-sweep 裁决⑤）：与 settings/shared.tsx 的 INLINE_*
+// 同源；不直接 import（shared 拉入 router-singleton，会把整棵路由图拖进本组件
+// 的导入链，破坏组件级测试的模块解析）。
+const INLINE_LOADING_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_ERROR_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_EMPTY_CLS = 'items-start gap-1 py-2 text-left'
 
 function errMsg(err: unknown, fallback: string): string {
   return isApiError(err) ? err.message : fallback
@@ -103,14 +112,18 @@ export function WebhookSubscriptionsSection({
         <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('tools.webhookReadonlyHint')}</p>
       )}
 
-      {subscriptions.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {subscriptions.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {subscriptions.isError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {errMsg(subscriptions.error, t('tools.loadFailed'))}
-        </p>
+        <PageError
+          title={t('common.error')}
+          message={errMsg(subscriptions.error, t('tools.loadFailed'))}
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {subscriptions.data && subscriptions.data.length === 0 && (
-        <p className="py-2 text-sm text-zinc-400">{t('tools.webhookEmpty')}</p>
+        <PageEmpty title={t('tools.webhookEmpty')} className={INLINE_EMPTY_CLS} />
       )}
       {subscriptions.data && subscriptions.data.length > 0 && (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -450,10 +463,7 @@ function CreateSubscriptionDialog({
 
         {createdSecret === null ? (
           <div className="space-y-3">
-            <div>
-              <label htmlFor="ws-webhook-url" className={LABEL_CLS}>
-                {t('tools.webhookUrlLabel')}
-              </label>
+            <FormField label={t('tools.webhookUrlLabel')} htmlFor="ws-webhook-url">
               <Input
                 id="ws-webhook-url"
                 value={url}
@@ -462,11 +472,8 @@ function CreateSubscriptionDialog({
                 autoFocus
                 data-testid="ws-webhook-url"
               />
-            </div>
-            <div>
-              <label htmlFor="ws-webhook-desc" className={LABEL_CLS}>
-                {t('tools.webhookDescLabel')}
-              </label>
+            </FormField>
+            <FormField label={t('tools.webhookDescLabel')} htmlFor="ws-webhook-desc">
               <Input
                 id="ws-webhook-desc"
                 value={description}
@@ -474,42 +481,48 @@ function CreateSubscriptionDialog({
                 placeholder={t('tools.webhookDescPlaceholder')}
                 data-testid="ws-webhook-desc"
               />
-            </div>
+            </FormField>
             <div>
               <p className={LABEL_CLS}>{t('tools.webhookEventsLabel')}</p>
-              {catalog.isPending && <p className="text-xs text-zinc-500">{t('common.loading')}</p>}
+              {catalog.isPending && (
+                <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+              )}
               {catalog.isError && (
-                <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                  {t('tools.webhookCatalogFailed')}
-                </p>
+                <PageError
+                  title={t('tools.webhookCatalogFailed')}
+                  className={INLINE_ERROR_CLS}
+                />
               )}
               {catalog.data && catalog.data.length === 0 && (
-                <p className="text-xs text-zinc-500">{t('tools.webhookCatalogEmpty')}</p>
+                <PageEmpty title={t('tools.webhookCatalogEmpty')} className={INLINE_EMPTY_CLS} />
               )}
               {catalog.data && catalog.data.length > 0 && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                   {catalog.data.map((ev) => (
-                    <label key={ev.type} className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400" data-testid="ws-webhook-event-option" title={ev.description}>
-                      <input
-                        type="checkbox"
+                    <Label
+                      key={ev.type}
+                      className="flex cursor-pointer items-center gap-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400"
+                      data-testid="ws-webhook-event-option"
+                      title={ev.description}
+                    >
+                      <Checkbox
                         checked={events.includes(ev.type)}
-                        onChange={(e) =>
+                        onCheckedChange={(v) =>
                           setEvents((prev) =>
-                            e.target.checked
+                            v === true
                               ? [...prev, ev.type]
                               : prev.filter((ty) => ty !== ev.type),
                           )
                         }
-                        className="size-3 accent-zinc-700 dark:accent-zinc-300"
                       />
                       <code className="font-mono">{ev.type}</code>
-                    </label>
+                    </Label>
                   ))}
                 </div>
               )}
             </div>
             {validation && (
-              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+              <p role="alert" className="text-xs text-destructive">
                 {validation}
               </p>
             )}
@@ -518,7 +531,7 @@ function CreateSubscriptionDialog({
                 {t('common.cancel')}
               </Button>
               <Button disabled={!url.trim() || events.length === 0 || create.isPending} data-testid="ws-webhook-create-submit" onClick={submit}>
-                {create.isPending ? t('common.loading') : t('tools.webhookCreate')}
+                {create.isPending ? t('tools.webhookCreating') : t('tools.webhookCreate')}
               </Button>
             </div>
           </div>

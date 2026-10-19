@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { ChevronDown, PackagePlus, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Checkbox, FormField, Label, useConfirm } from '@ploykit/ui'
 import {
   createWorkspaceMcp,
   deleteWorkspaceMcp,
@@ -25,7 +26,17 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
 import { cn } from '@/lib/utils'
+
+// states 组合件的行内规格（ui-sweep 裁决⑤）：PageLoading/PageError 默认是页面级
+// （pt-24 居中），区块内三态用这组 className 压成行内形态。与 settings/shared.tsx
+// 的 INLINE_* 同源；不直接 import（shared 拉入 router-singleton，会把整棵路由图
+// 拖进本组件的导入链，破坏组件级测试的模块解析）。
+const INLINE_LOADING_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_ERROR_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_EMPTY_CLS = 'items-start gap-1 py-2 text-left'
 
 // Packs 与集成页的组件拆分（docs/pack-frontend-design-2026-10-11.md §3.1）：
 // 第 1 段 PacksInstalledSection —— 只读列表（pack 名 + entry label + installed_at）；
@@ -62,13 +73,17 @@ export function PacksInstalledSection({ className }: { className?: string }) {
           </p>
         </div>
       </div>
-      {entries.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {entries.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {entries.isError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {entries.error instanceof Error
-            ? entries.error.message
-            : t('common.requestFailed')}
-        </p>
+        <PageError
+          title={t('common.error')}
+          message={
+            entries.error instanceof Error ? entries.error.message : t('common.requestFailed')
+          }
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {entries.data && entries.data.length === 0 && (
         <div
@@ -194,8 +209,8 @@ export function WorkspaceMcpSection({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [editing, setEditing] = useState<WorkspaceMCPServer | 'new' | null>(null)
-  const [removingId, setRemovingId] = useState<string | null>(null)
   const [toolsOpenId, setToolsOpenId] = useState<string | null>(null)
   const servers = useQuery({
     queryKey: ['workspace-mcp', workspaceId],
@@ -206,11 +221,18 @@ export function WorkspaceMcpSection({
     queryClient.invalidateQueries({ queryKey: ['workspace-mcp', workspaceId] })
   const remove = useMutation({
     mutationFn: (serverId: string) => deleteWorkspaceMcp(workspaceId as string, serverId),
-    onSuccess: () => {
-      setRemovingId(null)
-      void invalidate()
-    },
+    onSuccess: () => void invalidate(),
   })
+  // 删除两段式 → useConfirm 统一形态（ui-sweep 裁决①）：标题复用行 aria-label
+  // 的同键文案，确认钮沿用 packs.confirmDelete。
+  const handleRemove = async (s: WorkspaceMCPServer) => {
+    const ok = await confirm({
+      title: t('packs.deleteServer', { name: s.name }),
+      danger: true,
+      confirmText: t('packs.confirmDelete'),
+    })
+    if (ok) remove.mutate(s.id)
+  }
   return (
     <section className={cn('space-y-3', className)}>
       <div className="flex items-center justify-end">
@@ -220,16 +242,22 @@ export function WorkspaceMcpSection({
         </Button>
       </div>
 
-      {servers.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {servers.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {servers.isError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {servers.error instanceof Error ? servers.error.message : t('common.requestFailed')}
-        </p>
+        <PageError
+          title={t('common.error')}
+          message={
+            servers.error instanceof Error ? servers.error.message : t('common.requestFailed')
+          }
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {servers.data && servers.data.length === 0 && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400" data-testid="ws-mcp-empty">
-          {t('packs.noServers')}
-        </p>
+        <div data-testid="ws-mcp-empty">
+          <PageEmpty title={t('packs.noServers')} className={INLINE_EMPTY_CLS} />
+        </div>
       )}
       {servers.data && servers.data.length > 0 && (
         <ul
@@ -290,31 +318,15 @@ export function WorkspaceMcpSection({
                         <Pencil className="size-3.5" aria-hidden="true" />
                         {t('common.edit')}
                       </Button>
-                      {removingId === s.id ? (
-                        <span className="flex shrink-0 items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            disabled={remove.isPending}
-                            onClick={() => remove.mutate(s.id)}
-                          >
-                            {t('packs.confirmDelete')}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setRemovingId(null)}>
-                            {t('common.cancel')}
-                          </Button>
-                        </span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="shrink-0 text-red-600 dark:text-red-400"
-                          aria-label={t('packs.deleteServer', { name: s.name })}
-                          onClick={() => setRemovingId(s.id)}
-                        >
-                          <Trash2 className="size-3.5" aria-hidden="true" />
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 text-red-600 dark:text-red-400"
+                        aria-label={t('packs.deleteServer', { name: s.name })}
+                        onClick={() => void handleRemove(s)}
+                      >
+                        <Trash2 className="size-3.5" aria-hidden="true" />
+                      </Button>
                     </>
                   )}
                 </div>
@@ -406,10 +418,7 @@ function WorkspaceMcpDialog({
             submit()
           }}
         >
-          <div>
-            <label htmlFor="ws-mcp-name" className="mb-1 block text-xs text-zinc-500">
-              {t('packs.serverNameLabel')}
-            </label>
+          <FormField label={t('packs.serverNameLabel')} htmlFor="ws-mcp-name">
             <Input
               id="ws-mcp-name"
               value={form.name}
@@ -417,39 +426,32 @@ function WorkspaceMcpDialog({
               autoFocus
               placeholder="web-search"
             />
-          </div>
-          <div>
-            <label htmlFor="ws-mcp-url" className="mb-1 block text-xs text-zinc-500">
-              {t('packs.serverUrlLabel')}
-            </label>
+          </FormField>
+          <FormField label={t('packs.serverUrlLabel')} htmlFor="ws-mcp-url">
             <Input
               id="ws-mcp-url"
               value={form.url}
               onChange={(e) => set('url', e.target.value)}
               placeholder="https://mcp.example.com/mcp"
             />
-          </div>
-          <div>
-            <label htmlFor="ws-mcp-transport" className="mb-1 block text-xs text-zinc-500">
-              {t('packs.transportLabel')}
-            </label>
-            <select
+          </FormField>
+          <FormField label={t('packs.transportLabel')} htmlFor="ws-mcp-transport">
+            <Select
               id="ws-mcp-transport"
               value={form.transport}
               onChange={(e) => set('transport', e.target.value)}
-              className="h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
             >
               {TRANSPORTS.map((tr) => (
                 <option key={tr} value={tr}>
                   {TRANSPORT_LABELS[tr]}
                 </option>
               ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="ws-mcp-key" className="mb-1 block text-xs text-zinc-500">
-              {server ? t('packs.apiKeyKeepLabel') : t('packs.apiKeyLabel')}
-            </label>
+            </Select>
+          </FormField>
+          <FormField
+            label={server ? t('packs.apiKeyKeepLabel') : t('packs.apiKeyLabel')}
+            htmlFor="ws-mcp-key"
+          >
             <Input
               id="ws-mcp-key"
               type="password"
@@ -460,23 +462,18 @@ function WorkspaceMcpDialog({
               }}
               placeholder="sk-…"
             />
-            {server && server.has_credentials && !form.apiKey.trim() && (
-              <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={clearCreds}
-                  onChange={(e) => setClearCreds(e.target.checked)}
-                  className="size-3 accent-zinc-700"
-                />
-                {t('packs.apiKeyClearToggle')}
-              </label>
-            )}
-            {clearCreds && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                {t('packs.apiKeyClearWarning')}
-              </p>
-            )}
-          </div>
+          </FormField>
+          {server && server.has_credentials && !form.apiKey.trim() && (
+            <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+              <Checkbox checked={clearCreds} onCheckedChange={(v) => setClearCreds(v === true)} />
+              {t('packs.apiKeyClearToggle')}
+            </Label>
+          )}
+          {clearCreds && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t('packs.apiKeyClearWarning')}
+            </p>
+          )}
           {save.error && (
             <p role="alert" className="text-xs text-red-600 dark:text-red-400">
               {save.error.message}

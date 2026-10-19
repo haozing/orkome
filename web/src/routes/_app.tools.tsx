@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { PageHeader } from '@ploykit/ui'
 import { useTranslation } from 'react-i18next'
 import { meQueryOptions } from '@/api/identity'
 import { UiEntriesSection } from '@/components/integrations/ui-entries-section'
@@ -24,19 +25,12 @@ function IntegrationsPage() {
   const role = me.data?.workspaces.find((w) => w.id === workspaceId)?.role
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-lg font-semibold">{t('tools.pageTitle')}</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('tools.pageIntro')}</p>
-      </div>
+      {/* ui-sweep 修复⑪：h1+intro 手写行 → kit PageHeader；intro 合规文案见 i18n patch */}
+      <PageHeader title={t('tools.pageTitle')} description={t('tools.pageIntro')} />
 
-      {/* ① MCP 服务器（原样） */}
+      {/* ① MCP 服务器：区块描述整行删（R2「接线板」比喻 + R5「管理在包详情页」位置参照） */}
       <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">{t('tools.serversSectionTitle')}</h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t('tools.serversSectionIntro')}
-          </p>
-        </div>
+        <h2 className="text-sm font-semibold">{t('tools.serversSectionTitle')}</h2>
         <WorkspaceMcpSection workspaceId={workspaceId} />
       </section>
 

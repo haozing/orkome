@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Checkbox, FormField, Label, useConfirm } from '@ploykit/ui'
 import {
   deletePackEntry,
   listPackEntries,
@@ -19,6 +20,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PageEmpty, PageError, PageLoading } from '@/components/ui/states'
+
+// states 组合件的行内规格（ui-sweep 裁决⑤）：与 settings/shared.tsx 的 INLINE_*
+// 同源；不直接 import（shared 拉入 router-singleton，会把整棵路由图拖进本组件
+// 的导入链，破坏组件级测试的模块解析）。
+const INLINE_LOADING_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_ERROR_CLS = 'flex-row items-center gap-2 py-2 text-left'
+const INLINE_EMPTY_CLS = 'items-start gap-1 py-2 text-left'
 
 // 集成页段③ 页面入口（docs/integrations-page-design-2026-10-15.md §2.3）：
 // pack_ui_entry 的读写面——侧栏深链入口 + 工单详情页签（v0 目录冻结
@@ -28,8 +37,6 @@ import { Input } from '@/components/ui/input'
 // usePackSlots 三方共享——本段增删后必须 invalidate，否则最长 60s 不刷新。
 // 手动入口：pack 名 custom-<slug>、pack_id=""（后端按 (workspace_id, pack)
 // 幂等覆盖，同名重 PUT 不新建行）。
-
-const LABEL_CLS = 'mb-1 block text-xs text-zinc-500 dark:text-zinc-400'
 
 export interface UiEntriesSectionProps {
   workspaceId: string | null
@@ -60,9 +67,9 @@ function isAbsoluteHttpUrl(raw: string): boolean {
 export function UiEntriesSection({ workspaceId, role }: UiEntriesSectionProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const canWrite = role === 'owner' || role === 'admin'
   const [createOpen, setCreateOpen] = useState(false)
-  const [removingId, setRemovingId] = useState<string | null>(null)
   const entries = useQuery({
     queryKey: ['pack-ui-entries', workspaceId],
     queryFn: listPackEntries,
@@ -73,11 +80,19 @@ export function UiEntriesSection({ workspaceId, role }: UiEntriesSectionProps) {
     queryClient.invalidateQueries({ queryKey: ['pack-ui-entries', workspaceId] })
   const remove = useMutation({
     mutationFn: (pack: string) => deletePackEntry(pack),
-    onSuccess: () => {
-      setRemovingId(null)
-      void invalidate()
-    },
+    onSuccess: () => void invalidate(),
   })
+  // 移除两段式 → useConfirm 统一形态（ui-sweep 裁决①）：入口可重建属低风险，
+  // description 简短说明后果即可。
+  const handleRemove = async (entry: PackUIEntry) => {
+    const ok = await confirm({
+      title: t('tools.uiEntriesRemove'),
+      description: t('tools.uiEntriesRemoveDesc'),
+      danger: true,
+      confirmText: t('tools.uiEntriesRemoveConfirm'),
+    })
+    if (ok) remove.mutate(entry.pack)
+  }
 
   return (
     <section className="space-y-3" data-testid="ui-entries-section">
@@ -96,16 +111,22 @@ export function UiEntriesSection({ workspaceId, role }: UiEntriesSectionProps) {
         </div>
       )}
 
-      {entries.isPending && <p className="text-sm text-zinc-500">{t('common.loading')}</p>}
+      {entries.isPending && (
+        <PageLoading label={t('common.loading')} className={INLINE_LOADING_CLS} />
+      )}
       {entries.isError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {entries.error instanceof Error ? entries.error.message : t('common.requestFailed')}
-        </p>
+        <PageError
+          title={t('common.error')}
+          message={
+            entries.error instanceof Error ? entries.error.message : t('common.requestFailed')
+          }
+          className={INLINE_ERROR_CLS}
+        />
       )}
       {entries.data && entries.data.length === 0 && (
-        <p className="py-2 text-sm text-zinc-400" data-testid="ui-entries-empty">
-          {t('tools.uiEntriesEmpty')}
-        </p>
+        <div data-testid="ui-entries-empty">
+          <PageEmpty title={t('tools.uiEntriesEmpty')} className={INLINE_EMPTY_CLS} />
+        </div>
       )}
       {entries.data && entries.data.length > 0 && (
         <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
@@ -143,34 +164,18 @@ export function UiEntriesSection({ workspaceId, role }: UiEntriesSectionProps) {
                     {t('tools.uiEntriesManual')}
                   </Badge>
                 )}
-                {canWrite &&
-                  (removingId === e.id ? (
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Button
-                        size="xs"
-                        variant="danger"
-                        disabled={remove.isPending}
-                        data-testid="ui-entry-remove-confirm"
-                        onClick={() => remove.mutate(e.pack)}
-                      >
-                        {t('tools.uiEntriesRemoveConfirm')}
-                      </Button>
-                      <Button size="xs" variant="ghost" onClick={() => setRemovingId(null)}>
-                        {t('common.cancel')}
-                      </Button>
-                    </span>
-                  ) : (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      className="shrink-0 text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
-                      aria-label={t('tools.uiEntriesRemove')}
-                      data-testid="ui-entry-remove"
-                      onClick={() => setRemovingId(e.id)}
-                    >
-                      <Trash2 className="size-3" aria-hidden="true" />
-                    </Button>
-                  ))}
+                {canWrite && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="shrink-0 text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
+                    aria-label={t('tools.uiEntriesRemove')}
+                    data-testid="ui-entry-remove"
+                    onClick={() => void handleRemove(e)}
+                  >
+                    <Trash2 className="size-3" aria-hidden="true" />
+                  </Button>
+                )}
               </li>
             )
           })}
@@ -181,7 +186,6 @@ export function UiEntriesSection({ workspaceId, role }: UiEntriesSectionProps) {
           {remove.error instanceof Error ? remove.error.message : t('common.requestFailed')}
         </p>
       )}
-
       {createOpen && workspaceId && (
         <CreateEntryDialog
           onClose={() => setCreateOpen(false)}
@@ -266,10 +270,7 @@ function CreateEntryDialog({
             submit()
           }}
         >
-          <div>
-            <label htmlFor="ui-entry-label" className={LABEL_CLS}>
-              {t('tools.uiEntriesLabelField')}
-            </label>
+          <FormField label={t('tools.uiEntriesLabelField')} htmlFor="ui-entry-label">
             <Input
               id="ui-entry-label"
               value={label}
@@ -277,11 +278,12 @@ function CreateEntryDialog({
               autoFocus
               data-testid="ui-entry-label"
             />
-          </div>
-          <div>
-            <label htmlFor="ui-entry-url" className={LABEL_CLS}>
-              {t('tools.uiEntriesUrlField')}
-            </label>
+          </FormField>
+          <FormField
+            label={t('tools.uiEntriesUrlField')}
+            htmlFor="ui-entry-url"
+            description={t('tools.uiEntriesUrlHint')}
+          >
             <Input
               id="ui-entry-url"
               value={url}
@@ -289,26 +291,18 @@ function CreateEntryDialog({
               placeholder="https://vendor.example.com/console?ws={workspaceId}&t={uiToken}"
               data-testid="ui-entry-url"
             />
-            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-              {t('tools.uiEntriesUrlHint')}
-            </p>
-          </div>
+          </FormField>
           <div className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              <input
-                type="checkbox"
+            <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+              <Checkbox
                 checked={asTab}
-                onChange={(e) => setAsTab(e.target.checked)}
-                className="size-3 accent-zinc-700 dark:accent-zinc-300"
+                onCheckedChange={(v) => setAsTab(v === true)}
                 data-testid="ui-entry-tab-toggle"
               />
               {t('tools.uiEntriesTabToggle')}
-            </label>
+            </Label>
             {asTab && (
-              <div>
-                <label htmlFor="ui-entry-height" className={LABEL_CLS}>
-                  {t('tools.uiEntriesTabHeight')}
-                </label>
+              <FormField label={t('tools.uiEntriesTabHeight')} htmlFor="ui-entry-height">
                 <Input
                   id="ui-entry-height"
                   type="number"
@@ -319,11 +313,11 @@ function CreateEntryDialog({
                   className="w-28"
                   data-testid="ui-entry-height"
                 />
-              </div>
+              </FormField>
             )}
           </div>
           {validation && (
-            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="text-xs text-destructive">
               {validation}
             </p>
           )}
@@ -336,7 +330,7 @@ function CreateEntryDialog({
               disabled={!label.trim() || !url.trim() || create.isPending}
               data-testid="ui-entry-submit"
             >
-              {create.isPending ? t('common.loading') : t('common.create')}
+              {create.isPending ? t('tools.uiEntriesCreating') : t('common.create')}
             </Button>
           </DialogFooter>
         </form>

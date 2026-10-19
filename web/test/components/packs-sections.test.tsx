@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
+import { ConfirmProvider } from '@ploykit/ui'
 import type { PackUIEntry, WorkspaceMCPServer } from '@/api/packs'
 import { PacksInstalledSection, WorkspaceMcpSection } from '@/components/packs-sections'
 import { server } from '../msw'
@@ -32,7 +33,13 @@ const SERVER = (over: Partial<WorkspaceMCPServer> = {}): WorkspaceMCPServer => (
 
 function render_ui(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  // ConfirmProvider：删除两段式收口 useConfirm（ui-sweep 裁决①）后，
+  // WorkspaceMcpSection 的删除流程需要确认弹窗宿主。
+  return render(
+    <QueryClientProvider client={qc}>
+      <ConfirmProvider>{ui}</ConfirmProvider>
+    </QueryClientProvider>,
+  )
 }
 
 describe('PacksInstalledSection (three states)', () => {
