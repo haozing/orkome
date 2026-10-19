@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { ConfirmProvider } from '@ploykit/ui'
 import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { SettingsPage } from '@/routes/_app.settings'
@@ -65,7 +66,11 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <SettingsPage />
+      {/* 设置页多个区块（MFA 卡等）走 kit useConfirm，生产由 main.tsx 挂
+          ConfirmProvider；裸渲染需自行补齐同一上下文。 */}
+      <ConfirmProvider>
+        <SettingsPage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   )
 }
@@ -195,36 +200,43 @@ describe('notification preferences section', () => {
     expect(screen.getByText('db down')).toBeInTheDocument()
     failing = false
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    // ui-sweep 后其他区块（成员/审计/令牌/会话）的加载失败也各有 Retry 按钮，
+    // 断言收窄到偏好区块内部。
+    const prefs = screen.getByTestId('prefs-section')
+    await user.click(within(prefs).getByRole('button', { name: 'Retry' }))
     expect(await screen.findByRole('switch', { name: 'All categories' })).toBeInTheDocument()
   })
 })
 
 describe('notification preferences i18n keys exist in both locales', () => {
+  // ui-sweep 文案宪章：区块描述（notifications.desc）与行级 *Desc 全部删除
+  // （行即说明，双行描述是冗余）——下列键随实现一起退役，不得回流。
+  const RETIRED_KEYS = [
+    'notifications.desc',
+    'notifications.allTypesDesc',
+    'notifications.muteTaskCompletedDesc',
+    'notifications.muteTaskFailedDesc',
+    'notifications.muteCommentCreatedDesc',
+    'notifications.muteApprovalRequestDesc',
+    'notifications.muteEvalReportDesc',
+    'notifications.groupWorkItemsDesc',
+    'notifications.groupConversationsDesc',
+  ] as const
   const KEYS = [
     'notifications.title',
-    'notifications.desc',
     'notifications.loading',
     'notifications.loadFailed',
     'notifications.groupTypes',
     'notifications.allTypes',
-    'notifications.allTypesDesc',
     'notifications.muteTaskCompleted',
-    'notifications.muteTaskCompletedDesc',
     'notifications.muteTaskFailed',
-    'notifications.muteTaskFailedDesc',
     'notifications.muteCommentCreated',
-    'notifications.muteCommentCreatedDesc',
     'notifications.muteApprovalRequest',
-    'notifications.muteApprovalRequestDesc',
     'notifications.muteEvalReport',
-    'notifications.muteEvalReportDesc',
     'notifications.groupWorkItems',
-    'notifications.groupWorkItemsDesc',
     'notifications.workItemPlaceholder',
     'notifications.emptyWorkItems',
     'notifications.groupConversations',
-    'notifications.groupConversationsDesc',
     'notifications.conversationPlaceholder',
     'notifications.emptyConversations',
     'notifications.add',
@@ -238,5 +250,10 @@ describe('notification preferences i18n keys exist in both locales', () => {
     // 缺键时 i18n.t 回退返回键名本身——不等于键名即存在
     expect(i18n.t(key, { lng: 'en' })).not.toBe(key)
     expect(i18n.t(key, { lng: 'zh' })).not.toBe(key)
+  })
+  it.each(RETIRED_KEYS)('%s is retired in both locales', (key) => {
+    // 退役键必须真的删掉（回退键名=不存在），防止文案回流。
+    expect(i18n.t(key, { lng: 'en' })).toBe(key)
+    expect(i18n.t(key, { lng: 'zh' })).toBe(key)
   })
 })
