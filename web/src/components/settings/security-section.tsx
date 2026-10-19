@@ -2,8 +2,8 @@ import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from '@ploykit/client'
+import { PasswordField } from '@ploykit/ui'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { MfaCard } from '@/components/settings/mfa-card'
 import { SessionsCard } from '@/components/settings/sessions-card'
 
@@ -48,8 +48,9 @@ function PasswordCard() {
           if (canSubmit) change.mutate()
         }}
       >
-        <Input
-          type="password"
+        {/* 密码框采纳 kit PasswordField（Input 官方配方加可见性切换，视觉同
+            orkome Input：h-8 / rounded-lg / border-input）；testid 落在内部 input。 */}
+        <PasswordField
           value={oldPassword}
           onChange={(e) => setOldPassword(e.target.value)}
           autoComplete="current-password"
@@ -57,8 +58,7 @@ function PasswordCard() {
           aria-label={t('settings.password.oldPlaceholder')}
           data-testid="password-old-input"
         />
-        <Input
-          type="password"
+        <PasswordField
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           autoComplete="new-password"
