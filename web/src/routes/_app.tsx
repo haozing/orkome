@@ -208,7 +208,12 @@ function AppLayout() {
           </>
         }
       >
-        <Outlet />
+        {/* 全站内容宽度约定（ui-sweep 裁决）：唯一在此定宽，页面禁止自建
+            mx-auto/max-w——超宽屏通栏对列表可读性是伤害；h-full 保住
+            work-items 详情页 flex 双栏的高度链。 */}
+        <div className="mx-auto h-full w-full max-w-6xl">
+          <Outlet />
+        </div>
       </PloykitAppShell>
     </AuthBridge>
   )

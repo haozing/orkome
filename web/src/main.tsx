@@ -2,6 +2,7 @@ import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { setWorkspaceIdProvider } from '@ploykit/client'
 import { bridgeWsToQuery, type WsInvalidationRule } from '@ploykit/hooks/ws-query-bridge'
+import { ConfirmProvider, Toaster } from '@ploykit/ui'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { setAuditExportWorkspaceProvider } from '@/api/audit'
@@ -49,7 +50,11 @@ bridgeWsToQuery(wsClient, bridgeQueryClient, wsInvalidationRules)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* 全站危险确认（useConfirm）与成功反馈（toast）的统一宿主——ui-sweep 裁决：确认/反馈三轨归 kit */}
+      <ConfirmProvider>
+        <Toaster />
+        <RouterProvider router={router} />
+      </ConfirmProvider>
     </QueryClientProvider>
   </StrictMode>,
 )
