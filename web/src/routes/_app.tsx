@@ -164,18 +164,12 @@ function AppLayout() {
         userMenuItems={userMenuItems}
         sidebarHeader={
           /* sidebarHeader 槽整体替换 AppShell 默认 logo+brand 块（其文档语义）。
-             品牌形态=Vercel 式小 mark（用户裁决：词标与大卡并排互抢重心，mark
-             一主一辅）。当前为字母块占位——真 logo 资产落地后换 <img>（kit
-             logo/brand props 即官方位）。切换器为 kit canonical（size-lg）。 */
-          <div className="flex items-center gap-2 px-2 pb-1 pt-1 group-data-[collapsible=icon]:justify-center">
-            <div
-              aria-hidden="true"
-              className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground group-data-[collapsible=icon]:hidden"
-            >
-              O
-            </div>
-            <WorkspaceSwitcher />
-          </div>
+             品牌形态裁决（用户两轮迭代）：词标并排（互抢重心×）→ 字母块 mark
+             （与切换器头像双黑块并排更丑×）→ **B 形态=品牌完全退位**，侧栏头
+             只留 kit canonical 切换器大卡（Notion/Linear/Slack 同款）。品牌由
+             页面 title/favicon/登录页承载；真 logo mark（几何异形非字母块）
+             设计出来后再回 Vercel 式。 */
+          <WorkspaceSwitcher />
         }
         sidebarMiddle={
           /* 项目导航回导航区（上轮 navGroups 纯链接语义装不下 ProjectNav 的
