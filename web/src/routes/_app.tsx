@@ -163,14 +163,17 @@ function AppLayout() {
         userMenu="sidebar-footer"
         userMenuItems={userMenuItems}
         sidebarHeader={
-          /* sidebarHeader 槽整体替换 AppShell 默认 logo+brand 块（其文档语义），
-             故品牌字标搬进槽内与 WorkspaceSwitcher 同排（旧壳头部同款布局）；
-             brand prop 仍传，留作声明。web/public 无静态 logo 资源，不传 logo。
-             切换器为 kit canonical（size-lg 卡片，plan_code 副行）。 */
+          /* sidebarHeader 槽整体替换 AppShell 默认 logo+brand 块（其文档语义）。
+             品牌形态=Vercel 式小 mark（用户裁决：词标与大卡并排互抢重心，mark
+             一主一辅）。当前为字母块占位——真 logo 资产落地后换 <img>（kit
+             logo/brand props 即官方位）。切换器为 kit canonical（size-lg）。 */
           <div className="flex items-center gap-2 px-2 pb-1 pt-1 group-data-[collapsible=icon]:justify-center">
-            <span className="text-lg font-bold text-foreground group-data-[collapsible=icon]:hidden">
-              Orkome
-            </span>
+            <div
+              aria-hidden="true"
+              className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground group-data-[collapsible=icon]:hidden"
+            >
+              O
+            </div>
             <WorkspaceSwitcher />
           </div>
         }
