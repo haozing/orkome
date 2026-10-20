@@ -29,13 +29,14 @@ const AVATAR_COLORS = [
   'bg-indigo-500',
   'bg-lime-500',
 ] as const
-function avatarColorOf(id: string) {
+export function avatarColorOf(id: string) {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]!
 }
 const starredKey = (workspaceId: string) => `orkome.starred-projects:${workspaceId}`
-function loadStarred(workspaceId: string): string[] {
+export function loadStarred(workspaceId: string | null): string[] {
+  if (!workspaceId) return []
   try {
     const raw = localStorage.getItem(starredKey(workspaceId))
     const parsed = raw ? (JSON.parse(raw) as unknown) : []

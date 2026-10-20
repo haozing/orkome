@@ -17,10 +17,11 @@ import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { logout, meQueryOptions, type Me } from '@/api/identity'
+import { listProjects } from '@/api/work'
+import { avatarColorOf, loadStarred } from '@/components/project-nav'
 import { LanguageToggle } from '@/components/language-toggle'
 import { NotificationBell } from '@/components/notification-bell'
 import { ThemeToggle } from '@/components/theme-toggle'
-import { ProjectNav } from '@/components/project-nav'
 import { PackEntries } from '@/components/pack-entries'
 import { WorkspaceSwitcher } from '@/components/workspace-switcher'
 import { WsStatusBadge } from '@/components/ws-status-badge'
@@ -138,8 +139,37 @@ const toNavItems = (
   items.map((item) => ({ path: item.to, label: t(item.label), icon: navIcon(item.icon) }))
 function AppLayout() {
   const { t } = useTranslation()
+  const workspaceId = useWorkspaceStore((s) => s.currentId)
   useEffect(() => wsClient.connect(), [])
   const mainNav: NavItem[] = toNavItems(NAV_ITEMS, t)
+  // 项目组走 navGroups 语义回导航区（用户反馈"项目跑到下面来了"：footer 形态
+  // 伤高频跳转）。跳转链路上位 = navGroups 第一组（AppShell 按声明序渲染），
+  // 恢复旧壳"项目在 AI 团队之上"的顺序；ProjectNav 的管理动作（新建/编辑流程/
+  // 星标）navGroups 装不下（纯 path/label/icon 语义），就近迁到工单列表页——
+  // 项目筛选栏旁边，动作与筛选同域。星标排序随迁：列表页缺省按星标优先。
+  const projectNav = useQuery({
+    queryKey: ['projects'],
+    queryFn: listProjects,
+    enabled: workspaceId !== null,
+  })
+  const starred = useMemo(() => loadStarred(workspaceId), [workspaceId])
+  const sortedProjects = useMemo(() => {
+    const all = projectNav.data ?? []
+    return [...all].sort((a, b) => {
+      const sa = starred.includes(a.id) ? 0 : 1
+      const sb = starred.includes(b.id) ? 0 : 1
+      if (sa !== sb) return sa - sb
+      return b.created_at.localeCompare(a.created_at)
+    })
+  }, [projectNav.data, starred])
+  const projectNavGroup: AppShellNavGroup = {
+    group: t('projects.recent'),
+    items: sortedProjects.slice(0, 8).map((p) => ({
+      path: `/work-items?project=${p.id}`,
+      label: p.name,
+      icon: <span className={cn('size-2.5 shrink-0 rounded-full', avatarColorOf(p.id))} />,
+    })),
+  }
   const aiTeamNav: AppShellNavGroup = {
     // 分组标签复用既有 nav.aiTeam 键（旧壳同款文案位；本波次禁止新增 i18n 键）。
     group: t('nav.aiTeam'),
@@ -156,7 +186,7 @@ function AppLayout() {
       <PloykitAppShell
         brand="Orkome"
         nav={mainNav}
-        navGroups={[aiTeamNav]}
+        navGroups={[projectNavGroup, aiTeamNav]}
         userMenu="sidebar-footer"
         userMenuItems={userMenuItems}
         sidebarHeader={
@@ -171,16 +201,11 @@ function AppLayout() {
           </div>
         }
         sidebarFooter={
-          /* ProjectNav/PackEntries/底部导航（助理接入/自动化/设置）在 AppShell
-             没有中部内容槽可放，保守收进 sidebarFooter；footer 里的自定义内容
-             折叠态（collapsible=icon）不会被 AppShell 自动隐藏（它只在 header
-             用户菜单模式隐藏整个 footer），这里自带折叠隐藏兜底，避免窄轨溢出
-             （用户卡折叠态由 SidebarUserMenu 自理）。旧壳"项目列表在 AI 团队组
-             之上"的相对顺序在 footer 形态下不可保留，接受重排：主导航 → AI
-             团队组 → 项目/Pack/底部导航 → 用户卡。 */
+          /* Pack 深链入口 + 底部导航（助理接入/自动化/设置）留在 footer；
+             项目列表已上导航区（navGroups 第一组，用户反馈后裁决）。
+             折叠态兜底同前。 */
           <div className="group-data-[collapsible=icon]:hidden">
-            <ProjectNav />
-            <PackEntries workspaceId={useWorkspaceStore((s) => s.currentId)} />
+            <PackEntries workspaceId={workspaceId} />
             <nav className="mt-2 flex flex-col gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
               {BOTTOM_NAV_ITEMS.map((item) => (
                 <Link
