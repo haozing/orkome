@@ -2,6 +2,7 @@ import type { Locale } from './zh'
 
 const en: Locale = {
   userPanel: {
+    title: 'Personal settings',
     profile: 'Profile',
     security: 'Security',
     tokens: 'Access tokens',

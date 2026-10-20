@@ -33,6 +33,7 @@ function AnchorNav() {
   const { t } = useTranslation()
   const items = [
     { href: '#account', label: t('settings.nav.account') },
+    { href: '#tokens', label: t('userPanel.tokens') },
     { href: '#server', label: t('settings.nav.server') },
   ]
   return (
@@ -60,7 +61,7 @@ export function PersonalSettingsPage() {
   const unauthenticated = me.error instanceof ApiError && me.error.status === 401
   return (
     <div>
-      <PageHeader title={t('common.settings')} />
+      <PageHeader title={t('userPanel.title')} />
       <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
         <AnchorNav />
         <div className="min-w-0 flex-1 space-y-6">

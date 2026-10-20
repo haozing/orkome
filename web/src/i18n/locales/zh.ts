@@ -4,6 +4,7 @@ export interface Locale {
 
 const zh: Locale = {
   userPanel: {
+    title: '个人设置',
     profile: '个人资料',
     security: '安全',
     tokens: '访问令牌',
