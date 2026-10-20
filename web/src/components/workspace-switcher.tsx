@@ -85,12 +85,13 @@ export function WorkspaceSwitcher() {
         error: createError,
       }}
       menuFooter={
-        // 工作区管理入口：设置页「工作区」锚点（tanstack typed hash）。kit 的
-        // billingHref 不传：orkome 无计费页（配额分支见上注，实际不可达）。
+        // 工作区设置页入口（IA 裁决：工作区内容自 /settings#workspace 迁出为
+        // 独立页 /settings/workspace；个人设置留 /settings，由用户面板进入）。
+        // kit 的 billingHref 不传：orkome 无计费页（配额分支见上注，实际不可达）。
         <DropdownMenuItem
           className="gap-2 p-2"
           onClick={() => {
-            void navigate({ to: '/settings', hash: 'workspace' })
+            void navigate({ to: '/settings/workspace' })
           }}
         >
           <Settings className="size-4" aria-hidden="true" />

@@ -1,6 +1,14 @@
 import type { Locale } from './zh'
 
 const en: Locale = {
+  userPanel: {
+    profile: 'Profile',
+    security: 'Security',
+    tokens: 'Access tokens',
+    notifications: 'Notifications',
+    server: 'Server',
+  },
+
   kitLabels: {
     workspaceSwitcherAria: 'Switch workspace',
     createWorkspace: 'New workspace',
@@ -1059,9 +1067,7 @@ const en: Locale = {
     unreachableDesc: 'Start orkome-server first (web-dev proxies to :8080)',
     session: 'Session',
     loadingSession: 'Loading session…',
-    noWorkspace: 'No workspaces',
-    noWorkspaceDesc: 'Create a new workspace to get started',
-    goCreate: 'Create one',
+
     notLoggedIn: 'Not logged in',
     goLogin: 'Log in',
     title: 'Settings sections',

@@ -1,13 +1,16 @@
-import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router'
 import {
   Bell,
   BookOpen,
   Bot,
   DoorOpen,
+  KeyRound,
   ListTodo,
-  Settings,
   ScrollText,
+  Server,
+  Shield,
   User,
+  UserCircle,
   Users,
   Wrench,
   Zap,
@@ -64,7 +67,6 @@ const NAV_ITEMS = [
 const BOTTOM_NAV_ITEMS = [
   { to: '/access', label: 'nav.access', icon: DoorOpen },
   { to: '/automation', label: 'nav.automation', icon: Zap },
-  { to: '/settings', label: 'nav.settings', icon: Settings },
 ] as const
 const AI_TEAM_NAV_ITEMS = [
   { to: '/agents', label: 'nav.agents', icon: Bot },
@@ -130,7 +132,11 @@ function useKitLabelsFromI18n(): KitLabels {
       confirmSaved: t('kitLabels.confirmSaved'),
       confirmPending: t('kitLabels.confirmPending'),
       // ---- UserMenu / SidebarUserMenu ----
-      accountSettings: t('nav.settings'),
+      // accountSettings 不映射（undefined → 落回 kit 内置「账户设置」）。kit
+      // 无隐藏机制（UserMenuProps.labels 仅覆盖文案，条目恒渲染）；但 orkome
+      // 用 userMenu="sidebar-footer"（SidebarUserMenu），该模式本就不渲染内置
+      // 「账户设置」项，只有 header UserMenu 才有——当前形态下此键实际不消费。
+      accountSettings: undefined,
       logout: t('common.logout'),
       userMenuAria: t('kitLabels.userMenuAria'),
       logoutFailedToast: t('kitLabels.logoutFailedToast'),
@@ -140,6 +146,7 @@ function useKitLabelsFromI18n(): KitLabels {
 }
 function AppLayout() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const workspaceId = useWorkspaceStore((s) => s.currentId)
   useEffect(() => wsClient.connect(), [])
   const mainNav: NavItem[] = toNavItems(NAV_ITEMS, t)
@@ -148,11 +155,28 @@ function AppLayout() {
     group: t('nav.aiTeam'),
     items: toNavItems(AI_TEAM_NAV_ITEMS, t),
   }
-  const userMenuItems: UserMenuExtraItem[] = [
-    // 账户入口指向 orkome 设置页。登出不另塞条目：SidebarUserMenu 内置
-    // "退出登录"项走 kit AuthLayer logout（语义见文件头注释）。
-    { label: t('nav.settings'), to: '/settings', icon: navIcon(Settings) },
-  ]
+  // 用户面板（SidebarUserMenu 弹出）= 个人设置入口组，形态对齐 ploykit
+  // example 的 userPanelItems 四件套（个人资料/安全/访问令牌/通知偏好）。
+  // orkome 个人设置仍是单页 /settings（锚点分区），故各项落为「/settings +
+  // hash」；侧栏「设置」按钮已随 IA 裁决移除，工作区设置由切换器 menuFooter
+  // 进入（workspace-switcher.tsx，非本文件职责）。
+  // 注意必须走 onClick + navigate({ to, hash })：kit SidebarUserMenu 对 to 是
+  // navigate(item.to) 字符串直达，TanStack 只对 href 拆 hash、对 to 不拆
+  // （to 带'#'会被整段当路径匹配→not-found），与 _app.access.tsx 的
+  // <Link to hash> 同一约束。锚点 id 与 _app.settings.index.tsx 分区一一对应。
+  const userMenuItems: UserMenuExtraItem[] = (
+    [
+      { labelKey: 'userPanel.profile', icon: UserCircle, to: '/settings', hash: 'account' },
+      { labelKey: 'userPanel.security', icon: Shield, to: '/settings', hash: 'account' },
+      { labelKey: 'userPanel.tokens', icon: KeyRound, to: '/settings', hash: 'tokens' },
+      { labelKey: 'userPanel.notifications', icon: Bell, to: '/settings', hash: 'account' },
+      { labelKey: 'userPanel.server', icon: Server, to: '/settings', hash: 'server' },
+    ] as const
+  ).map(({ labelKey, icon, to, hash }) => ({
+    label: t(labelKey),
+    icon: navIcon(icon),
+    onClick: () => void navigate({ to, hash }),
+  }))
   const kitLabels = useKitLabelsFromI18n()
   return (
     <KitLabelsProvider labels={kitLabels}>
@@ -180,7 +204,8 @@ function AppLayout() {
           <ProjectNav />
         }
         sidebarFooter={
-          /* Pack 深链入口 + 底部导航（助理接入/自动化/设置）留在 footer。
+          /* Pack 深链入口 + 底部导航（助理接入/自动化；「设置」已删——个人
+             设置入口收进用户面板，工作区设置走切换器 menuFooter）。
              折叠态兜底同前。 */
           <div className="group-data-[collapsible=icon]:hidden">
             <PackEntries workspaceId={workspaceId} />

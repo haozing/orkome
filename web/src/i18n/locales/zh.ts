@@ -3,6 +3,14 @@ export interface Locale {
 }
 
 const zh: Locale = {
+  userPanel: {
+    profile: '个人资料',
+    security: '安全',
+    tokens: '访问令牌',
+    notifications: '通知偏好',
+    server: '服务端',
+  },
+
   kitLabels: {
     workspaceSwitcherAria: '切换工作区',
     createWorkspace: '新建工作区',
@@ -1047,9 +1055,7 @@ const zh: Locale = {
     unreachableDesc: '先启动 orkome-server（web-dev 代理目标 :8080）',
     session: '会话',
     loadingSession: '加载会话…',
-    noWorkspace: '暂无工作区',
-    noWorkspaceDesc: '可以创建一个新工作区开始',
-    goCreate: '去创建',
+
     notLoggedIn: '未登录',
     goLogin: '去登录',
     title: '设置分区导航',
