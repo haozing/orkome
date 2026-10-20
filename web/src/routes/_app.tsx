@@ -1,5 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router'
 import {
   Bell,
   BookOpen,
@@ -14,21 +13,21 @@ import {
   Zap,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { logout, meQueryOptions, type Me } from '@/api/identity'
-import { listProjects } from '@/api/work'
-import { avatarColorOf, loadStarred } from '@/components/project-nav'
+import { meQueryOptions, type Me } from '@/api/identity'
 import { LanguageToggle } from '@/components/language-toggle'
 import { NotificationBell } from '@/components/notification-bell'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { PackEntries } from '@/components/pack-entries'
+import { ProjectNav } from '@/components/project-nav'
 import { WorkspaceSwitcher } from '@/components/workspace-switcher'
 import { WsStatusBadge } from '@/components/ws-status-badge'
-import { AuthContext, type AuthContextValue } from '@ploykit/hooks'
 import {
   AppShell as PloykitAppShell,
+  KitLabelsProvider,
   type AppShellNavGroup,
+  type KitLabels,
   type NavItem,
   type UserMenuExtraItem,
 } from '@ploykit/ui'
@@ -80,56 +79,15 @@ const NAV_ACTIVE_CLASS = cn(
   'font-medium text-zinc-900 dark:text-zinc-100',
   'bg-zinc-100 dark:bg-zinc-800',
 )
-// —— 最小 AuthContext 桥（本次波次拍板的取舍，见代码评审记录）——
-// @ploykit/ui 的 AppShell 无条件渲染 ImpersonationBanner 与用户菜单
-// （UserMenu/SidebarUserMenu 二选一），三者组件体直接调 useAuth()：
-// @ploykit/hooks 0.8.0 在无 AuthContext 时同步抛 'must be used within
-// PloykitProvider'，整壳首帧崩溃。AppShell 本体对 useWorkspace/useAuth 的
-// try/catch 防御不覆盖这三个子件（ploykit 自家测试是 mock useAuth 才跑通的）。
-// 本桥只满足其"读展示值"的最小契约：不引入 PloykitProvider、不挂
-// WorkspaceContext（AppShell 的 perm/permKey 过滤因此走"rolePerms 未知 →
-// 默认可见"降级分支），orkome 的 zustand workspace store 与 api 层零改动。
-function AuthBridge({ children }: { children: ReactNode }) {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  // beforeLoad 已 ensureQueryData，这里纯读缓存（过期仅后台刷新，无首帧请求）。
-  const me = useQuery(meQueryOptions).data
-  const signOut = useCallback(async () => {
-    await logout()
-    useWorkspaceStore.getState().setCurrent(null)
-    queryClient.clear()
-    wsClient.close()
-    void navigate({ to: '/login' })
-  }, [navigate, queryClient])
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      // PKUser 比 orkome 的 User 多必填位（status/is_platform_admin/
-      // email_verified/created_at），按 orkome 语义补默认：无平台管理员概念
-      // （置 false，避免用户菜单渲染指向不存在的 /admin 的入口）、会话内
-      // 用户视为 active/verified。
-      user: me
-        ? {
-            ...me.user,
-            status: 'active',
-            is_platform_admin: false,
-            email_verified: true,
-            created_at: '',
-          }
-        : null,
-      // AppShell 树内零消费工作区列表（切换器走 orkome 自有 WorkspaceSwitcher
-      // + zustand），不伪造 wire 数据，置空即可。
-      workspaces: [],
-      loading: false,
-      error: null,
-      refresh: () => queryClient.invalidateQueries({ queryKey: meQueryOptions.queryKey }),
-      // 登出转发 orkome signOut（清 store + 查询缓存 + 断 ws + 跳登录页），
-      // 供 UserMenu/SidebarUserMenu 的内置"退出登录"项调用。
-      logout: signOut,
-    }),
-    [me, queryClient, signOut],
-  )
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
+// —— kit AuthContext 归属 kit 本体（上轮 AuthBridge 已删）——
+// PloykitProvider（main.tsx）挂载后 kit AuthLayer 自供 user（/auth/me 401→null），
+// v0.10.3 起 UserMenu/SidebarUserMenu/ImpersonationBanner 走 useAuthSafe，壳树
+// 不再需要裸 AuthContext.Provider 桥。登出走 kit SidebarUserMenu 内置项：
+// kit logout（POST /auth/logout + me/workspaces 缓存置空 + 注入的 orkome
+// queryClient 全量 removeQueries）+ 组件自带 navigate('/login')；kit 语义缺的
+// zustand 复位与 wsClient.close() 由 main.tsx 的 KitLogoutSideEffects 监听
+// user 跃迁补齐。orkome 侧全量清理仍在 settings/shared.tsx 的
+// signOutEverywhere（吊销全部会话 / MFA 关闭场景）。
 // NavItem.icon 是 ReactNode 插槽；形状对齐 ploykit canonical（lucide + size-4）。
 const navIcon = (Icon: LucideIcon) => <Icon className="size-4 shrink-0" aria-hidden="true" />
 const toNavItems = (
@@ -137,62 +95,78 @@ const toNavItems = (
   t: (key: string) => string,
 ): NavItem[] =>
   items.map((item) => ({ path: item.to, label: t(item.label), icon: navIcon(item.icon) }))
+// kit 组件文案 → orkome 字典（解析序：组件 prop → 本 Provider → kit 内置中文）。
+// 既有键直接映射；kit 特有文案进 kitLabels.* 段（主线 i18n patch 清单见交付报告）。
+// useTranslation 可用树内挂载 → 语言切换即重算（useMemo 依赖 t）。
+function useKitLabelsFromI18n(): KitLabels {
+  const { t } = useTranslation()
+  return useMemo<KitLabels>(
+    () => ({
+      // ---- WorkspaceSwitcher ----
+      workspaceSwitcherAria: t('kitLabels.workspaceSwitcherAria'),
+      workspacePickerPlaceholder: t('ws.selectWorkspace'),
+      workspaceGroupLabel: t('ws.groupLabel'),
+      createWorkspace: t('kitLabels.createWorkspace'),
+      workspaceNamePlaceholder: t('kitLabels.workspaceNamePlaceholder'),
+      newWorkspaceNameAria: t('kitLabels.newWorkspaceNameAria'),
+      creating: t('kitLabels.creating'),
+      create: t('common.create'),
+      cancel: t('common.cancel'),
+      createErrorFallback: t('kitLabels.createErrorFallback'),
+      workspaceCreatedToast: (name: string) => t('kitLabels.workspaceCreatedToast', { name }),
+      // 配额指引三段（quotaBillingHref 不映射：orkome 无计费页，切换器不传
+      // billingHref，且 data 注入缝的字符串 error 契约下该分支本就不可达）。
+      quotaGuidancePrefix: t('kitLabels.quotaGuidancePrefix'),
+      quotaGuidanceLinkText: t('kitLabels.quotaGuidanceLinkText'),
+      quotaGuidanceSuffix: t('kitLabels.quotaGuidanceSuffix'),
+      // ---- DataTable（orkome 暂未消费，前瞻映射）----
+      paginationTotal: (total: number, page: number, pages: number) =>
+        t('mcp.pageInfo', { page, pages, total }),
+      paginationLoading: t('common.loading'),
+      previousPage: t('mcp.pagePrev'),
+      nextPage: t('mcp.pageNext'),
+      emptyState: t('kitLabels.emptyState'),
+      // ---- SecretModal ----
+      confirmSaved: t('kitLabels.confirmSaved'),
+      confirmPending: t('kitLabels.confirmPending'),
+      // ---- UserMenu / SidebarUserMenu ----
+      accountSettings: t('nav.settings'),
+      logout: t('common.logout'),
+      userMenuAria: t('kitLabels.userMenuAria'),
+      logoutFailedToast: t('kitLabels.logoutFailedToast'),
+    }),
+    [t],
+  )
+}
 function AppLayout() {
   const { t } = useTranslation()
   const workspaceId = useWorkspaceStore((s) => s.currentId)
   useEffect(() => wsClient.connect(), [])
   const mainNav: NavItem[] = toNavItems(NAV_ITEMS, t)
-  // 项目组走 navGroups 语义回导航区（用户反馈"项目跑到下面来了"：footer 形态
-  // 伤高频跳转）。跳转链路上位 = navGroups 第一组（AppShell 按声明序渲染），
-  // 恢复旧壳"项目在 AI 团队之上"的顺序；ProjectNav 的管理动作（新建/编辑流程/
-  // 星标）navGroups 装不下（纯 path/label/icon 语义），就近迁到工单列表页——
-  // 项目筛选栏旁边，动作与筛选同域。星标排序随迁：列表页缺省按星标优先。
-  const projectNav = useQuery({
-    queryKey: ['projects'],
-    queryFn: listProjects,
-    enabled: workspaceId !== null,
-  })
-  const starred = useMemo(() => loadStarred(workspaceId), [workspaceId])
-  const sortedProjects = useMemo(() => {
-    const all = projectNav.data ?? []
-    return [...all].sort((a, b) => {
-      const sa = starred.includes(a.id) ? 0 : 1
-      const sb = starred.includes(b.id) ? 0 : 1
-      if (sa !== sb) return sa - sb
-      return b.created_at.localeCompare(a.created_at)
-    })
-  }, [projectNav.data, starred])
-  const projectNavGroup: AppShellNavGroup = {
-    group: t('projects.recent'),
-    items: sortedProjects.slice(0, 8).map((p) => ({
-      path: `/work-items?project=${p.id}`,
-      label: p.name,
-      icon: <span className={cn('size-2.5 shrink-0 rounded-full', avatarColorOf(p.id))} />,
-    })),
-  }
   const aiTeamNav: AppShellNavGroup = {
-    // 分组标签复用既有 nav.aiTeam 键（旧壳同款文案位；本波次禁止新增 i18n 键）。
+    // 分组标签复用既有 nav.aiTeam 键（旧壳同款文案位；本波次禁止新增非 kitLabels i18n 键）。
     group: t('nav.aiTeam'),
     items: toNavItems(AI_TEAM_NAV_ITEMS, t),
   }
   const userMenuItems: UserMenuExtraItem[] = [
     // 账户入口指向 orkome 设置页。登出不另塞条目：SidebarUserMenu 内置
-    // "退出登录"项的 logout() 已由 AuthBridge 转发 orkome signOut，重复条目
-    // 只会让菜单出现两个登出。
+    // "退出登录"项走 kit AuthLayer logout（语义见文件头注释）。
     { label: t('nav.settings'), to: '/settings', icon: navIcon(Settings) },
   ]
+  const kitLabels = useKitLabelsFromI18n()
   return (
-    <AuthBridge>
+    <KitLabelsProvider labels={kitLabels}>
       <PloykitAppShell
         brand="Orkome"
         nav={mainNav}
-        navGroups={[projectNavGroup, aiTeamNav]}
+        navGroups={[aiTeamNav]}
         userMenu="sidebar-footer"
         userMenuItems={userMenuItems}
         sidebarHeader={
           /* sidebarHeader 槽整体替换 AppShell 默认 logo+brand 块（其文档语义），
              故品牌字标搬进槽内与 WorkspaceSwitcher 同排（旧壳头部同款布局）；
-             brand prop 仍传，留作声明。web/public 无静态 logo 资源，不传 logo。 */
+             brand prop 仍传，留作声明。web/public 无静态 logo 资源，不传 logo。
+             切换器为 kit canonical（size-lg 卡片，plan_code 副行）。 */
           <div className="flex items-center gap-2 px-2 pb-1 pt-1 group-data-[collapsible=icon]:justify-center">
             <span className="text-lg font-bold text-foreground group-data-[collapsible=icon]:hidden">
               Orkome
@@ -200,9 +174,16 @@ function AppLayout() {
             <WorkspaceSwitcher />
           </div>
         }
+        sidebarMiddle={
+          /* 项目导航回导航区（上轮 navGroups 纯链接语义装不下 ProjectNav 的
+             管理动作：新建/悬浮编辑流程/星标；用户反馈"项目跑到下面来了"）。
+             sidebarMiddle 渲染在平铺 nav 之后、navGroups 之前，恢复旧壳
+             "项目在 AI 团队之上"的顺序。折叠态兜底同 footer：ProjectNav 根
+             元素自带 group-data-[collapsible=icon]:hidden。 */
+          <ProjectNav />
+        }
         sidebarFooter={
-          /* Pack 深链入口 + 底部导航（助理接入/自动化/设置）留在 footer；
-             项目列表已上导航区（navGroups 第一组，用户反馈后裁决）。
+          /* Pack 深链入口 + 底部导航（助理接入/自动化/设置）留在 footer。
              折叠态兜底同前。 */
           <div className="group-data-[collapsible=icon]:hidden">
             <PackEntries workspaceId={workspaceId} />
@@ -223,8 +204,7 @@ function AppLayout() {
         }
         headerRight={
           /* 旧壳头部右侧五件中的四件，顺序保持：状态徽标 → 铃铛 → 主题 → 语言。
-             登出按钮移入侧栏底部用户卡（内置退出项，经 AuthBridge 走 orkome
-             signOut）。 */
+             登出按钮移入侧栏底部用户卡（内置退出项走 kit AuthLayer logout）。 */
           <>
             <WsStatusBadge />
             <NotificationBell />
@@ -240,6 +220,6 @@ function AppLayout() {
           <Outlet />
         </div>
       </PloykitAppShell>
-    </AuthBridge>
+    </KitLabelsProvider>
   )
 }

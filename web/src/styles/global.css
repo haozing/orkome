@@ -202,5 +202,11 @@
    node_modules）。等价于 `@import "@ploykit/ui/tailwind.css";`（该文件仅含同款
    @source）——bare-subpath 的 @import 在 vite8/rolldown 的 css 管线里被错误解析
    成 dist/index.js/tailwind.css（ENOENT），故按 example 的 @source 形态就地声明。
-   sidebar/breadcrumb 的 shadcn token（--color-sidebar-* 等）已在上方 @theme 定义。 */
+   v0.10.5 复核：exports 已改条件形状 {"default":"./tailwind.css"}，但本工程
+   vite.config 的 resolve.alias 把 '@ploykit/ui' 按前缀别名到 dist/index.js
+   （alias 先于 exports 解析），'@ploykit/ui/tailwind.css' 仍会落到
+   dist/index.js/tailwind.css → ENOENT；vite 配置属禁改面，故维持 @source。
+   主线若移除该 alias（让 development/default 条件自然生效），可一并换回
+   官方 @import 形态。sidebar/breadcrumb 的 shadcn token（--color-sidebar-*
+   等）已在上方 @theme 定义。 */
 @source "../../node_modules/@ploykit/ui/src";

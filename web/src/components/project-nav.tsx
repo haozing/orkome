@@ -48,7 +48,13 @@ export function loadStarred(workspaceId: string | null): string[] {
 export function ProjectNav() {
   const { t } = useTranslation()
   const workspaceId = useWorkspaceStore((s) => s.currentId)
-  const projects = useQuery({ queryKey: ['projects'], queryFn: listProjects })
+  // workspace 头尚未就绪（zustand 复位/首帧）时不发请求：listProjects 依赖
+  // X-Workspace-Id 头，空头发出去只会 4xx（enabled 守卫同上轮 navGroups 用法）。
+  const projects = useQuery({
+    queryKey: ['projects'],
+    queryFn: listProjects,
+    enabled: workspaceId !== null,
+  })
   const [createOpen, setCreateOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [starred, setStarred] = useState<string[]>([])
@@ -83,7 +89,9 @@ export function ProjectNav() {
   const visible = expanded ? sorted : sorted.slice(0, COLLAPSED_COUNT)
   const hiddenCount = sorted.length - visible.length
   return (
-    <div className="flex flex-col">
+    // 折叠态兜底（对齐 _app sidebarFooter）：sidebarMiddle 所在 SidebarGroup
+    // 不随 icon 折叠收窄，根元素整体隐藏避免任意内容撑破窄栏。
+    <div className="group-data-[collapsible=icon]:hidden flex flex-col">
       <div className="flex items-center justify-between pt-3 pr-2 pl-3">
         <span className="text-xs text-zinc-400">{t('projects.recent')}</span>
         <button
