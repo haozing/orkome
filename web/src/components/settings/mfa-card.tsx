@@ -1,23 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useConfirm } from '@ploykit/ui'
+import { SecretModal, useConfirm } from '@ploykit/ui'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '@ploykit/client'
 import { mfaDisable, mfaEnable, mfaEnroll, mfaStatusQueryOptions } from '@/api/identity'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { CopyButton, signOutEverywhere } from '@/components/settings/shared'
 
 // MFA（TOTP）卡片（design §3.2b）：
 // 未启用 → enroll（展示 otpauth_uri 文本 + secret 手输回退，不引 qrcode 依赖）
-//        → enable（6 位码）→ 备份码一次性 Dialog（复制 + 离开不可再取警示）。
+//        → enable（6 位码）→ 备份码一次性 SecretModal（多值形态：逐码展示 + 复制全部，
+//          「已保存」门控内置；关闭不可再取警示由组件 description 说一次）。
 // 已启用 → disable 二次确认（useConfirm，警示吊销全部会话含当前 → 登出流程）。
 export function MfaCard() {
   const { t } = useTranslation()
@@ -152,42 +146,21 @@ export function MfaCard() {
         </div>
       )}
 
-      {/* 备份码一次性展示：关闭即不可再取（design §八-2）。 */}
-      <Dialog
-        open={backupCodes !== null}
-        onOpenChange={(open) => {
-          if (!open) setBackupCodes(null)
-        }}
-      >
-        <DialogContent data-testid="mfa-backup-codes-dialog">
-          <DialogHeader>
-            <DialogTitle>{t('settings.mfa.backupTitle')}</DialogTitle>
-            <DialogDescription>{t('settings.mfa.backupWarn')}</DialogDescription>
-          </DialogHeader>
-          <ul
-            className="grid grid-cols-2 gap-1.5 font-mono text-sm sm:grid-cols-3"
-            data-testid="mfa-backup-codes"
-          >
-            {backupCodes?.map((c) => (
-              <li
-                key={c}
-                className="rounded-md bg-zinc-50 px-2 py-1.5 text-center tracking-wider dark:bg-zinc-900"
-              >
-                {c}
-              </li>
-            ))}
-          </ul>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => void navigator.clipboard.writeText((backupCodes ?? []).join('\n'))}
-            >
-              {t('settings.mfa.copyCodes')}
-            </Button>
-            <Button onClick={() => setBackupCodes(null)}>{t('common.ok')}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* 备份码一次性展示（ui-sweep 裁决③ 收口兑现）：kit SecretModal 多值形态
+          （secretValue: string[]）——逐码只读框 + 单个「复制全部」（'\n' 连接纯文本），
+          「我已保存」勾选前关不掉（ESC/遮罩/关闭钮均被组件拦截）；
+          关闭即不可再取的警示由组件内置 description 说一次（design §八-2）。 */}
+      {backupCodes && (
+        <SecretModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setBackupCodes(null)
+          }}
+          secretName={t('settings.mfa.backupTitle')}
+          secretValue={backupCodes}
+          title={t('settings.mfa.backupTitle')}
+        />
+      )}
     </div>
   )
 }

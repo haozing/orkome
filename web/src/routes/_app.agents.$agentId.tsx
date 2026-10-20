@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
-import { FormField, PasswordField, Switch, toast, useConfirm } from '@ploykit/ui'
+import { FormField, PageHeader, PasswordField, Switch, toast, useConfirm } from '@ploykit/ui'
 import {
   archiveAgent,
   cancelAgentTasks,
@@ -126,58 +126,62 @@ function AgentDetailPage() {
     void navigate({ search: (prev) => ({ ...prev, tab }), replace: true })
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          to="/agents"
-          className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label={t('agents.backToList')}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-        </Link>
-        <h1
-          className={'min-w-0 truncate text-lg font-semibold ' + (a.archived ? 'opacity-55' : '')}
-        >
-          {a.name}
-        </h1>
-        {model && <span className="font-mono text-xs text-zinc-400">{model}</span>}
-        <Badge variant={vis.tone}>{t(vis.labelKey)}</Badge>
-        {a.archived && <Badge variant="neutral">{t('agents.archived')}</Badge>}
-
-        <div className="ml-auto flex items-center gap-2">
-          {a.archived ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={archive.isPending}
-              onClick={() => void requestRestore()}
+      {/* 页头 kit PageHeader 化（ui-sweep 采纳：上游 leading 槽）——返回箭头+模型串+徽标进
+          leading，归档/恢复动作组进 actions；三详情页（agent/squad/skill）同一 adopting 形态。
+          只动页头容器：归档/恢复确认逻辑（useConfirm）原样保留。 */}
+      <PageHeader
+        title={a.name}
+        leading={
+          <>
+            <Link
+              to="/agents"
+              className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+              aria-label={t('agents.backToList')}
             >
-              {t('agents.restore')}
-            </Button>
-          ) : (
-            <>
+              <ArrowLeft className="size-4" aria-hidden="true" />
+            </Link>
+            {model && <span className="font-mono text-xs text-zinc-400">{model}</span>}
+            <Badge variant={vis.tone}>{t(vis.labelKey)}</Badge>
+            {a.archived && <Badge variant="neutral">{t('agents.archived')}</Badge>}
+          </>
+        }
+        actions={
+          <div className="flex shrink-0 items-center gap-2">
+            {a.archived ? (
               <Button
                 size="sm"
                 variant="outline"
                 disabled={archive.isPending}
-                onClick={() => void requestArchive()}
+                onClick={() => void requestRestore()}
               >
-                {t('agents.archive')}
+                {t('agents.restore')}
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={cancelTasks.isPending}
-                onClick={() => void requestCancelTasks()}
-              >
-                {t('agents.cancelAll')}
-              </Button>
-            </>
-          )}
-          {(archive.isPending || cancelTasks.isPending) && (
-            <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
-          )}
-        </div>
-      </div>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={archive.isPending}
+                  onClick={() => void requestArchive()}
+                >
+                  {t('agents.archive')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={cancelTasks.isPending}
+                  onClick={() => void requestCancelTasks()}
+                >
+                  {t('agents.cancelAll')}
+                </Button>
+              </>
+            )}
+            {(archive.isPending || cancelTasks.isPending) && (
+              <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
+            )}
+          </div>
+        }
+      />
 
       <Tabs
         value={search.tab ?? 'base'}

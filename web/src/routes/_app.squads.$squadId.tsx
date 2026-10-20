@@ -17,6 +17,7 @@ import {
 } from '@/api/squads'
 import {
   FormField,
+  PageHeader,
   Skeleton,
   StatusBadge,
   toast,
@@ -94,31 +95,37 @@ export function SquadDetailPage() {
   const sq = squad.data
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          to="/squads"
-          className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label={t('squads.backToList')}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-        </Link>
-        <h1 className="min-w-0 truncate text-lg font-semibold">{sq.name}</h1>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-red-600 dark:text-red-400"
-            disabled={removeSquad.isPending}
-            onClick={() => void askDeleteSquad()}
+      {/* 页头 kit PageHeader 化（ui-sweep 采纳：上游 leading 槽）——返回箭头进 leading，
+          删除动作组进 actions；与 agent/skill 详情页同一 adopting 形态。 */}
+      <PageHeader
+        title={sq.name}
+        leading={
+          <Link
+            to="/squads"
+            className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            aria-label={t('squads.backToList')}
           >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-            {t('squads.deleteSquad')}
-          </Button>
-          {removeSquad.isPending && (
-            <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
-          )}
-        </div>
-      </div>
+            <ArrowLeft className="size-4" aria-hidden="true" />
+          </Link>
+        }
+        actions={
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600 dark:text-red-400"
+              disabled={removeSquad.isPending}
+              onClick={() => void askDeleteSquad()}
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              {t('squads.deleteSquad')}
+            </Button>
+            {removeSquad.isPending && (
+              <Loader2 className="size-3.5 animate-spin text-zinc-400" aria-hidden="true" />
+            )}
+          </div>
+        }
+      />
 
       <SquadBasicForm
         key={'base:' + sq.id + ':' + squad.dataUpdatedAt}

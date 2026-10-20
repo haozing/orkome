@@ -3,6 +3,25 @@ export interface Locale {
 }
 
 const zh: Locale = {
+  kitLabels: {
+    workspaceSwitcherAria: '切换工作区',
+    createWorkspace: '新建工作区',
+    workspaceNamePlaceholder: '工作区名称',
+    newWorkspaceNameAria: '新工作区名称',
+    creating: '创建中…',
+    createErrorFallback: '创建工作区失败，请稍后重试',
+    workspaceCreatedToast: '工作区「{{name}}」已创建',
+    quotaGuidancePrefix: '已达当前工作区数上限，可在',
+    quotaGuidanceLinkText: '设置 → 工作区',
+    quotaGuidanceSuffix: '查看套餐与配额',
+    emptyState: '本页没有数据，可返回上一页',
+    confirmSaved: '我已保存',
+    confirmPending: '请先确认已保存',
+    userMenuAria: '用户菜单',
+    logoutFailedToast: '退出登录失败，请稍后在登录页重试',
+    workspaceSettings: '工作区设置',
+  },
+
   common: {
     skeletonNote: '地基骨架 · 待功能接入',
     requestFailed: '请求失败，请稍后重试',
@@ -1066,8 +1085,6 @@ const zh: Locale = {
       codePlaceholder: '6 位动态码',
       confirm: '确认启用',
       backupTitle: '备份码（仅此一次展示）',
-      backupWarn: '请立即复制并妥善保存——离开本窗口后不可再次获取。每个备份码只能用一次。',
-      copyCodes: '复制全部',
       disableConfirmTitle: '关闭两步验证？',
       disableConfirmDesc: '关闭后将吊销全部登录会话（含当前设备），你需要重新登录。',
       disableConfirmAction: '关闭并登出',

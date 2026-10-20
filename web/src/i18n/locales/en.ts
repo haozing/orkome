@@ -1,6 +1,25 @@
 import type { Locale } from './zh'
 
 const en: Locale = {
+  kitLabels: {
+    workspaceSwitcherAria: 'Switch workspace',
+    createWorkspace: 'New workspace',
+    workspaceNamePlaceholder: 'Workspace name',
+    newWorkspaceNameAria: 'New workspace name',
+    creating: 'Creating…',
+    createErrorFallback: 'Failed to create workspace, please try again later',
+    workspaceCreatedToast: 'Workspace "{{name}}" created',
+    quotaGuidancePrefix: 'Workspace limit reached — you can',
+    quotaGuidanceLinkText: 'Settings → Workspace',
+    quotaGuidanceSuffix: 'to review plans and quotas',
+    emptyState: 'No data on this page — go back to the previous page',
+    confirmSaved: "I've saved it",
+    confirmPending: 'Please confirm you saved it first',
+    userMenuAria: 'User menu',
+    logoutFailedToast: 'Sign-out failed, please retry on the login page',
+    workspaceSettings: 'Workspace settings',
+  },
+
   common: {
     skeletonNote: 'Skeleton · feature coming soon',
     requestFailed: 'Request failed, please try again later',
@@ -1080,9 +1099,6 @@ const en: Locale = {
       codePlaceholder: '6-digit code',
       confirm: 'Confirm enable',
       backupTitle: 'Backup codes (shown once)',
-      backupWarn:
-        'Copy and store them now — they cannot be retrieved after leaving this window. Each code works once.',
-      copyCodes: 'Copy all',
       disableConfirmTitle: 'Disable two-factor?',
       disableConfirmDesc:
         'Disabling revokes all login sessions (including this device); you will need to sign in again.',

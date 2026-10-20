@@ -13,7 +13,7 @@ import {
   refreshSkill,
   type SkillFile,
 } from '@/api/skills'
-import { FormField, Skeleton, toast, useConfirm } from '@ploykit/ui'
+import { FormField, PageHeader, Skeleton, toast, useConfirm } from '@ploykit/ui'
 import { ApiError } from '@ploykit/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -96,53 +96,61 @@ export function SkillDetailPage() {
   const fromUrl = s.origin === 'url'
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          to="/skills"
-          className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label={t('skills.backToList')}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-        </Link>
-        <h1 className="min-w-0 truncate text-lg font-semibold">{s.name}</h1>
-        <Badge variant={badge.tone}>{t(badge.key)}</Badge>
-        <span className="text-xs text-zinc-400">
-          {t('skills.createdAt', {
-            date: new Date(s.created_at).toLocaleDateString(
-              i18n.language === 'zh' ? 'zh-CN' : 'en-US',
-            ),
-          })}
-        </span>
-
-        <div className="ml-auto flex items-center gap-2">
-          {fromUrl && (
+      {/* 页头 kit PageHeader 化（ui-sweep 采纳：上游 leading 槽）——返回箭头+来源徽标+创建日期进
+          leading，简介走 description 槽，刷新/删除动作组进 actions；
+          与 agent/squad 详情页同一 adopting 形态。 */}
+      <PageHeader
+        title={s.name}
+        description={s.description || undefined}
+        leading={
+          <>
+            <Link
+              to="/skills"
+              className="flex size-7 items-center justify-center rounded-md text-zinc-400 outline-none hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+              aria-label={t('skills.backToList')}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+            </Link>
+            <Badge variant={badge.tone}>{t(badge.key)}</Badge>
+            <span className="text-xs text-zinc-400">
+              {t('skills.createdAt', {
+                date: new Date(s.created_at).toLocaleDateString(
+                  i18n.language === 'zh' ? 'zh-CN' : 'en-US',
+                ),
+              })}
+            </span>
+          </>
+        }
+        actions={
+          <div className="flex shrink-0 items-center gap-2">
+            {fromUrl && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={refresh.isPending}
+                onClick={() => refresh.mutate()}
+              >
+                {refresh.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RotateCw className="size-3.5" aria-hidden="true" />
+                )}
+                {t('skills.refetch')}
+              </Button>
+            )}
             <Button
               size="sm"
-              variant="outline"
-              disabled={refresh.isPending}
-              onClick={() => refresh.mutate()}
+              variant="ghost"
+              className="text-red-600 dark:text-red-400"
+              disabled={remove.isPending}
+              onClick={() => void confirmRemoveSkill()}
             >
-              {refresh.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <RotateCw className="size-3.5" aria-hidden="true" />
-              )}
-              {t('skills.refetch')}
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              {t('skills.deleteSkill')}
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-red-600 dark:text-red-400"
-            disabled={remove.isPending}
-            onClick={() => void confirmRemoveSkill()}
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-            {t('skills.deleteSkill')}
-          </Button>
-        </div>
-      </div>
-      {s.description && <p className="text-sm text-zinc-500 dark:text-zinc-400">{s.description}</p>}
+          </div>
+        }
+      />
 
       <BoundAgentsBar skillId={skillId} />
 
