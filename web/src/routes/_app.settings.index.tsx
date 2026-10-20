@@ -29,30 +29,6 @@ export const Route = createFileRoute('/_app/settings/')({
 // /settings/workspace（switcher menuFooter 为其入口）。
 const SECTION_CLASS = 'scroll-mt-16 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800'
 
-function AnchorNav() {
-  const { t } = useTranslation()
-  const items = [
-    { href: '#account', label: t('settings.nav.account') },
-    { href: '#tokens', label: t('userPanel.tokens') },
-    { href: '#server', label: t('settings.nav.server') },
-  ]
-  return (
-    <nav aria-label={t('settings.title')} className="sticky top-4 self-start">
-      <ul className="space-y-1 text-sm">
-        {items.map((item) => (
-          <li key={item.href}>
-            <a
-              href={item.href}
-              className="block rounded-md px-2 py-1 text-zinc-500 outline-none hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              {item.label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  )
-}
 
 export function PersonalSettingsPage() {
   const { t } = useTranslation()
@@ -62,9 +38,7 @@ export function PersonalSettingsPage() {
   return (
     <div>
       <PageHeader title={t('userPanel.title')} />
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-        <AnchorNav />
-        <div className="min-w-0 flex-1 space-y-6">
+      <div className="space-y-6">
           {/* ---- 【账户】 ---- */}
           <div id="account" className={`${SECTION_CLASS} space-y-4`}>
             <h2 className="text-sm font-semibold">{t('settings.nav.account')}</h2>
@@ -116,7 +90,6 @@ export function PersonalSettingsPage() {
               />
             )}
           </div>
-        </div>
       </div>
     </div>
   )
