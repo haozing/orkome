@@ -281,7 +281,7 @@ github.com/gorilla/securecookie
 # github.com/gorilla/websocket v1.5.3
 ## explicit; go 1.12
 github.com/gorilla/websocket
-# github.com/haozing/ploykit v0.10.5
+# github.com/haozing/ploykit v0.11.1
 ## explicit; go 1.26.0
 github.com/haozing/ploykit/admin
 github.com/haozing/ploykit/admin/adapters/http
